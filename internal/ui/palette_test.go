@@ -101,3 +101,24 @@ func TestTabPaletteCommands(t *testing.T) {
 		t.Fatal("expected palette to include Session tab command")
 	}
 }
+
+func TestBuildCommandItemsDisablesKillActions(t *testing.T) {
+	t.Parallel()
+
+	m := &Model{
+		focusedSession: "s1",
+		stale:          map[string]struct{}{"s1": {}},
+		hidden:         make(map[string]struct{}),
+		collapsed:      make(map[string]struct{}),
+	}
+
+	items := m.buildCommandItems()
+	for _, item := range items {
+		if item.label == "Cleanup focused stale session (disabled: use hygiene tool)" && item.enabled {
+			t.Fatal("focused stale kill should be disabled")
+		}
+		if item.label == "Cleanup all stale sessions (1) (disabled: use hygiene tool)" && item.enabled {
+			t.Fatal("bulk stale kill should be disabled")
+		}
+	}
+}

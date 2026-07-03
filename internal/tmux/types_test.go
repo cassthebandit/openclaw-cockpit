@@ -64,3 +64,42 @@ func TestPaneStatusString(t *testing.T) {
 		})
 	}
 }
+
+func TestCockpitMetaHasData(t *testing.T) {
+	t.Parallel()
+
+	if (CockpitMeta{}).HasData() {
+		t.Fatal("empty cockpit metadata should report no data")
+	}
+	if !(CockpitMeta{State: "running"}).HasData() {
+		t.Fatal("populated cockpit metadata should report data")
+	}
+	if !(CockpitMeta{ProgressPath: "progress.jsonl"}).HasData() {
+		t.Fatal("new cockpit metadata fields should report data")
+	}
+}
+
+func TestCockpitMetaDisplayOnly(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		meta CockpitMeta
+		want bool
+	}{
+		{name: "contract marker", meta: CockpitMeta{ContractVersion: "display-only"}, want: true},
+		{name: "manual adopt marker", meta: CockpitMeta{ManagedBy: "manual_adopt"}, want: true},
+		{name: "managed contract", meta: CockpitMeta{ContractVersion: "1", ManagedBy: "agent_wall"}, want: false},
+		{name: "empty", meta: CockpitMeta{}, want: false},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tt.meta.DisplayOnly(); got != tt.want {
+				t.Fatalf("DisplayOnly() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

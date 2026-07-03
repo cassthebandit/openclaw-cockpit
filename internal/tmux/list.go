@@ -6,15 +6,24 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"time"
 )
 
+const tmuxFieldSep = "\x1f"
+
 // listSessions shells out to tmux to enumerate sessions and translate them
 // into typed Session values.
 func (c *Client) listSessions(ctx context.Context) ([]Session, error) {
-	out, err := c.runTmux(ctx, "list-sessions", "-F", "#{session_id}\t#{session_name}\t#{session_attached}\t#{session_created}\t#{session_activity}")
+	out, err := c.runTmux(ctx, "list-sessions", "-F", strings.Join([]string{
+		"#{session_id}",
+		"#{session_name}",
+		"#{session_attached}",
+		"#{session_created}",
+		"#{session_activity}",
+	}, tmuxFieldSep))
 	if err != nil {
 		if isNoServerError(err) {
 			return []Session{}, nil
@@ -28,8 +37,8 @@ func (c *Client) listSessions(ctx context.Context) ([]Session, error) {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		fields := strings.Split(line, "\t")
-		if len(fields) < 5 {
+		fields := strings.Split(line, tmuxFieldSep)
+		if len(fields) != 5 {
 			return nil, fmt.Errorf("list-sessions: malformed line %q", line)
 		}
 		attached := fields[2] == "1"
@@ -59,7 +68,14 @@ func (c *Client) listSessions(ctx context.Context) ([]Session, error) {
 // listWindows retrieves every window in every session so we can later nest
 // panes under them.
 func (c *Client) listWindows(ctx context.Context) ([]Window, error) {
-	out, err := c.runTmux(ctx, "list-windows", "-a", "-F", "#{session_id}\t#{window_id}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_last_flag}")
+	out, err := c.runTmux(ctx, "list-windows", "-a", "-F", strings.Join([]string{
+		"#{session_id}",
+		"#{window_id}",
+		"#{window_index}",
+		"#{window_name}",
+		"#{window_active}",
+		"#{window_last_flag}",
+	}, tmuxFieldSep))
 	if err != nil {
 		if isNoServerError(err) {
 			return []Window{}, nil
@@ -73,8 +89,8 @@ func (c *Client) listWindows(ctx context.Context) ([]Window, error) {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		fields := strings.Split(line, "\t")
-		if len(fields) < 6 {
+		fields := strings.Split(line, tmuxFieldSep)
+		if len(fields) != 6 {
 			return nil, fmt.Errorf("list-windows: malformed line %q", line)
 		}
 		index, err := strconv.Atoi(fields[2])
@@ -112,9 +128,33 @@ func (c *Client) listPanes(ctx context.Context) ([]Pane, error) {
 		"#{pane_width}",
 		"#{pane_height}",
 		"#{pane_tty}",
+		"#{pane_current_path}",
 		"#{pane_dead}",
 		"#{pane_dead_status}",
-	}, "\t")
+		"#{@oc_contract_version}",
+		"#{@oc_managed_by}",
+		"#{@oc_kind}",
+		"#{@oc_agent}",
+		"#{@oc_owner}",
+		"#{@oc_project}",
+		"#{@oc_goal}",
+		"#{@oc_state}",
+		"#{@oc_run_root}",
+		"#{@oc_thread_id}",
+		"#{@oc_session_id}",
+		"#{@oc_started_at}",
+		"#{@oc_updated_at}",
+		"#{@oc_completed_at}",
+		"#{@oc_exit_code}",
+		"#{@oc_ttl}",
+		"#{@oc_cleanup_policy}",
+		"#{@oc_evidence_path}",
+		"#{@oc_hold_reason}",
+		"#{@oc_why_headless}",
+		"#{@oc_progress_path}",
+		"#{@oc_end_reason}",
+		"#{@oc_route_failure_reason}",
+	}, tmuxFieldSep)
 
 	out, err := c.runTmux(ctx, "list-panes", "-a", "-F", format)
 	if err != nil {
@@ -125,31 +165,37 @@ func (c *Client) listPanes(ctx context.Context) ([]Pane, error) {
 	}
 	scanner := bufio.NewScanner(strings.NewReader(string(out)))
 	panes := []Pane{}
+	skipped := 0
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		fields := strings.Split(line, "\t")
-		if len(fields) < 13 {
-			return nil, fmt.Errorf("list-panes: malformed line %q", line)
+		fields := strings.Split(line, tmuxFieldSep)
+		if len(fields) != 14 && len(fields) != 33 && len(fields) != 37 {
+			skipped++
+			continue
 		}
 		active := fields[3] == "1"
 		lastActivity, err := parseUnix(fields[6])
 		if err != nil {
-			return nil, fmt.Errorf("invalid pane_last_activity %q: %w", fields[6], err)
+			skipped++
+			continue
 		}
 		created, err := parseUnix(fields[7])
 		if err != nil {
-			return nil, fmt.Errorf("invalid pane_created %q: %w", fields[7], err)
+			skipped++
+			continue
 		}
 		width, err := strconv.Atoi(fields[8])
 		if err != nil {
-			return nil, fmt.Errorf("invalid pane_width %q: %w", fields[8], err)
+			skipped++
+			continue
 		}
 		height, err := strconv.Atoi(fields[9])
 		if err != nil {
-			return nil, fmt.Errorf("invalid pane_height %q: %w", fields[9], err)
+			skipped++
+			continue
 		}
 		pane := Pane{
 			Session:      fields[0],
@@ -163,17 +209,53 @@ func (c *Client) listPanes(ctx context.Context) ([]Pane, error) {
 			Width:        width,
 			Height:       height,
 			TTY:          fields[10],
-			Dead:         fields[11] == "1",
+			CurrentPath:  fields[11],
+			Dead:         fields[12] == "1",
 		}
-		if status := strings.TrimSpace(fields[12]); status != "" {
+		if status := strings.TrimSpace(fields[13]); status != "" {
 			if v, err := strconv.Atoi(status); err == nil {
 				pane.DeadStatus = v
+			}
+		}
+		if len(fields) >= 33 {
+			meta := CockpitMeta{
+				ContractVersion: strings.TrimSpace(fields[14]),
+				ManagedBy:       strings.TrimSpace(fields[15]),
+				Kind:            strings.TrimSpace(fields[16]),
+				Agent:           strings.TrimSpace(fields[17]),
+				Owner:           strings.TrimSpace(fields[18]),
+				Project:         strings.TrimSpace(fields[19]),
+				Goal:            strings.TrimSpace(fields[20]),
+				State:           strings.TrimSpace(fields[21]),
+				RunRoot:         strings.TrimSpace(fields[22]),
+				ThreadID:        strings.TrimSpace(fields[23]),
+				SessionID:       strings.TrimSpace(fields[24]),
+				StartedAt:       strings.TrimSpace(fields[25]),
+				UpdatedAt:       strings.TrimSpace(fields[26]),
+				CompletedAt:     strings.TrimSpace(fields[27]),
+				ExitCode:        strings.TrimSpace(fields[28]),
+				TTL:             strings.TrimSpace(fields[29]),
+				CleanupPolicy:   strings.TrimSpace(fields[30]),
+				EvidencePath:    strings.TrimSpace(fields[31]),
+				HoldReason:      strings.TrimSpace(fields[32]),
+			}
+			if len(fields) >= 37 {
+				meta.WhyHeadless = strings.TrimSpace(fields[33])
+				meta.ProgressPath = strings.TrimSpace(fields[34])
+				meta.EndReason = strings.TrimSpace(fields[35])
+				meta.RouteFailure = strings.TrimSpace(fields[36])
+			}
+			if meta.HasData() {
+				pane.Cockpit = &meta
 			}
 		}
 		panes = append(panes, pane)
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
+	}
+	if skipped > 0 {
+		log.Printf("tmux list-panes: skipped %d malformed pane row(s)", skipped)
 	}
 	return panes, nil
 }

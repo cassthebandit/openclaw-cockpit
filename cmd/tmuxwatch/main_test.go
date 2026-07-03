@@ -122,3 +122,32 @@ func TestHelpFlag(t *testing.T) {
 		t.Errorf("expected help output to contain usage information, got: %s", outputStr)
 	}
 }
+
+func TestParseSessionList(t *testing.T) {
+	got := parseSessionList(" cass-agents, watch ,,,services ")
+	want := []string{"cass-agents", "watch", "services"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("parseSessionList() = %#v, want %#v", got, want)
+	}
+}
+
+func TestEffectiveMonitorOnlyRequiresExplicitControl(t *testing.T) {
+	tests := []struct {
+		name        string
+		monitorFlag bool
+		control     bool
+		want        bool
+	}{
+		{name: "default monitor only", monitorFlag: true, control: false, want: true},
+		{name: "legacy false flag does not grant control", monitorFlag: false, control: false, want: true},
+		{name: "control opts into authority", monitorFlag: true, control: true, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := effectiveMonitorOnly(tt.monitorFlag, tt.control); got != tt.want {
+				t.Fatalf("effectiveMonitorOnly() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

@@ -108,6 +108,7 @@ func TestPaneContentRespectsManualScroll(t *testing.T) {
 		paneID:      "%1",
 		lastContent: content,
 		lastChanged: time.Now(),
+		autoFollow:  false,
 	}
 	m := &Model{
 		previews: map[string]*sessionPreview{
@@ -136,6 +137,44 @@ func TestPaneContentRespectsManualScroll(t *testing.T) {
 	}
 }
 
+// TestPaneContentInitialCaptureFollowsBottom keeps newly discovered panes anchored to latest output.
+func TestPaneContentInitialCaptureFollowsBottom(t *testing.T) {
+	t.Parallel()
+
+	lines := make([]string, 16)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line%02d", i)
+	}
+	content := strings.Join(lines, "\n")
+	vp := viewportFor(innerDimension{width: 80, height: 6})
+	preview := &sessionPreview{
+		viewport:    &vp,
+		paneID:      "%1",
+		lastChanged: time.Now(),
+		autoFollow:  true,
+	}
+	m := &Model{
+		previews: map[string]*sessionPreview{
+			"$1": preview,
+		},
+		stale: make(map[string]struct{}),
+	}
+
+	msg := paneContentMsg{
+		sessionID: "$1",
+		paneID:    "%1",
+		text:      content,
+	}
+	m.Update(msg)
+
+	if !preview.viewport.AtBottom() {
+		t.Fatalf("expected initial content capture to jump to bottom")
+	}
+	if !preview.autoFollow {
+		t.Fatalf("expected autoFollow to remain enabled")
+	}
+}
+
 // TestPaneContentFollowsBottom continues auto-follow when the viewport was already at the bottom.
 func TestPaneContentFollowsBottom(t *testing.T) {
 	t.Parallel()
@@ -157,6 +196,7 @@ func TestPaneContentFollowsBottom(t *testing.T) {
 		paneID:      "%1",
 		lastContent: content,
 		lastChanged: time.Now(),
+		autoFollow:  true,
 	}
 	m := &Model{
 		previews: map[string]*sessionPreview{

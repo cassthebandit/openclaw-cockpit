@@ -58,6 +58,9 @@ func (m *Model) updatePreviewDimensions(count int) {
 	maxCols := 1
 	if m.viewMode != viewModeDetail && count > 1 {
 		maxCols = min(count, max(1, m.width/minColumnStride))
+		if m.preferredCols > 0 {
+			maxCols = min(maxCols, m.preferredCols)
+		}
 	}
 
 	selectedCols := 1

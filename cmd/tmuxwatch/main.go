@@ -25,12 +25,19 @@ func main() {
 	zone.NewGlobal()
 
 	var (
-		interval   = flag.Duration("interval", time.Second, "tmux poll interval")
-		tmuxBin    = flag.String("tmux", "", "path to tmux binary (defaults to PATH lookup)")
-		showVer    = flag.Bool("version", false, "print version and exit")
-		dump       = flag.Bool("dump", false, "print current tmux snapshot as JSON and exit")
-		simulate   = flag.String("debug-click", "", "simulate a mouse left-click at the given coordinates (x,y)")
-		traceMouse = flag.Bool("trace-mouse", false, "log mouse hit testing details to stderr")
+		interval      = flag.Duration("interval", time.Second, "tmux poll interval")
+		cols          = flag.Int("cols", 0, "preferred number of preview columns in overview mode (0 = auto)")
+		captureBudget = flag.Int("capture-budget", 0, "maximum unfocused pane captures per tick (default 6)")
+		tmuxBin       = flag.String("tmux", "", "path to tmux binary (defaults to PATH lookup)")
+		showVer       = flag.Bool("version", false, "print version and exit")
+		dump          = flag.Bool("dump", false, "print current tmux snapshot as JSON and exit")
+		monitor       = flag.Bool("monitor-only", true, "compatibility flag; monitor-only is always enabled unless --control is set")
+		control       = flag.Bool("control", false, "enable interactive control actions such as key forwarding and session kills")
+		organize      = flag.Bool("organize", false, "organize overview cards into cockpit groups")
+		colors        = flag.Bool("preserve-colors", false, "preserve ANSI colours in captured pane previews")
+		exclude       = flag.String("exclude-session", "", "comma-separated tmux session names to hide from snapshots")
+		simulate      = flag.String("debug-click", "", "simulate a mouse left-click at the given coordinates (x,y)")
+		traceMouse    = flag.Bool("trace-mouse", false, "log mouse hit testing details to stderr")
 	)
 	flag.Parse()
 
@@ -68,6 +75,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "failed to set up tmux client: %v\n", err)
 		os.Exit(1)
 	}
+	client.SetPreserveColors(*colors)
+	client.SetExcludedSessions(parseSessionList(*exclude))
+	monitorOnly := effectiveMonitorOnly(*monitor, *control)
+	client.SetMonitorOnly(monitorOnly)
 
 	if *dump {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -86,11 +97,28 @@ func main() {
 		return
 	}
 
-	model := ui.NewModel(client, *interval, debugMsgs, *traceMouse)
+	model := ui.NewModel(client, *interval, *captureBudget, debugMsgs, *traceMouse, monitorOnly)
+	model.SetPreferredColumns(*cols)
+	model.SetOrganized(*organize)
 	program := tea.NewProgram(model)
 
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "tmuxwatch exited with error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func effectiveMonitorOnly(_ bool, control bool) bool {
+	return !control
+}
+
+func parseSessionList(value string) []string {
+	var out []string
+	for _, part := range strings.Split(value, ",") {
+		name := strings.TrimSpace(part)
+		if name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
 }

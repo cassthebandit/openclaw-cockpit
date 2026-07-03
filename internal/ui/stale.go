@@ -45,6 +45,9 @@ func (m *Model) staleSessionNames() []string {
 	}
 	names := make([]string, 0, len(m.stale))
 	for _, session := range m.sessions {
+		if isServiceSession(session) && !sessionAllPanesDead(session) {
+			continue
+		}
 		if m.isStale(session.ID) {
 			names = append(names, session.Name)
 		}

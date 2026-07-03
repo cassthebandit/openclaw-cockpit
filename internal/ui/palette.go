@@ -68,31 +68,24 @@ func (m *Model) buildCommandItems() []commandItem {
 
 	items = append(items, m.tabPaletteCommands()...)
 
-	focusedStale := m.isStale(m.focusedSession)
 	if m.focusedSession != "" {
-		sessionID := m.focusedSession
+		label := "Cleanup focused stale session (disabled: use hygiene tool)"
 		items = append(items, commandItem{
-			label:   "Kill focused stale session",
-			enabled: focusedStale,
+			label:   label,
+			enabled: false,
 			run: func(*Model) tea.Cmd {
-				if !m.isStale(sessionID) {
-					return nil
-				}
-				return killSessionsCmd(m.client, []string{sessionID})
+				return showStatusMessage("cleanup disabled: use session_hygiene.py or safe_kill.py")
 			},
 		})
 	}
 
 	staleIDs := m.staleSessionIDs()
+	label := fmt.Sprintf("Cleanup all stale sessions (%d) (disabled: use hygiene tool)", len(staleIDs))
 	items = append(items, commandItem{
-		label:   fmt.Sprintf("Kill all stale sessions (%d)", len(staleIDs)),
-		enabled: len(staleIDs) > 0,
+		label:   label,
+		enabled: false,
 		run: func(*Model) tea.Cmd {
-			ids := m.staleSessionIDs()
-			if len(ids) == 0 {
-				return nil
-			}
-			return killSessionsCmd(m.client, ids)
+			return showStatusMessage("cleanup disabled: use session_hygiene.py or safe_kill.py")
 		},
 	})
 

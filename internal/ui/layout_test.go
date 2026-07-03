@@ -105,3 +105,25 @@ func TestUpdatePreviewDimensionsKeepsReserve(t *testing.T) {
 		t.Fatalf("card footprint %d exceeds available grid height %d", preview.Height()+3, available)
 	}
 }
+
+// TestUpdatePreviewDimensionsHonorsPreferredColumns verifies the fixed-column
+// cockpit wall can reuse the wide 5k display without carrying a separate build.
+func TestUpdatePreviewDimensionsHonorsPreferredColumns(t *testing.T) {
+	t.Parallel()
+
+	m := &Model{
+		width:         363,
+		height:        89,
+		footerHeight:  3,
+		previews:      map[string]*sessionPreview{},
+		previewOffset: 5,
+		viewMode:      viewModeOverview,
+	}
+	m.SetPreferredColumns(5)
+
+	m.updatePreviewDimensions(14)
+
+	if m.cardCols != 5 {
+		t.Fatalf("cardCols = %d, want 5", m.cardCols)
+	}
+}

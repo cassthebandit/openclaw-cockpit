@@ -174,4 +174,63 @@ func TestHandleMouseHoverSetsState(t *testing.T) {
 	}
 }
 
+func TestCockpitCleanupKeysAreDisabled(t *testing.T) {
+	t.Parallel()
+
+	m := &Model{
+		focusedSession: "s1",
+		stale:          map[string]struct{}{"s1": {}},
+	}
+
+	handled, cmd := m.handleGlobalKey(tea.KeyPressMsg{Text: "X", Code: 'X'})
+	if !handled {
+		t.Fatal("expected X to be handled")
+	}
+	if cmd == nil {
+		t.Fatal("expected status command for disabled cleanup")
+	}
+	if got, ok := cmd().(statusMsg); !ok || got == "" {
+		t.Fatalf("expected statusMsg from disabled cleanup, got %#v", cmd())
+	}
+
+	handled, cmd = m.handleGlobalKey(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	if !handled {
+		t.Fatal("expected ctrl+x to be handled")
+	}
+	if got, ok := cmd().(statusMsg); !ok || got == "" {
+		t.Fatalf("expected statusMsg from disabled bulk cleanup, got %#v", cmd())
+	}
+}
+
+func TestMonitorOnlyBlocksKeyForwarding(t *testing.T) {
+	t.Parallel()
+
+	vp := viewportFor(innerDimension{width: 60, height: 20})
+	m := &Model{
+		monitorOnly:    true,
+		focusedSession: "s1",
+		previews: map[string]*sessionPreview{
+			"s1": {viewport: &vp, paneID: "%1"},
+		},
+		sessions: []tmux.Session{{
+			ID: "s1",
+			Windows: []tmux.Window{{
+				Active: true,
+				Panes:  []tmux.Pane{{ID: "%1", Active: true}},
+			}},
+		}},
+	}
+
+	handled, cmd := m.handleFocusedKey(tea.KeyPressMsg{Text: "a", Code: 'a'})
+	if !handled {
+		t.Fatal("expected key to be handled in monitor-only mode")
+	}
+	if cmd == nil {
+		t.Fatal("expected status command for disabled key forwarding")
+	}
+	if got, ok := cmd().(statusMsg); !ok || got == "" {
+		t.Fatalf("expected statusMsg from disabled key forwarding, got %#v", cmd())
+	}
+}
+
 // TestControlUnderPointer identifies active control zones for hover styling.

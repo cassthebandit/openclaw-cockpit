@@ -22,11 +22,24 @@ func (m *Model) renderStatus() string {
 // buildStatusLine assembles the footer lines detailing input helpers, stale
 // sessions, pane variables, toasts, and errors.
 func (m *Model) buildStatusLine(width int) string {
+	helper := fmt.Sprintf("mouse: click focus, scroll, %s/%s detail, %s/%s collapse, close %s · keys: / search, H show hidden, ctrl+P palette, q quit", maximizeLabel, restoreLabel, collapseLabel, expandLabel, closeLabel)
+	if m.monitorOnly {
+		helper = "monitor-only: no session cleanup, no key forwarding · " + helper
+	} else {
+		helper += ", cleanup via session_hygiene.py or safe_kill.py"
+	}
 	lines := []string{
 		lipgloss.NewStyle().
 			Foreground(lipgloss.Color("245")).
 			Padding(0, 2).
-			Render(fmt.Sprintf("mouse: click focus, scroll, %s/%s detail, %s/%s collapse, close %s · keys: / search, H show hidden, X kill stale, ctrl+X clean all, ctrl+P palette, q quit", maximizeLabel, restoreLabel, collapseLabel, expandLabel, closeLabel)),
+			Render(helper),
+	}
+
+	if summary := m.formatCockpitSummary(width); summary != "" {
+		lines = append(lines, lipgloss.NewStyle().
+			Foreground(lipgloss.Color("250")).
+			Padding(0, 2).
+			Render(summary))
 	}
 
 	if stale := m.staleSessionNames(); len(stale) > 0 {
@@ -57,6 +70,38 @@ func (m *Model) buildStatusLine(width int) string {
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, lines...)
+}
+
+func (m *Model) formatCockpitSummary(width int) string {
+	counts := map[string]int{}
+	total := 0
+	for _, session := range m.sessions {
+		if !sessionHasCockpitAgent(session) {
+			continue
+		}
+		state := sessionAttentionState(m, session)
+		if state == "" {
+			state = "running"
+		}
+		counts[state]++
+		total++
+	}
+	if total == 0 {
+		return ""
+	}
+
+	order := []string{"running", "waiting", "blocked", "failed", "done", "stale"}
+	parts := []string{fmt.Sprintf("cockpit items: %d", total)}
+	for _, state := range order {
+		if n := counts[state]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%s %d", state, n))
+		}
+	}
+	line := strings.Join(parts, " · ")
+	if width > 0 && lipgloss.Width(line) > width {
+		return lipgloss.NewStyle().Width(width).MaxWidth(width).Render(line)
+	}
+	return line
 }
 
 func formatStaleLine(names []string, width int) string {

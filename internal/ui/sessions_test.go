@@ -41,6 +41,34 @@ func TestSessionMatches(t *testing.T) {
 	}
 }
 
+func TestSessionMatchesCockpitMetadata(t *testing.T) {
+	t.Parallel()
+
+	session := tmux.Session{
+		Name: "plain-session",
+		Windows: []tmux.Window{
+			{
+				Name: "main",
+				Panes: []tmux.Pane{
+					{Cockpit: &tmux.CockpitMeta{
+						Agent:   "fable",
+						Owner:   "workshop-4",
+						Project: "clean-draft",
+						State:   "waiting",
+						Goal:    "Spec B extraction build",
+					}},
+				},
+			},
+		},
+	}
+
+	for _, query := range []string{"fable", "workshop-4", "clean-draft", "waiting", "spec b"} {
+		if !sessionMatches(session, query) {
+			t.Fatalf("sessionMatches(%q) should match cockpit metadata", query)
+		}
+	}
+}
+
 // TestActiveWindow confirms the active window is chosen correctly.
 func TestActiveWindow(t *testing.T) {
 	t.Parallel()

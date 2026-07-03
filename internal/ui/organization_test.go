@@ -1,0 +1,342 @@
+package ui
+
+import (
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/steipete/tmuxwatch/internal/tmux"
+)
+
+func TestCockpitGroupForCurrentFleetShapes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		session tmux.Session
+		want    string
+	}{
+		{
+			name: "fable session is agent review work",
+			session: sessionForGroup("clean-draft-fable-extract", "claude.exe",
+				"/Users/cass/projects/clean-draft", "Implement V1 extract job artifacts"),
+			want: groupRunningAgents.name,
+		},
+		{
+			name: "camera service stays service",
+			session: sessionForGroup("camera-rtsp", "go2rtc",
+				"/Users/cass/.openclaw/workspace/config/camera-rtsp", ""),
+			want: groupServices.name,
+		},
+		{
+			name: "pantry claude frontend stays service",
+			session: sessionForGroup("pantry-copilot-claude-front", "node",
+				"/Users/cass/.openclaw/workspace/projects/pantry-copilot-claude-front", ""),
+			want: groupServices.name,
+		},
+		{
+			name: "wall session is dashboard",
+			session: sessionForGroup("cass-agents", "tmuxwatch-cass",
+				"/Users/cass/.openclaw/workspace", ""),
+			want: groupDashboard.name,
+		},
+		{
+			name: "html helper is viewer",
+			session: sessionForGroup("clean-draft-daniel-brief-html", "Python",
+				"/Users/cass/.openclaw/workspace/memory/runs/fable-daniel-brief-build", ""),
+			want: groupViewers.name,
+		},
+		{
+			name:    "plain shell is idle",
+			session: sessionForGroup("scratch", "zsh", "/tmp", ""),
+			want:    groupIdle.name,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := cockpitGroupFor(nil, tt.session).name; got != tt.want {
+				t.Fatalf("cockpitGroupFor() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSortSessionsForCockpit(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	sessions := []tmux.Session{
+		withActivity(sessionForGroup("camera-rtsp", "go2rtc", "/camera", ""), now.Add(-time.Minute)),
+		withActivity(sessionForGroup("cass-agents", "tmuxwatch-cass", "/workspace", ""), now),
+		withActivity(sessionForGroup("committee-specb-codex", "zsh", "/workspace", ""), now.Add(-5*time.Minute)),
+		withActivity(sessionForGroup("clean-draft-daniel-brief-html", "Python", "/memory/runs/daniel-brief", ""), now.Add(-2*time.Minute)),
+		withActivity(sessionForGroup("scratch", "zsh", "/tmp", ""), now.Add(-30*time.Second)),
+	}
+
+	sortSessionsForCockpit(nil, sessions)
+
+	got := []string{}
+	for _, session := range sessions {
+		got = append(got, session.Name)
+	}
+	want := []string{
+		"committee-specb-codex",
+		"camera-rtsp",
+		"cass-agents",
+		"clean-draft-daniel-brief-html",
+		"scratch",
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("sorted[%d] = %q, want %q; full order=%v", i, got[i], want[i], got)
+		}
+	}
+}
+
+func TestCockpitGroupUsesSessionAttentionRollup(t *testing.T) {
+	t.Parallel()
+
+	session := sessionForGroup("worker", "zsh", "/workspace", "")
+	session.Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{
+		Kind:  "agent",
+		Agent: "codex",
+		State: "running",
+	}
+	session.Windows[0].Panes = append(session.Windows[0].Panes, tmux.Pane{
+		ID:          "%hidden-failed",
+		CurrentCmd:  "zsh",
+		CurrentPath: "/workspace",
+		Dead:        true,
+		DeadStatus:  7,
+		Cockpit: &tmux.CockpitMeta{
+			Kind:  "agent",
+			Agent: "codex",
+			State: "running",
+		},
+	})
+
+	if got := sessionAttentionState(nil, session); got != "failed" {
+		t.Fatalf("sessionAttentionState() = %q, want failed", got)
+	}
+	if got := cockpitGroupFor(nil, session).name; got != groupFailed.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupFailed.name)
+	}
+}
+
+func TestCockpitGroupTreatsHoldReasonAsAnnotation(t *testing.T) {
+	t.Parallel()
+
+	session := sessionForGroup("held-but-running", "zsh", "/workspace", "")
+	session.Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{
+		Kind:          "agent",
+		Agent:         "codex",
+		State:         "running",
+		HoldReason:    "manual review",
+		CleanupPolicy: "manual",
+	}
+
+	if got := sessionAttentionState(nil, session); got != "running" {
+		t.Fatalf("sessionAttentionState() = %q, want running", got)
+	}
+	if got := cockpitGroupFor(nil, session).name; got != groupRunningAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupRunningAgents.name)
+	}
+}
+
+func TestDisplayOnlyMetadataDoesNotOverrideDeadPane(t *testing.T) {
+	t.Parallel()
+
+	session := sessionForGroup("adopted-done", "zsh", "/workspace", "")
+	session.Windows[0].Panes[0].Dead = true
+	session.Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{
+		ContractVersion: "display-only",
+		ManagedBy:       "manual_adopt",
+		Kind:            "agent",
+		Agent:           "claude",
+		State:           "running",
+	}
+
+	if got := sessionAttentionState(nil, session); got != "done" {
+		t.Fatalf("sessionAttentionState() = %q, want done", got)
+	}
+	if got := cockpitGroupFor(nil, session).name; got != groupDoneHeld.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupDoneHeld.name)
+	}
+}
+
+func TestManagedDeadRunningPaneDowngradesToStale(t *testing.T) {
+	t.Parallel()
+
+	session := sessionForGroup("managed-dead", "zsh", "/workspace", "")
+	session.Windows[0].Panes[0].Dead = true
+	session.Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{
+		ContractVersion: "1",
+		ManagedBy:       "agent_wall",
+		Kind:            "agent",
+		Agent:           "codex",
+		State:           "running",
+	}
+
+	if got := sessionAttentionState(nil, session); got != "stale" {
+		t.Fatalf("sessionAttentionState() = %q, want stale", got)
+	}
+}
+
+func TestDisplayOnlyMetadataDoesNotOverrideStalePane(t *testing.T) {
+	t.Parallel()
+
+	session := sessionForGroup("adopted-stale", "zsh", "/workspace", "")
+	session.Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{
+		ContractVersion: "display-only",
+		ManagedBy:       "manual_adopt",
+		Kind:            "agent",
+		Agent:           "claude",
+		State:           "running",
+	}
+	m := NewModel(nil, time.Second, 4, nil, false, true)
+	m.stale[session.ID] = struct{}{}
+
+	if got := sessionAttentionState(m, session); got != "stale" {
+		t.Fatalf("sessionAttentionState() = %q, want stale", got)
+	}
+}
+
+func TestQuietServiceStaleDoesNotBecomeDoneHeld(t *testing.T) {
+	t.Parallel()
+
+	session := sessionForGroup("AI-Alerts", "Python", "/workspace/config/smonitor", "AI-Alerts")
+	m := NewModel(nil, time.Second, 4, nil, false, true)
+	m.stale[session.ID] = struct{}{}
+
+	if got := sessionAttentionState(m, session); got != "quiet" {
+		t.Fatalf("sessionAttentionState() = %q, want quiet", got)
+	}
+	if got := cockpitGroupFor(m, session).name; got != groupServices.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupServices.name)
+	}
+}
+
+func TestCardLayoutForCountUsesGroupWidth(t *testing.T) {
+	t.Parallel()
+
+	m := NewModel(nil, time.Second, 4, nil, false, true)
+	m.SetOrganized(true)
+	m.width = 363
+	m.height = 90
+	m.preferredCols = 5
+	m.cardInnerWidth = 68
+
+	cols, inner := m.cardLayoutForCount(3)
+	if cols != 3 {
+		t.Fatalf("cols = %d, want 3", cols)
+	}
+	if inner <= 100 {
+		t.Fatalf("inner width = %d, want wide third-row cards", inner)
+	}
+}
+
+func TestStaleSessionNamesOmitsQuietLiveServices(t *testing.T) {
+	t.Parallel()
+
+	service := sessionForGroup("smonitor", "go2rtc", "/workspace/config/smonitor", "smonitor")
+	worker := sessionForGroup("old-worker", "zsh", "/workspace", "")
+	m := NewModel(nil, time.Second, 4, nil, false, true)
+	m.sessions = []tmux.Session{service, worker}
+	m.stale[service.ID] = struct{}{}
+	m.stale[worker.ID] = struct{}{}
+
+	got := strings.Join(m.staleSessionNames(), ",")
+	if strings.Contains(got, "smonitor") {
+		t.Fatalf("quiet service should not appear in stale footer, got %q", got)
+	}
+	if !strings.Contains(got, "old-worker") {
+		t.Fatalf("stale worker should remain in footer, got %q", got)
+	}
+}
+
+func TestCockpitGroupRoutesWaitingBlockedAndDone(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		state string
+		want  string
+	}{
+		{state: "waiting", want: groupNeedsInput.name},
+		{state: "blocked", want: groupNeedsInput.name},
+		{state: "done", want: groupDoneHeld.name},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.state, func(t *testing.T) {
+			t.Parallel()
+			session := sessionForGroup("worker-"+tt.state, "zsh", "/workspace", "")
+			session.Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{Kind: "agent", Agent: "codex", State: tt.state}
+			if got := cockpitGroupFor(nil, session).name; got != tt.want {
+				t.Fatalf("cockpitGroupFor() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRenderSessionPreviewsAddsOrganizedDividers(t *testing.T) {
+	t.Parallel()
+
+	m := NewModel(nil, time.Second, 4, nil, false, true)
+	m.SetOrganized(true)
+	m.width = 160
+	m.height = 40
+	m.cardCols = 2
+	m.cardInnerWidth = 70
+	m.cardInnerHeight = 6
+	m.sessions = []tmux.Session{
+		sessionForGroup("committee-specb-codex", "zsh", "/workspace", ""),
+		sessionForGroup("camera-rtsp", "go2rtc", "/camera", ""),
+	}
+	for _, session := range m.sessions {
+		vp := viewportFor(innerDimension{width: 70, height: 6})
+		vp.SetContent("content")
+		m.previews[session.ID] = &sessionPreview{viewport: &vp, paneID: session.Windows[0].Panes[0].ID}
+	}
+
+	got := m.renderSessionPreviews(0)
+	for _, want := range []string{groupRunningAgents.name, groupServices.name} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("renderSessionPreviews missing divider %q in %q", want, got)
+		}
+	}
+}
+
+func sessionForGroup(name, cmd, path, title string) tmux.Session {
+	return tmux.Session{
+		ID:   "$" + name,
+		Name: name,
+		Windows: []tmux.Window{{
+			ID:      "@1-" + name,
+			Name:    cmd,
+			Active:  true,
+			Session: "$" + name,
+			Panes: []tmux.Pane{{
+				ID:          "%1-" + name,
+				Active:      true,
+				CurrentCmd:  cmd,
+				CurrentPath: path,
+				Title:       title,
+			}},
+		}},
+	}
+}
+
+func withActivity(session tmux.Session, ts time.Time) tmux.Session {
+	session.LastActivity = ts
+	for wi := range session.Windows {
+		session.Windows[wi].LastPane = ts
+		for pi := range session.Windows[wi].Panes {
+			session.Windows[wi].Panes[pi].LastActivity = ts
+		}
+	}
+	return session
+}

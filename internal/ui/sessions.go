@@ -22,6 +22,39 @@ func sessionMatches(session tmux.Session, query string) bool {
 			if strings.Contains(strings.ToLower(pane.TitleOrCmd()), query) {
 				return true
 			}
+			if cockpitMatches(pane.Cockpit, query) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func cockpitMatches(meta *tmux.CockpitMeta, query string) bool {
+	if meta == nil {
+		return false
+	}
+	fields := []string{
+		meta.Kind,
+		meta.Agent,
+		meta.Owner,
+		meta.Project,
+		meta.Goal,
+		meta.State,
+		meta.RunRoot,
+		meta.ThreadID,
+		meta.SessionID,
+		meta.StartedAt,
+		meta.UpdatedAt,
+		meta.ExitCode,
+		meta.WhyHeadless,
+		meta.ProgressPath,
+		meta.EndReason,
+		meta.RouteFailure,
+	}
+	for _, field := range fields {
+		if strings.Contains(strings.ToLower(field), query) {
+			return true
 		}
 	}
 	return false

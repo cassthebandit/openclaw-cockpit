@@ -70,11 +70,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if content != preview.lastContent {
 				wasAtBottom := preview.viewport.AtBottom()
+				shouldFollow := preview.autoFollow || preview.lastContent == "" || wasAtBottom
 				preview.viewport.SetContent(content)
 				preview.lastContent = content
 				preview.lastChanged = time.Now()
-				if wasAtBottom {
+				if shouldFollow {
 					preview.viewport.GotoBottom()
+					preview.autoFollow = true
 				}
 				m.updateStaleSessions()
 			}
@@ -87,27 +89,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				preview.vars = msg.vars
 			}
 		}
-	case killSessionsMsg:
-		if len(msg.ids) == 0 {
-			return m, nil
-		}
-		for _, id := range msg.ids {
-			if m.focusedSession == id {
-				m.focusedSession = ""
-			}
-			if m.detailSession == id {
-				m.leaveDetail(true)
-			}
-			if m.cursorSession == id {
-				m.cursorSession = ""
-			}
-			delete(m.previews, id)
-			delete(m.hidden, id)
-			delete(m.stale, id)
-			delete(m.collapsed, id)
-		}
-		m.inflight = true
-		return m, fetchSnapshotCmd(m.client)
 	case tickMsg:
 		if m.inflight {
 			return m, nil
@@ -124,7 +105,10 @@ func (m *Model) ensurePreviewsAndCapture() tea.Cmd {
 	captureOrder := m.captureOrder()
 	active := make(map[string]struct{}, len(m.sessions))
 	var cmds []tea.Cmd
-	captureBudget := maxCapturesPerTick
+	captureBudget := m.captureBudget
+	if captureBudget <= 0 {
+		captureBudget = maxCapturesPerTick
+	}
 	for _, session := range captureOrder {
 		if m.isHidden(session.ID) {
 			continue
@@ -148,7 +132,7 @@ func (m *Model) ensurePreviewsAndCapture() tea.Cmd {
 				width:  m.width,
 				height: m.height,
 			})
-			preview = &sessionPreview{viewport: &vp, lastChanged: time.Now()}
+			preview = &sessionPreview{viewport: &vp, lastChanged: time.Now(), autoFollow: true}
 			m.previews[session.ID] = preview
 		}
 		if preview.paneID != pane.ID {
@@ -156,6 +140,7 @@ func (m *Model) ensurePreviewsAndCapture() tea.Cmd {
 			preview.paneID = pane.ID
 			preview.lastContent = ""
 			preview.vars = nil
+			preview.autoFollow = true
 		}
 		shouldCapture := true
 		if collapsed && !isFocused && !inDetail {
@@ -260,6 +245,9 @@ func (m *Model) filteredSessionsFull() []tmux.Session {
 		if query == "" || sessionMatches(session, query) {
 			out = append(out, session)
 		}
+	}
+	if m.organized {
+		sortSessionsForCockpit(m, out)
 	}
 	return out
 }

@@ -38,18 +38,82 @@ type Pane struct {
 	Window        string
 	Session       string
 	CurrentCmd    string
+	CurrentPath   string
 	TTY           string
 	LastActivity  time.Time
 	CreatedAt     time.Time
 	Width, Height int
 	Dead          bool
 	DeadStatus    int
+	Cockpit       *CockpitMeta `json:",omitempty"`
 }
 
 // Snapshot contains the state of the tmux server.
 type Snapshot struct {
 	Sessions  []Session
 	Timestamp time.Time
+}
+
+// CockpitMeta holds optional OpenClaw/Cass item metadata carried by tmux pane
+// user options. Plain tmux panes leave this nil and keep the old UI behaviour.
+type CockpitMeta struct {
+	ContractVersion string `json:",omitempty"`
+	ManagedBy       string `json:",omitempty"`
+	Kind            string `json:",omitempty"`
+	Agent           string `json:",omitempty"`
+	Owner           string `json:",omitempty"`
+	Project         string `json:",omitempty"`
+	Goal            string `json:",omitempty"`
+	State           string `json:",omitempty"`
+	RunRoot         string `json:",omitempty"`
+	ThreadID        string `json:",omitempty"`
+	SessionID       string `json:",omitempty"`
+	StartedAt       string `json:",omitempty"`
+	UpdatedAt       string `json:",omitempty"`
+	CompletedAt     string `json:",omitempty"`
+	ExitCode        string `json:",omitempty"`
+	TTL             string `json:",omitempty"`
+	CleanupPolicy   string `json:",omitempty"`
+	EvidencePath    string `json:",omitempty"`
+	HoldReason      string `json:",omitempty"`
+	WhyHeadless     string `json:",omitempty"`
+	ProgressPath    string `json:",omitempty"`
+	EndReason       string `json:",omitempty"`
+	RouteFailure    string `json:",omitempty"`
+}
+
+// HasData reports whether any cockpit metadata field is populated.
+func (m CockpitMeta) HasData() bool {
+	return strings.TrimSpace(m.ContractVersion) != "" ||
+		strings.TrimSpace(m.ManagedBy) != "" ||
+		strings.TrimSpace(m.Kind) != "" ||
+		strings.TrimSpace(m.Agent) != "" ||
+		strings.TrimSpace(m.Owner) != "" ||
+		strings.TrimSpace(m.Project) != "" ||
+		strings.TrimSpace(m.Goal) != "" ||
+		strings.TrimSpace(m.State) != "" ||
+		strings.TrimSpace(m.RunRoot) != "" ||
+		strings.TrimSpace(m.ThreadID) != "" ||
+		strings.TrimSpace(m.SessionID) != "" ||
+		strings.TrimSpace(m.StartedAt) != "" ||
+		strings.TrimSpace(m.UpdatedAt) != "" ||
+		strings.TrimSpace(m.CompletedAt) != "" ||
+		strings.TrimSpace(m.ExitCode) != "" ||
+		strings.TrimSpace(m.TTL) != "" ||
+		strings.TrimSpace(m.CleanupPolicy) != "" ||
+		strings.TrimSpace(m.EvidencePath) != "" ||
+		strings.TrimSpace(m.HoldReason) != "" ||
+		strings.TrimSpace(m.WhyHeadless) != "" ||
+		strings.TrimSpace(m.ProgressPath) != "" ||
+		strings.TrimSpace(m.EndReason) != "" ||
+		strings.TrimSpace(m.RouteFailure) != ""
+}
+
+// DisplayOnly reports metadata that was manually adopted for visibility but
+// does not carry a managed lifecycle contract.
+func (m CockpitMeta) DisplayOnly() bool {
+	return strings.EqualFold(strings.TrimSpace(m.ContractVersion), "display-only") ||
+		strings.EqualFold(strings.TrimSpace(m.ManagedBy), "manual_adopt")
 }
 
 // TitleOrCmd returns the most descriptive label for a pane for display

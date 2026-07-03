@@ -30,6 +30,19 @@ func (m *Model) tabTitles() []string {
 	titles := make([]string, 1, len(sessions)+1)
 	titles[0] = "Overview"
 	m.tabSessionIDs = m.tabSessionIDs[:0]
+	if m.organized {
+		if m.viewMode == viewModeDetail && m.detailSession != "" {
+			if session, ok := m.sessionByID(m.detailSession); ok {
+				label := session.Name
+				if label == "" {
+					label = sessionLabel(session.ID)
+				}
+				m.tabSessionIDs = append(m.tabSessionIDs, session.ID)
+				return append(titles, label)
+			}
+		}
+		return titles
+	}
 	for _, session := range sessions {
 		label := session.Name
 		if label == "" {

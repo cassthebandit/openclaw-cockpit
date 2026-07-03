@@ -72,6 +72,7 @@ func (m *Model) handleGlobalKey(msg tea.KeyMsg) (bool, tea.Cmd) {
 			m.resetCtrlC()
 			if preview, ok := m.previews[m.focusedSession]; ok {
 				preview.viewport.GotoBottom()
+				preview.autoFollow = true
 				if preview.paneID != "" {
 					return true, fetchPaneVarsCmd(m.client, m.focusedSession, preview.paneID)
 				}
@@ -125,12 +126,8 @@ func (m *Model) handleGlobalKey(msg tea.KeyMsg) (bool, tea.Cmd) {
 		}
 		return true, nil
 	case "ctrl+x":
-		ids := m.staleSessionIDs()
-		if len(ids) == 0 {
-			return true, nil
-		}
 		m.resetCtrlC()
-		return true, killSessionsCmd(m.client, ids)
+		return true, showStatusMessage("cleanup disabled: use session_hygiene.py or safe_kill.py")
 	case "q":
 		m.resetCtrlC()
 		return true, tea.Quit
@@ -138,11 +135,8 @@ func (m *Model) handleGlobalKey(msg tea.KeyMsg) (bool, tea.Cmd) {
 		if m.focusedSession == "" {
 			return true, nil
 		}
-		if !m.isStale(m.focusedSession) {
-			return true, nil
-		}
 		m.resetCtrlC()
-		return true, killSessionsCmd(m.client, []string{m.focusedSession})
+		return true, showStatusMessage("cleanup disabled: use session_hygiene.py or safe_kill.py")
 	}
 	return false, nil
 }
@@ -165,36 +159,48 @@ func (m *Model) handleFocusedKey(msg tea.KeyMsg) (bool, tea.Cmd) {
 	case "up":
 		m.resetCtrlC()
 		preview.viewport.ScrollUp(1)
+		preview.autoFollow = false
 		return true, nil
 	case "down":
 		m.resetCtrlC()
 		preview.viewport.ScrollDown(1)
+		preview.autoFollow = preview.viewport.AtBottom()
 		return true, nil
 	case "pgup":
 		m.resetCtrlC()
 		preview.viewport.PageUp()
+		preview.autoFollow = false
 		return true, nil
 	case "pgdown":
 		m.resetCtrlC()
 		preview.viewport.PageDown()
+		preview.autoFollow = preview.viewport.AtBottom()
 		return true, nil
 	case "ctrl+u":
 		m.resetCtrlC()
 		preview.viewport.ScrollUp(scrollStep)
+		preview.autoFollow = false
 		return true, nil
 	case "ctrl+d":
 		m.resetCtrlC()
 		preview.viewport.ScrollDown(scrollStep)
+		preview.autoFollow = preview.viewport.AtBottom()
 		return true, nil
 	case "g":
 		m.resetCtrlC()
 		preview.viewport.GotoTop()
+		preview.autoFollow = false
 		return true, nil
 	case "G":
 		m.resetCtrlC()
 		preview.viewport.GotoBottom()
+		preview.autoFollow = true
 		return true, nil
 	case "ctrl+c":
+		if m.monitorOnly {
+			m.resetCtrlC()
+			return true, tea.Quit
+		}
 		now := time.Now()
 		if !paneOK || pane.Dead || preview.paneID == "" {
 			return true, tea.Quit
@@ -232,6 +238,10 @@ func (m *Model) handleFocusedKey(msg tea.KeyMsg) (bool, tea.Cmd) {
 	if !ok || preview.paneID == "" {
 		m.resetCtrlC()
 		return false, nil
+	}
+	if m.monitorOnly {
+		m.resetCtrlC()
+		return true, showStatusMessage("monitor-only: key forwarding disabled")
 	}
 	m.resetCtrlC()
 	return true, sendKeysCmd(m.client, preview.paneID, keys...)
@@ -299,11 +309,13 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	case tea.MouseWheelDown:
 		if _, wheel := msg.(tea.MouseWheelMsg); wheel && preview != nil {
 			preview.viewport.ScrollDown(scrollStep)
+			preview.autoFollow = preview.viewport.AtBottom()
 			m.hoveredSession = card.sessionID
 		}
 	case tea.MouseWheelUp:
 		if _, wheel := msg.(tea.MouseWheelMsg); wheel && preview != nil {
 			preview.viewport.ScrollUp(scrollStep)
+			preview.autoFollow = false
 			m.hoveredSession = card.sessionID
 		}
 	case tea.MouseLeft:
@@ -345,6 +357,7 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			m.resetCtrlC()
 			if preview != nil {
 				preview.viewport.GotoBottom()
+				preview.autoFollow = true
 				if preview.paneID != "" {
 					return m, fetchPaneVarsCmd(m.client, card.sessionID, preview.paneID)
 				}

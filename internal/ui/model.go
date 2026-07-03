@@ -16,37 +16,42 @@ import (
 )
 
 const (
-	defaultPollInterval = time.Second
-	minPreviewHeight    = 6
-	maxCapturesPerTick  = 6
-	cardPadding         = 1
-	closeLabel          = "[x]"
-	maximizeLabel       = "[^]"
-	restoreLabel        = "[v]"
-	collapseLabel       = "[-]"
-	expandLabel         = "[+]"
-	scrollStep          = 3
-	pulseDuration       = 1500 * time.Millisecond
-	quitChordWindow     = 600 * time.Millisecond
-	staleThreshold      = time.Hour
-	minCaptureLines     = 80
-	maxCaptureLines     = 600
-	captureSlackLines   = 40
-	borderColorBase     = "62"
-	borderColorFocus    = "212"
-	borderColorPulse    = "213"
-	borderColorCursor   = "111"
-	borderColorHover    = "143"
-	borderColorExitFail = "203"
-	borderColorExitOK   = "36"
-	borderColorStale    = "95"
-	headerColorBase     = "249"
-	headerColorFocus    = "212"
-	headerColorPulse    = "219"
-	headerColorCursor   = "111"
-	headerColorExitFail = "203"
-	headerColorExitOK   = "37"
-	headerColorStale    = "103"
+	defaultPollInterval  = time.Second
+	minPreviewHeight     = 6
+	maxOverviewBodyLines = 10
+	maxCapturesPerTick   = 6
+	cardPadding          = 1
+	closeLabel           = "[x]"
+	maximizeLabel        = "[^]"
+	restoreLabel         = "[v]"
+	collapseLabel        = "[-]"
+	expandLabel          = "[+]"
+	scrollStep           = 3
+	pulseDuration        = 1500 * time.Millisecond
+	quitChordWindow      = 600 * time.Millisecond
+	staleThreshold       = time.Hour
+	minCaptureLines      = 80
+	maxCaptureLines      = 600
+	captureSlackLines    = 40
+	borderColorBase      = "62"
+	borderColorFocus     = "212"
+	borderColorPulse     = "213"
+	borderColorCursor    = "111"
+	borderColorHover     = "143"
+	borderColorExitFail  = "203"
+	borderColorExitOK    = "36"
+	borderColorWaiting   = "220"
+	borderColorBlocked   = "208"
+	borderColorStale     = "95"
+	headerColorBase      = "249"
+	headerColorFocus     = "212"
+	headerColorPulse     = "219"
+	headerColorCursor    = "111"
+	headerColorExitFail  = "203"
+	headerColorExitOK    = "37"
+	headerColorWaiting   = "220"
+	headerColorBlocked   = "208"
+	headerColorStale     = "103"
 )
 
 type viewMode int
@@ -71,10 +76,9 @@ type (
 		vars      map[string]string
 		err       error
 	}
-	killSessionsMsg struct{ ids []string }
-	errMsg          struct{ err error }
-	tickMsg         struct{}
-	searchBlurMsg   struct{}
+	errMsg        struct{ err error }
+	tickMsg       struct{}
+	searchBlurMsg struct{}
 )
 
 type sessionPreview struct {
@@ -83,6 +87,7 @@ type sessionPreview struct {
 	lastContent string
 	lastChanged time.Time
 	vars        map[string]string
+	autoFollow  bool
 }
 
 type cardBounds struct {
@@ -101,9 +106,10 @@ type commandItem struct {
 
 // Model owns the Bubble Tea state machine and cached tmux snapshot data.
 type Model struct {
-	client       *tmux.Client
-	pollInterval time.Duration
-	zonePrefix   string
+	client        *tmux.Client
+	pollInterval  time.Duration
+	captureBudget int
+	zonePrefix    string
 
 	width  int
 	height int
@@ -136,6 +142,7 @@ type Model struct {
 	detailSession   string
 	activeTab       int
 	cardCols        int
+	preferredCols   int
 	cardInnerWidth  int
 	cardInnerHeight int
 	previewOffset   int
@@ -143,9 +150,11 @@ type Model struct {
 	footer          *viewport.Model
 	footerHeight    int
 
-	debugMsgs  []tea.Msg
-	traceMouse bool
-	hostname   string
+	debugMsgs   []tea.Msg
+	traceMouse  bool
+	hostname    string
+	monitorOnly bool
+	organized   bool
 
 	lastUpdated time.Time
 	err         error
@@ -154,6 +163,20 @@ type Model struct {
 	cachedStatus string
 	lastCtrlC    time.Time
 	lastEsc      time.Time
+}
+
+// SetPreferredColumns caps the overview grid at a caller-selected column
+// count while still allowing layout to shrink when the terminal is too narrow.
+func (m *Model) SetPreferredColumns(cols int) {
+	if cols < 0 {
+		cols = 0
+	}
+	m.preferredCols = cols
+}
+
+// SetOrganized enables cockpit grouping and sorting in the overview wall.
+func (m *Model) SetOrganized(enabled bool) {
+	m.organized = enabled
 }
 
 // sessionLabel strips leading sigils from tmux session identifiers for
@@ -166,9 +189,12 @@ func sessionLabel(id string) string {
 }
 
 // NewModel builds a Model with defaults and the provided tmux client.
-func NewModel(client *tmux.Client, poll time.Duration, debugMsgs []tea.Msg, traceMouse bool) *Model {
+func NewModel(client *tmux.Client, poll time.Duration, captureBudget int, debugMsgs []tea.Msg, traceMouse bool, monitorOnly bool) *Model {
 	if poll <= 0 {
 		poll = defaultPollInterval
+	}
+	if captureBudget <= 0 {
+		captureBudget = maxCapturesPerTick
 	}
 	ti := textinput.New()
 	ti.Placeholder = "filter sessions, windows, panes"
@@ -177,6 +203,7 @@ func NewModel(client *tmux.Client, poll time.Duration, debugMsgs []tea.Msg, trac
 	return &Model{
 		client:          client,
 		pollInterval:    poll,
+		captureBudget:   captureBudget,
 		zonePrefix:      zone.NewPrefix(),
 		previews:        make(map[string]*sessionPreview),
 		hidden:          make(map[string]struct{}),
@@ -191,6 +218,7 @@ func NewModel(client *tmux.Client, poll time.Duration, debugMsgs []tea.Msg, trac
 		previewOffset:   topPaddingLines,
 		debugMsgs:       append([]tea.Msg(nil), debugMsgs...),
 		traceMouse:      traceMouse,
+		monitorOnly:     monitorOnly,
 		toast:           &toastState{},
 		viewMode:        viewModeOverview,
 		tabSessionIDs:   make([]string, 0),
