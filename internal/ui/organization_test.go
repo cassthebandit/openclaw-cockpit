@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -85,10 +87,10 @@ func TestSortSessionsForCockpit(t *testing.T) {
 	}
 	want := []string{
 		"committee-specb-codex",
-		"camera-rtsp",
 		"cass-agents",
 		"clean-draft-daniel-brief-html",
 		"scratch",
+		"camera-rtsp",
 	}
 	for i := range want {
 		if got[i] != want[i] {
@@ -186,6 +188,179 @@ func TestManagedDeadRunningPaneDowngradesToStale(t *testing.T) {
 	}
 }
 
+func TestCleanNullArtifactDoesNotDowngradeDeadNonzeroPane(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	resultDir := filepath.Join(root, "results", "spark_smoke")
+	if err := os.MkdirAll(resultDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(resultDir, "verification.json"), []byte(`{
+  "status": "PASS",
+  "result_classification": "LIVE_MICROARM_NULL_SAFE",
+  "errors": []
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	session := sessionForGroup("loop-v12-spark-smoke-rerun1", "run.sh", root, "spark")
+	pane := &session.Windows[0].Panes[0]
+	pane.Dead = true
+	pane.DeadStatus = 1
+	pane.Cockpit = &tmux.CockpitMeta{
+		Kind:          "batch-worker",
+		Agent:         "codex-spark",
+		State:         "failed",
+		RunRoot:       root,
+		EvidencePath:  "results/spark_smoke/RESULT.md",
+		EndReason:     "process_exit_nonzero",
+		CleanupPolicy: "kill_on_done",
+	}
+	if err := os.WriteFile(filepath.Join(resultDir, "RESULT.md"), []byte("classification: `LIVE_MICROARM_NULL_SAFE`\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := sessionAttentionState(nil, session); got != "failed" {
+		t.Fatalf("sessionAttentionState() = %q, want failed", got)
+	}
+	if got := cockpitGroupFor(nil, session).name; got != groupNeedsInput.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupNeedsInput.name)
+	}
+}
+
+func TestArtifactOutcomeUsesNamedEvidenceFileBeforeSiblingJSON(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	resultDir := filepath.Join(root, "results", "spark_smoke")
+	if err := os.MkdirAll(resultDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(resultDir, "verification.json"), []byte(`{
+  "status": "PASS",
+  "result_classification": "LIVE_MICROARM_NULL_SAFE"
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(resultDir, "RESULT.md"), []byte("classification: failed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	session := sessionForGroup("worker", "run.sh", root, "spark")
+	pane := &session.Windows[0].Panes[0]
+	pane.Cockpit = &tmux.CockpitMeta{
+		Kind:         "batch-worker",
+		Agent:        "codex",
+		State:        "done",
+		RunRoot:      root,
+		EvidencePath: "results/spark_smoke/RESULT.md",
+	}
+
+	if got := sessionAttentionState(nil, session); got != "failed" {
+		t.Fatalf("sessionAttentionState() = %q, want failed", got)
+	}
+}
+
+func TestArtifactOutcomeCanReadExplicitEvidenceDirectory(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	resultDir := filepath.Join(root, "results", "spark_smoke")
+	if err := os.MkdirAll(resultDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(resultDir, "verification.json"), []byte(`{
+  "status": "PASS",
+  "result_classification": "LIVE_MICROARM_NULL_SAFE"
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	session := sessionForGroup("worker", "run.sh", root, "spark")
+	pane := &session.Windows[0].Panes[0]
+	pane.Cockpit = &tmux.CockpitMeta{
+		Kind:         "batch-worker",
+		Agent:        "codex",
+		State:        "done",
+		RunRoot:      root,
+		EvidencePath: "results/spark_smoke",
+	}
+
+	if got := sessionAttentionState(nil, session); got != "null-safe" {
+		t.Fatalf("sessionAttentionState() = %q, want null-safe", got)
+	}
+}
+
+func TestMissingDeclaredEvidencePathNeedsReview(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	session := sessionForGroup("worker", "run.sh", root, "spark")
+	pane := &session.Windows[0].Panes[0]
+	pane.Cockpit = &tmux.CockpitMeta{
+		Kind:         "batch-worker",
+		Agent:        "codex",
+		State:        "done",
+		RunRoot:      root,
+		EvidencePath: "results/missing/RESULT.md",
+	}
+
+	if got := sessionAttentionState(nil, session); got != "review" {
+		t.Fatalf("sessionAttentionState() = %q, want review", got)
+	}
+	if got := cockpitGroupFor(nil, session).name; got != groupNeedsInput.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupNeedsInput.name)
+	}
+}
+
+func TestClassificationStateRequiresExactToken(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		value string
+		want  string
+	}{
+		{value: "LIVE_MICROARM_NULL_SAFE", want: "null-safe"},
+		{value: "`signal_ok`", want: "signal"},
+		{value: "classification: directional", want: "directional"},
+		{value: "result_classification = degraded", want: "review"},
+		{value: "not_failure", want: ""},
+		{value: "non-null signal", want: ""},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.value, func(t *testing.T) {
+			t.Parallel()
+
+			if got := classificationState(extractClassificationValue(tt.value)); got != tt.want {
+				t.Fatalf("classificationState(%q) = %q, want %q", tt.value, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRawDeadNonzeroManagedPaneRemainsAttention(t *testing.T) {
+	t.Parallel()
+
+	session := sessionForGroup("failed-worker", "run.sh", "/workspace", "worker")
+	pane := &session.Windows[0].Panes[0]
+	pane.Dead = true
+	pane.DeadStatus = 1
+	pane.Cockpit = &tmux.CockpitMeta{
+		Kind:          "batch-worker",
+		Agent:         "codex",
+		State:         "failed",
+		EndReason:     "process_exit_nonzero",
+		CleanupPolicy: "kill_on_done",
+	}
+
+	if got := sessionAttentionState(nil, session); got != "failed" {
+		t.Fatalf("sessionAttentionState() = %q, want failed", got)
+	}
+	if got := cockpitGroupFor(nil, session).name; got != groupNeedsInput.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupNeedsInput.name)
+	}
+}
+
 func TestDisplayOnlyMetadataDoesNotOverrideStalePane(t *testing.T) {
 	t.Parallel()
 
@@ -236,6 +411,43 @@ func TestCardLayoutForCountUsesGroupWidth(t *testing.T) {
 	}
 	if inner <= 100 {
 		t.Fatalf("inner width = %d, want wide third-row cards", inner)
+	}
+}
+
+func TestOrganizedCardBodyHeightsUseVerticalSpace(t *testing.T) {
+	t.Parallel()
+
+	m := NewModel(nil, time.Second, 4, nil, false, true)
+	m.SetOrganized(true)
+	m.width = 363
+	m.height = 89
+	m.previewOffset = 4
+	m.footerHeight = 4
+	m.preferredCols = 5
+	m.cardInnerWidth = 68
+	m.sessions = []tmux.Session{
+		sessionForGroup("clean-draft-tranche3-fable-code", "claude", "/workspace", "Implement guardrails"),
+		sessionForGroup("AI-Alerts", "Python", "/workspace/config/smonitor", "AI-Alerts"),
+		sessionForGroup("s-apple-detector", "Python", "/workspace/config/camera", "s-apple-detector"),
+		sessionForGroup("smonitor", "go2rtc", "/workspace/config/smonitor", "smonitor"),
+		sessionForGroup("clean-draft-tranche4-fable-code", "claude", "/workspace", "Finished tranche"),
+	}
+	m.sessions[4].Windows[0].Panes[0].Dead = true
+	m.sessions[4].Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{Kind: "agent", Agent: "claude", State: "done"}
+
+	heights := m.cardBodyHeightsByGroup(m.sessions)
+	running := heights[groupRunningAgents.name]
+	services := heights[groupServices.name]
+	done := heights[groupDoneHeld.name]
+
+	if running <= maxOverviewBodyLines {
+		t.Fatalf("running agent height = %d, want more than old fixed cap %d", running, maxOverviewBodyLines)
+	}
+	if services <= 0 || services > 8 {
+		t.Fatalf("service height = %d, want compact service budget", services)
+	}
+	if done <= 0 || done > 7 {
+		t.Fatalf("done height = %d, want compact completed budget", done)
 	}
 }
 

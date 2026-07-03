@@ -4,6 +4,7 @@ package ui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -40,6 +41,14 @@ func (m *Model) buildStatusLine(width int) string {
 			Foreground(lipgloss.Color("250")).
 			Padding(0, 2).
 			Render(summary))
+	}
+
+	if m.paneParseWarnings > 0 {
+		warning := fmt.Sprintf("warning: %d pane row(s) hidden due to tmux parse errors", m.paneParseWarnings)
+		lines = append(lines, lipgloss.NewStyle().
+			Foreground(lipgloss.Color("209")).
+			Padding(0, 2).
+			Render(warning))
 	}
 
 	if stale := m.staleSessionNames(); len(stale) > 0 {
@@ -90,12 +99,27 @@ func (m *Model) formatCockpitSummary(width int) string {
 		return ""
 	}
 
-	order := []string{"running", "waiting", "blocked", "failed", "done", "stale"}
+	order := []string{
+		"failed", "route-fail", "safety-fail", "review",
+		"waiting", "blocked", "running", "starting",
+		"done", "pass", "signal", "directional", "null-safe", "held", "stale", "quiet",
+	}
 	parts := []string{fmt.Sprintf("cockpit items: %d", total)}
 	for _, state := range order {
 		if n := counts[state]; n > 0 {
 			parts = append(parts, fmt.Sprintf("%s %d", state, n))
 		}
+		delete(counts, state)
+	}
+	remainingStates := make([]string, 0, len(counts))
+	for state, n := range counts {
+		if n > 0 {
+			remainingStates = append(remainingStates, state)
+		}
+	}
+	sort.Strings(remainingStates)
+	for _, state := range remainingStates {
+		parts = append(parts, fmt.Sprintf("%s %d", state, counts[state]))
 	}
 	line := strings.Join(parts, " · ")
 	if width > 0 && lipgloss.Width(line) > width {
@@ -106,7 +130,7 @@ func (m *Model) formatCockpitSummary(width int) string {
 
 func formatStaleLine(names []string, width int) string {
 	prefix := "stale sessions: "
-	suffix := " (focus + X to clean)"
+	suffix := " (cleanup: session_hygiene.py or safe_kill.py)"
 	if len(names) == 0 {
 		return prefix + suffix
 	}

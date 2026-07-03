@@ -45,6 +45,7 @@ func (m *Model) renderSessionPreviews(offset int) string {
 	currentRow := make([]string, 0, cols)
 	now := time.Now()
 	groupCounts := sessionGroupCounts(m, sessions)
+	groupHeights := m.cardBodyHeightsByGroup(sessions)
 	currentGroup := ""
 	currentCols := cols
 	currentInnerWidth := m.cardInnerWidth
@@ -95,9 +96,6 @@ func (m *Model) renderSessionPreviews(offset int) string {
 		if preview.viewport.Width() != innerWidth {
 			preview.viewport.SetWidth(innerWidth)
 		}
-		if preview.viewport.Height() != innerHeight {
-			preview.viewport.SetHeight(innerHeight)
-		}
 
 		pulsing := now.Sub(preview.lastChanged) < pulseDuration
 		stale := m.isStale(session.ID)
@@ -142,12 +140,36 @@ func (m *Model) renderSessionPreviews(offset int) string {
 		controls := strings.Join(controlSegments, " ")
 
 		sessionState := sessionAttentionState(m, session)
+		bodyBudget := innerHeight
+		if m.organized && m.viewMode == viewModeOverview && currentGroup != "" {
+			if groupHeight, ok := groupHeights[currentGroup]; ok {
+				bodyBudget = groupHeight
+			}
+		}
+		if bodyBudget < 0 {
+			bodyBudget = 0
+		}
+		infoLines := []string{}
+		if !m.isCollapsed(session.ID) {
+			infoLines = cockpitCardInfoLines(innerWidth, m, session, pane, sessionState)
+		}
+		viewportHeight := bodyBudget
+		if len(infoLines) > 0 {
+			viewportHeight -= len(infoLines)
+		}
+		if viewportHeight < 0 {
+			viewportHeight = 0
+		}
+		if preview.viewport.Height() != viewportHeight {
+			preview.viewport.SetHeight(viewportHeight)
+		}
+
 		header := lipgloss.NewStyle().Render(formatHeader(innerWidth, session, window, pane, focused, pulsing, stale, cursor, sessionState, controls, m.hostname))
 		body := preview.viewport.View()
 		if m.isCollapsed(session.ID) {
 			body = ""
-		} else if lines := cockpitCardInfoLines(innerWidth, m, session, pane, sessionState); len(lines) > 0 {
-			info := append(lines, body)
+		} else if len(infoLines) > 0 {
+			info := append(infoLines, body)
 			body = lipgloss.JoinVertical(lipgloss.Left, info...)
 		}
 
@@ -157,21 +179,23 @@ func (m *Model) renderSessionPreviews(offset int) string {
 			state = cockpitState(pane, stale)
 		}
 		if body != "" {
-			body = compactFinishedBody(innerWidth, body, state)
-			body = compactOverviewBody(innerWidth, body, m.viewMode == viewModeOverview)
+			body = compactFinishedBody(innerWidth, body, state, bodyBudget)
+			body = compactOverviewBody(innerWidth, body, m.viewMode == viewModeOverview, bodyBudget)
 		}
 		switch {
-		case pane.Dead && pane.DeadStatus != 0:
+		case state == "failed" || state == "route-fail" || state == "safety-fail":
 			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorExitFail))
-		case pane.Dead:
-			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorExitOK))
-		case state == "failed":
-			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorExitFail))
-		case state == "blocked":
+		case state == "blocked" || state == "review":
 			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorBlocked))
 		case state == "waiting":
 			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorWaiting))
-		case state == "done":
+		case state == "done" || state == "pass" || state == "signal":
+			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorExitOK))
+		case state == "directional" || state == "null-safe":
+			borderStyle = borderStyle.BorderForeground(lipgloss.Color(headerColorCursor))
+		case pane.Dead && pane.DeadStatus != 0:
+			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorExitFail))
+		case pane.Dead:
 			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorExitOK))
 		case focused:
 			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorFocus))
@@ -231,6 +255,149 @@ func (m *Model) cardLayoutForCount(count int) (int, int) {
 		innerWidth = max(minInnerWidth, (m.width/max(1, cols))-columnOverhead)
 	}
 	return max(1, cols), innerWidth
+}
+
+type bodyHeightConstraint struct {
+	min    int
+	max    int
+	weight int
+}
+
+func (m *Model) cardBodyHeightsByGroup(sessions []tmux.Session) map[string]int {
+	heights := make(map[string]int)
+	if !m.organized || m.viewMode != viewModeOverview || len(sessions) == 0 {
+		return heights
+	}
+	counts := sessionGroupCounts(m, sessions)
+	groups := orderedCockpitGroups(m, sessions)
+	if len(groups) == 0 {
+		return heights
+	}
+
+	const frameHeight = 3
+	available := m.previewAvailableHeight()
+	fixedRows := len(groups)
+	totalBodyRows := 0
+	type section struct {
+		group cockpitGroup
+		rows  int
+		c     bodyHeightConstraint
+	}
+	sections := make([]section, 0, len(groups))
+	for _, group := range groups {
+		count := counts[group.name]
+		if count <= 0 {
+			continue
+		}
+		cols, _ := m.cardLayoutForCount(count)
+		rows := (count + cols - 1) / cols
+		if rows < 1 {
+			rows = 1
+		}
+		fixedRows += rows * frameHeight
+		c := bodyHeightConstraintForGroup(group)
+		sections = append(sections, section{group: group, rows: rows, c: c})
+		totalBodyRows += rows
+	}
+	bodyRows := available - fixedRows
+	if bodyRows < totalBodyRows {
+		bodyRows = max(totalBodyRows, bodyRows)
+	}
+	if bodyRows < 1 {
+		bodyRows = 1
+	}
+
+	used := 0
+	for _, section := range sections {
+		height := section.c.min
+		if height < 1 {
+			height = 1
+		}
+		if section.c.max > 0 && height > section.c.max {
+			height = section.c.max
+		}
+		heights[section.group.name] = height
+		used += height * section.rows
+	}
+	if used > bodyRows {
+		heights = make(map[string]int)
+		used = 0
+		remaining := bodyRows
+		for i, section := range sections {
+			sectionsLeft := len(sections) - i
+			height := 1
+			if sectionsLeft > 0 && remaining > sectionsLeft {
+				height = max(1, remaining/sectionsLeft/section.rows)
+			}
+			heights[section.group.name] = height
+			used += height * section.rows
+			remaining -= height * section.rows
+		}
+	}
+
+	slack := bodyRows - used
+	for slack > 0 {
+		best := -1
+		bestWeight := -1
+		for i, section := range sections {
+			height := heights[section.group.name]
+			if section.c.max > 0 && height >= section.c.max {
+				continue
+			}
+			cost := section.rows
+			if cost <= 0 || cost > slack {
+				continue
+			}
+			if section.c.weight > bestWeight {
+				best = i
+				bestWeight = section.c.weight
+			}
+		}
+		if best < 0 {
+			break
+		}
+		section := sections[best]
+		heights[section.group.name]++
+		slack -= section.rows
+	}
+	return heights
+}
+
+func (m *Model) previewAvailableHeight() int {
+	if m.height <= 0 {
+		return minPreviewHeight
+	}
+	offset := m.previewOffset
+	if offset <= 0 || offset >= m.height {
+		offset = topPaddingLines
+	}
+	footerHeight := max(1, m.footerHeight)
+	separatorHeight := 0
+	if m.height > offset+footerHeight {
+		separatorHeight = 1
+	}
+	available := m.height - offset - footerHeight - separatorHeight - gridSpacing
+	if available < 1 {
+		return 1
+	}
+	return available
+}
+
+func bodyHeightConstraintForGroup(group cockpitGroup) bodyHeightConstraint {
+	switch group.name {
+	case groupNeedsInput.name, groupFailed.name:
+		return bodyHeightConstraint{min: 12, max: 48, weight: 7}
+	case groupRunningAgents.name, groupWork.name:
+		return bodyHeightConstraint{min: 12, max: 64, weight: 6}
+	case groupDoneHeld.name:
+		return bodyHeightConstraint{min: 3, max: 7, weight: 1}
+	case groupServices.name:
+		return bodyHeightConstraint{min: 4, max: 8, weight: 1}
+	case groupDashboard.name, groupViewers.name, groupIdle.name:
+		return bodyHeightConstraint{min: 4, max: 10, weight: 1}
+	default:
+		return bodyHeightConstraint{min: minPreviewHeight, max: 24, weight: 2}
+	}
 }
 
 func sessionGroupCounts(m *Model, sessions []tmux.Session) map[string]int {
@@ -312,17 +479,19 @@ func formatHeader(width int, session tmux.Session, window tmux.Window, pane tmux
 	header := label + strings.Repeat(" ", padding) + controls
 	style := lipgloss.NewStyle()
 	switch {
-	case pane.Dead && pane.DeadStatus != 0:
+	case state == "failed" || state == "route-fail" || state == "safety-fail":
 		style = style.Foreground(lipgloss.Color(headerColorExitFail))
-	case pane.Dead:
-		style = style.Foreground(lipgloss.Color(headerColorExitOK))
-	case state == "failed":
-		style = style.Foreground(lipgloss.Color(headerColorExitFail))
-	case state == "blocked":
+	case state == "blocked" || state == "review":
 		style = style.Foreground(lipgloss.Color(headerColorBlocked))
 	case state == "waiting":
 		style = style.Foreground(lipgloss.Color(headerColorWaiting))
-	case state == "done":
+	case state == "done" || state == "pass" || state == "signal":
+		style = style.Foreground(lipgloss.Color(headerColorExitOK))
+	case state == "directional" || state == "null-safe":
+		style = style.Foreground(lipgloss.Color(headerColorCursor))
+	case pane.Dead && pane.DeadStatus != 0:
+		style = style.Foreground(lipgloss.Color(headerColorExitFail))
+	case pane.Dead:
 		style = style.Foreground(lipgloss.Color(headerColorExitOK))
 	case focused:
 		style = style.Foreground(lipgloss.Color(headerColorFocus))
@@ -342,11 +511,7 @@ func cockpitTitleParts(session tmux.Session, window tmux.Window, pane tmux.Pane,
 	if pane.Cockpit != nil {
 		meta := pane.Cockpit
 		if strings.EqualFold(strings.TrimSpace(meta.Kind), "service") {
-			parts := []string{"SERVICE", session.Name}
-			if project := strings.TrimSpace(meta.Project); project != "" {
-				parts = append(parts, project)
-			}
-			return dedupeTitleParts(parts)
+			return dedupeTitleParts([]string{"SERVICE", session.Name})
 		}
 		parts := []string{}
 		if meta.DisplayOnly() {
@@ -409,6 +574,9 @@ func parseCockpitTimestamp(value string) time.Time {
 }
 
 func cockpitState(pane tmux.Pane, stale bool) string {
+	if outcome := semanticPaneOutcome(pane); outcome.state != "" {
+		return outcome.state
+	}
 	if pane.Dead && pane.DeadStatus != 0 {
 		return "failed"
 	}
@@ -424,7 +592,7 @@ func cockpitState(pane tmux.Pane, stale bool) string {
 			}
 		}
 		switch state {
-		case "starting", "running", "waiting", "blocked", "done", "failed", "stale":
+		case "starting", "running", "waiting", "blocked", "done", "failed", "route-fail", "safety-fail", "stale", "review", "pass", "signal", "directional", "null-safe", "held":
 			return state
 		}
 	}
@@ -477,14 +645,16 @@ func cockpitSubtleLine(width int, line string) string {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Render(line)
 }
 
-func compactFinishedBody(width int, body string, state string) string {
+func compactFinishedBody(width int, body string, state string, maxLines int) string {
 	switch state {
-	case "done", "held", "stale", "failed":
+	case "done", "held", "stale", "failed", "route-fail", "safety-fail", "review", "pass", "signal", "directional", "null-safe":
 	default:
 		return body
 	}
+	if maxLines <= 0 {
+		maxLines = maxOverviewBodyLines
+	}
 	lines := trimTrailingBlankLines(strings.Split(body, "\n"))
-	const maxLines = 6
 	if len(lines) <= maxLines {
 		return strings.Join(lines, "\n")
 	}
@@ -498,22 +668,26 @@ func compactFinishedBody(width int, body string, state string) string {
 	return strings.Join(kept, "\n")
 }
 
-func compactOverviewBody(width int, body string, overview bool) string {
+func compactOverviewBody(width int, body string, overview bool, maxLines int) string {
 	if !overview {
 		return body
+	}
+	if maxLines <= 0 {
+		maxLines = maxOverviewBodyLines
 	}
 	lines := trimTrailingBlankLines(strings.Split(body, "\n"))
 	if len(lines) == 0 {
 		return ""
 	}
 	message := ""
-	if len(lines) <= maxOverviewBodyLines {
-		for len(lines) < maxOverviewBodyLines {
+	if len(lines) <= maxLines {
+		for len(lines) < maxLines {
 			lines = append(lines, "")
 		}
 		return strings.Join(lines, "\n")
 	}
-	kept := append([]string{}, lines[:maxOverviewBodyLines-1]...)
+	keepLines := max(1, maxLines-1)
+	kept := append([]string{}, lines[:keepLines]...)
 	message = fmt.Sprintf("... %d more lines, open detail for full pane", len(lines)-len(kept))
 	if width > 0 && lipgloss.Width(message) > width {
 		message = lipgloss.NewStyle().Width(width).MaxWidth(width).Render(message)

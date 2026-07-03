@@ -114,12 +114,12 @@ func TestFormatHeaderUsesServiceSessionName(t *testing.T) {
 	}
 
 	got := formatHeader(120, session, window, pane, false, false, false, false, "running", "[x]", "dev-host")
-	for _, want := range []string{"SERVICE", "smonitor", "cameras"} {
+	for _, want := range []string{"SERVICE", "smonitor"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("formatHeader missing %q in %q", want, got)
 		}
 	}
-	if strings.Contains(got, "ADOPTED") || strings.Contains(got, "Cass") {
+	if strings.Contains(got, "ADOPTED") || strings.Contains(got, "Cass") || strings.Contains(got, "cameras") {
 		t.Fatalf("service header should stay specific and compact, got %q", got)
 	}
 }
@@ -207,7 +207,7 @@ func TestCompactFinishedBodyLimitsTranscriptNoise(t *testing.T) {
 	t.Parallel()
 
 	body := strings.Join([]string{"1", "2", "3", "4", "5", "6", "7", "8"}, "\n")
-	got := compactFinishedBody(80, body, "done")
+	got := compactFinishedBody(80, body, "done", 6)
 
 	if strings.Contains(got, "\n7\n") || strings.HasSuffix(got, "\n8") {
 		t.Fatalf("compactFinishedBody should trim finished transcript, got %q", got)
@@ -215,7 +215,7 @@ func TestCompactFinishedBodyLimitsTranscriptNoise(t *testing.T) {
 	if !strings.Contains(got, "more lines") {
 		t.Fatalf("compactFinishedBody should mention hidden transcript lines, got %q", got)
 	}
-	if active := compactFinishedBody(80, body, "running"); active != body {
+	if active := compactFinishedBody(80, body, "running", 6); active != body {
 		t.Fatalf("running body should stay unmodified")
 	}
 }
@@ -229,14 +229,15 @@ func TestCompactOverviewBodyLeavesDetailUncapped(t *testing.T) {
 	}
 	body := strings.Join(lines, "\n")
 
-	got := compactOverviewBody(80, body, true)
-	if count := strings.Count(got, "\n") + 1; count != maxOverviewBodyLines {
-		t.Fatalf("overview body line count = %d, want %d; body %q", count, maxOverviewBodyLines, got)
+	const budget = 12
+	got := compactOverviewBody(80, body, true, budget)
+	if count := strings.Count(got, "\n") + 1; count != budget {
+		t.Fatalf("overview body line count = %d, want %d; body %q", count, budget, got)
 	}
 	if !strings.Contains(got, "open detail") {
 		t.Fatalf("overview body should point to detail view, got %q", got)
 	}
-	if detail := compactOverviewBody(80, body, false); detail != body {
+	if detail := compactOverviewBody(80, body, false, budget); detail != body {
 		t.Fatalf("detail body should stay unmodified")
 	}
 }
@@ -245,11 +246,12 @@ func TestCompactOverviewBodyIgnoresTrailingViewportPadding(t *testing.T) {
 	t.Parallel()
 
 	body := "goal: quiet service\npolicy: manual\nservice running\n\n\n\n"
-	got := compactOverviewBody(80, body, true)
+	const budget = 8
+	got := compactOverviewBody(80, body, true, budget)
 	if strings.Contains(got, "more lines") {
 		t.Fatalf("blank viewport padding should not be treated as hidden content, got %q", got)
 	}
-	if count := strings.Count(got, "\n") + 1; count != maxOverviewBodyLines {
+	if count := strings.Count(got, "\n") + 1; count != budget {
 		t.Fatalf("overview body should be padded to fixed height, got %d lines in %q", count, got)
 	}
 }

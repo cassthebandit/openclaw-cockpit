@@ -100,7 +100,7 @@ func (c *Client) Snapshot(ctx context.Context) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 
-	panes, err := c.listPanes(ctx)
+	panes, skippedPanes, err := c.listPanes(ctx)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -131,8 +131,9 @@ func (c *Client) Snapshot(ctx context.Context) (Snapshot, error) {
 	}
 
 	return Snapshot{
-		Sessions:  slices.Clone(sessions),
-		Timestamp: time.Now(),
+		Sessions:          slices.Clone(sessions),
+		Timestamp:         time.Now(),
+		PaneParseWarnings: skippedPanes,
 	}, nil
 }
 

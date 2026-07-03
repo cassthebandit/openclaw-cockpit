@@ -44,6 +44,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = nil
 		m.lastUpdated = msg.snapshot.Timestamp
 		m.sessions = msg.snapshot.Sessions
+		m.paneParseWarnings = msg.snapshot.PaneParseWarnings
 		if m.detailSession != "" && !m.sessionExists(m.detailSession) {
 			m.leaveDetail(true)
 		}

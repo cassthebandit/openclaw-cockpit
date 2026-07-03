@@ -115,7 +115,7 @@ func (c *Client) listWindows(ctx context.Context) ([]Window, error) {
 
 // listPanes captures metadata for every pane so we can join them to windows
 // and sessions.
-func (c *Client) listPanes(ctx context.Context) ([]Pane, error) {
+func (c *Client) listPanes(ctx context.Context) ([]Pane, int, error) {
 	format := strings.Join([]string{
 		"#{session_id}",
 		"#{window_id}",
@@ -159,9 +159,9 @@ func (c *Client) listPanes(ctx context.Context) ([]Pane, error) {
 	out, err := c.runTmux(ctx, "list-panes", "-a", "-F", format)
 	if err != nil {
 		if isNoServerError(err) {
-			return []Pane{}, nil
+			return []Pane{}, 0, nil
 		}
-		return nil, fmt.Errorf("list-panes: %w", err)
+		return nil, 0, fmt.Errorf("list-panes: %w", err)
 	}
 	scanner := bufio.NewScanner(strings.NewReader(string(out)))
 	panes := []Pane{}
@@ -252,12 +252,12 @@ func (c *Client) listPanes(ctx context.Context) ([]Pane, error) {
 		panes = append(panes, pane)
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		return nil, skipped, err
 	}
 	if skipped > 0 {
 		log.Printf("tmux list-panes: skipped %d malformed pane row(s)", skipped)
 	}
-	return panes, nil
+	return panes, skipped, nil
 }
 
 // parseUnix converts tmux's unix timestamp fields into a time value.

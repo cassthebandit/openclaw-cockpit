@@ -160,9 +160,10 @@ type Model struct {
 	err         error
 	inflight    bool
 
-	cachedStatus string
-	lastCtrlC    time.Time
-	lastEsc      time.Time
+	cachedStatus      string
+	paneParseWarnings int
+	lastCtrlC         time.Time
+	lastEsc           time.Time
 }
 
 // SetPreferredColumns caps the overview grid at a caller-selected column

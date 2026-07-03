@@ -50,8 +50,9 @@ type Pane struct {
 
 // Snapshot contains the state of the tmux server.
 type Snapshot struct {
-	Sessions  []Session
-	Timestamp time.Time
+	Sessions          []Session
+	Timestamp         time.Time
+	PaneParseWarnings int
 }
 
 // CockpitMeta holds optional OpenClaw/Cass item metadata carried by tmux pane

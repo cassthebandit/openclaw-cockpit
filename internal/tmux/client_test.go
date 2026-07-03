@@ -61,12 +61,15 @@ func TestListPanesNoServer(t *testing.T) {
 		return nil, &exec.ExitError{Stderr: []byte("failed to connect to server")}
 	}}
 
-	panes, err := c.listPanes(context.Background())
+	panes, skipped, err := c.listPanes(context.Background())
 	if err != nil {
 		t.Fatalf("listPanes returned error: %v", err)
 	}
 	if len(panes) != 0 {
 		t.Fatalf("expected no panes, got %d", len(panes))
+	}
+	if skipped != 0 {
+		t.Fatalf("skipped panes = %d, want 0", skipped)
 	}
 }
 
@@ -113,12 +116,15 @@ func TestListPanesParsesCockpitMetadata(t *testing.T) {
 		return []byte(line), nil
 	}}
 
-	panes, err := c.listPanes(context.Background())
+	panes, skipped, err := c.listPanes(context.Background())
 	if err != nil {
 		t.Fatalf("listPanes returned error: %v", err)
 	}
 	if len(panes) != 1 {
 		t.Fatalf("expected one pane, got %d", len(panes))
+	}
+	if skipped != 0 {
+		t.Fatalf("skipped panes = %d, want 0", skipped)
 	}
 	meta := panes[0].Cockpit
 	if meta == nil {
@@ -186,12 +192,43 @@ func TestListPanesSkipsMalformedRows(t *testing.T) {
 		return []byte(bad + "\n" + "too\tfew\tfields\n" + good + "\n"), nil
 	}}
 
-	panes, err := c.listPanes(context.Background())
+	panes, skipped, err := c.listPanes(context.Background())
 	if err != nil {
 		t.Fatalf("listPanes returned error: %v", err)
 	}
 	if len(panes) != 1 || panes[0].ID != "%1" {
 		t.Fatalf("expected one good pane, got %+v", panes)
+	}
+	if skipped != 2 {
+		t.Fatalf("skipped panes = %d, want 2", skipped)
+	}
+}
+
+func TestSnapshotCarriesMalformedPaneWarningCount(t *testing.T) {
+	t.Parallel()
+
+	c := &Client{bin: "tmux", run: func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		switch args[0] {
+		case "list-sessions":
+			return []byte(strings.Join([]string{"$1", "worker", "0", "100", "120"}, tmuxFieldSep) + "\n"), nil
+		case "list-windows":
+			return []byte(strings.Join([]string{"$1", "@1", "0", "main", "1", "0"}, tmuxFieldSep) + "\n"), nil
+		case "list-panes":
+			good := strings.Join([]string{"$1", "@1", "%1", "1", "zsh", "title", "110", "100", "80", "24", "/dev/ttys001", "/tmp", "0", ""}, tmuxFieldSep)
+			bad := strings.Join([]string{"$1", "@1", "%bad", "1", "zsh", "title", "not-a-time", "100", "80", "24", "/dev/ttys001", "/tmp", "0", ""}, tmuxFieldSep)
+			return []byte(bad + "\n" + good + "\n"), nil
+		default:
+			t.Fatalf("unexpected tmux command: %#v", args)
+			return nil, nil
+		}
+	}}
+
+	snap, err := c.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot returned error: %v", err)
+	}
+	if snap.PaneParseWarnings != 1 {
+		t.Fatalf("PaneParseWarnings = %d, want 1", snap.PaneParseWarnings)
 	}
 }
 
@@ -203,12 +240,15 @@ func TestListPanesPreservesTabsInFields(t *testing.T) {
 		return []byte(line), nil
 	}}
 
-	panes, err := c.listPanes(context.Background())
+	panes, skipped, err := c.listPanes(context.Background())
 	if err != nil {
 		t.Fatalf("listPanes returned error: %v", err)
 	}
 	if len(panes) != 1 {
 		t.Fatalf("expected one pane, got %d", len(panes))
+	}
+	if skipped != 0 {
+		t.Fatalf("skipped panes = %d, want 0", skipped)
 	}
 	if panes[0].Title != "title\twith\ttabs" || panes[0].CurrentPath != "/tmp/path\twith\ttabs" {
 		t.Fatalf("tabs were not preserved: %+v", panes[0])
