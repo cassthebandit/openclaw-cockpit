@@ -80,7 +80,7 @@ func TestMoveCursorGrid(t *testing.T) {
 }
 
 // TestUpdatePreviewDimensionsKeepsReserve ensures the viewport height respects
-// the reserved footer spacing so cards do not overlap the footer.
+// the actual footer height so cards do not overlap the footer.
 func TestUpdatePreviewDimensionsKeepsReserve(t *testing.T) {
 	t.Parallel()
 
@@ -99,7 +99,7 @@ func TestUpdatePreviewDimensionsKeepsReserve(t *testing.T) {
 	m.updatePreviewDimensions(1)
 
 	preview := m.previews["s"].viewport
-	available := m.height - m.previewOffset - max(1, m.footerHeight) - gridSpacing
+	available := m.height - m.previewOffset - max(1, m.footerHeight)
 	// Each card adds a 3-line chrome (border + header).
 	if preview.Height()+3 > available {
 		t.Fatalf("card footprint %d exceeds available grid height %d", preview.Height()+3, available)

@@ -11,7 +11,6 @@ import (
 
 const (
 	topPaddingLines = 0
-	gridSpacing     = 1
 )
 
 // View renders the entire tmuxwatch interface, including title bar, search
@@ -46,13 +45,7 @@ func (m *Model) View() tea.View {
 	m.footerHeight = max(1, countLines(status))
 	m.updatePreviewDimensions(m.filteredSessionCount())
 
-	separatorHeight := 0
-	separator := ""
-	if targetHeight > headerHeight+m.footerHeight {
-		separatorHeight = 1
-		separator = lipgloss.NewStyle().Width(targetWidth).Render("")
-	}
-	availableHeight := max(0, targetHeight-headerHeight-m.footerHeight-separatorHeight-gridSpacing)
+	availableHeight := max(0, targetHeight-headerHeight-m.footerHeight)
 	gridContent := m.renderSessionPreviews(headerHeight)
 	if gridContent == "" {
 		gridContent = emptyStateView(targetWidth, availableHeight)
@@ -69,18 +62,7 @@ func (m *Model) View() tea.View {
 		footerView = m.footer.View()
 	}
 
-	filler := ""
-	if gridSpacing > 0 && targetHeight > headerHeight+m.footerHeight+separatorHeight {
-		filler = lipgloss.NewStyle().Width(targetWidth).Height(gridSpacing).Render("")
-	}
-
 	segments := []string{header, gridContent}
-	if filler != "" {
-		segments = append(segments, filler)
-	}
-	if separatorHeight > 0 {
-		segments = append(segments, separator)
-	}
 	segments = append(segments, footerView)
 	view := lipgloss.JoinVertical(lipgloss.Left, segments...)
 	view = lipgloss.Place(targetWidth, targetHeight, lipgloss.Left, lipgloss.Top, view)

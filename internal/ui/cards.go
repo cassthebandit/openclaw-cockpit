@@ -388,11 +388,7 @@ func (m *Model) previewAvailableHeight() int {
 		offset = topPaddingLines
 	}
 	footerHeight := max(1, m.footerHeight)
-	separatorHeight := 0
-	if m.height > offset+footerHeight {
-		separatorHeight = 1
-	}
-	available := m.height - offset - footerHeight - separatorHeight - gridSpacing
+	available := m.height - offset - footerHeight
 	if available < 1 {
 		return 1
 	}
