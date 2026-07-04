@@ -45,6 +45,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lastUpdated = msg.snapshot.Timestamp
 		m.sessions = msg.snapshot.Sessions
 		m.paneParseWarnings = msg.snapshot.PaneParseWarnings
+		m.pruneHiddenRuntimeSessions()
 		if m.detailSession != "" && !m.sessionExists(m.detailSession) {
 			m.leaveDetail(true)
 		}
@@ -182,6 +183,14 @@ func (m *Model) ensurePreviewsAndCapture() tea.Cmd {
 		return nil
 	}
 	return tea.Batch(cmds...)
+}
+
+func (m *Model) pruneHiddenRuntimeSessions() {
+	for id := range m.hidden {
+		if strings.HasPrefix(id, "openclaw-runtime:") && !m.sessionExists(id) {
+			delete(m.hidden, id)
+		}
+	}
 }
 
 // captureOrder returns sessions in the order we should attempt pane captures,

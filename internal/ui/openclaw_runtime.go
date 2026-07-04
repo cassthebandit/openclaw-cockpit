@@ -16,39 +16,49 @@ import (
 const (
 	defaultOpenClawRuntimeScript  = "/Users/cass/.openclaw/workspace/tools/openclaw_runtime/cockpit_snapshot.py"
 	defaultOpenClawRuntimeTimeout = 20 * time.Second
+	openClawRuntimeCardContract   = "runtime-card.v1"
 )
 
 type openClawRuntimeSnapshot struct {
-	Cards []openClawRuntimeCard `json:"cards"`
+	CardContract string                `json:"cardContract"`
+	Cards        []openClawRuntimeCard `json:"cards"`
 }
 
 type openClawRuntimeCard struct {
-	ID               string   `json:"id"`
-	DedupeKey        string   `json:"dedupeKey"`
-	Kind             string   `json:"kind"`
-	Label            string   `json:"label"`
-	DisplayTitle     string   `json:"displayTitle"`
-	DisplayStatus    string   `json:"displayStatus"`
-	DisplayGroup     string   `json:"displayGroup"`
-	Reason           string   `json:"reason"`
-	NextAction       string   `json:"nextAction"`
-	Runtime          string   `json:"runtime"`
-	StateClass       string   `json:"stateClass"`
-	Status           string   `json:"status"`
-	Severity         string   `json:"severity"`
-	Summary          string   `json:"summary"`
-	DeliveryStatus   string   `json:"deliveryStatus"`
-	RunID            string   `json:"runId"`
-	ChildSessionKey  string   `json:"childSessionKey"`
-	OwnerKey         string   `json:"ownerKey"`
-	ParentFlowID     string   `json:"parentFlowId"`
-	LastEventAgeMs   *int64   `json:"lastEventAgeMs"`
-	CreatedAgeMs     *int64   `json:"createdAgeMs"`
-	RequesterSession string   `json:"requesterSessionKey"`
-	EvidenceIDs      []string `json:"evidenceIds"`
-	SourceKinds      []string `json:"sourceKinds"`
-	SourceCount      int      `json:"sourceCount"`
-	SourceSummaries  []string `json:"sourceSummaries"`
+	ID                string   `json:"id"`
+	DedupeKey         string   `json:"dedupeKey"`
+	CardContract      string   `json:"cardContract"`
+	Kind              string   `json:"kind"`
+	Label             string   `json:"label"`
+	DisplayTitle      string   `json:"displayTitle"`
+	DisplayStatus     string   `json:"displayStatus"`
+	DisplayGroup      string   `json:"displayGroup"`
+	Reason            string   `json:"reason"`
+	NextAction        string   `json:"nextAction"`
+	Runtime           string   `json:"runtime"`
+	StateClass        string   `json:"stateClass"`
+	Status            string   `json:"status"`
+	Severity          string   `json:"severity"`
+	LifecycleState    string   `json:"lifecycleState"`
+	SourceTruth       string   `json:"sourceTruth"`
+	SourceProvenance  string   `json:"sourceProvenance"`
+	Actionability     string   `json:"actionability"`
+	TeardownPolicy    string   `json:"teardownPolicy"`
+	PolicyScope       string   `json:"policyScope"`
+	AggregationPolicy string   `json:"aggregationPolicy"`
+	Summary           string   `json:"summary"`
+	DeliveryStatus    string   `json:"deliveryStatus"`
+	RunID             string   `json:"runId"`
+	ChildSessionKey   string   `json:"childSessionKey"`
+	OwnerKey          string   `json:"ownerKey"`
+	ParentFlowID      string   `json:"parentFlowId"`
+	LastEventAgeMs    *int64   `json:"lastEventAgeMs"`
+	CreatedAgeMs      *int64   `json:"createdAgeMs"`
+	RequesterSession  string   `json:"requesterSessionKey"`
+	EvidenceIDs       []string `json:"evidenceIds"`
+	SourceKinds       []string `json:"sourceKinds"`
+	SourceCount       int      `json:"sourceCount"`
+	SourceSummaries   []string `json:"sourceSummaries"`
 }
 
 // AppendOpenClawRuntimeSessions adds optional OpenClaw runtime cards to a tmux
@@ -65,19 +75,27 @@ func openClawRuntimeSessions(source RuntimeSource, now time.Time) []tmux.Session
 	cards, err := loadOpenClawRuntimeCards(source)
 	if err != nil {
 		cards = []openClawRuntimeCard{{
-			ID:            "source-error",
-			Kind:          "source",
-			Label:         "OpenClaw runtime snapshot",
-			DisplayTitle:  "OpenClaw runtime snapshot",
-			DisplayStatus: "failed",
-			DisplayGroup:  "needs_attention",
-			Reason:        "runtime_failed",
-			NextAction:    "inspect manually",
-			Runtime:       "openclaw-runtime",
-			StateClass:    "attention",
-			Status:        "failed",
-			Severity:      "error",
-			Summary:       err.Error(),
+			ID:                "source-error",
+			CardContract:      openClawRuntimeCardContract,
+			Kind:              "source",
+			Label:             "OpenClaw runtime snapshot",
+			DisplayTitle:      "OpenClaw runtime snapshot",
+			DisplayStatus:     "failed",
+			DisplayGroup:      "needs_attention",
+			Reason:            "runtime_failed",
+			NextAction:        "inspect manually",
+			Runtime:           "openclaw-runtime",
+			StateClass:        "attention",
+			Status:            "failed",
+			Severity:          "error",
+			LifecycleState:    "source_unavailable",
+			SourceTruth:       "source_error",
+			SourceProvenance:  "openclaw runtime snapshot adapter",
+			Actionability:     "operator_action",
+			TeardownPolicy:    "retry_next_poll",
+			PolicyScope:       "source_identity",
+			AggregationPolicy: "source_error",
+			Summary:           err.Error(),
 		}}
 	}
 	sessions := make([]tmux.Session, 0, len(cards))
@@ -121,7 +139,22 @@ func loadOpenClawRuntimeCards(source RuntimeSource) ([]openClawRuntimeCard, erro
 	if err := json.Unmarshal(out, &snapshot); err != nil {
 		return nil, fmt.Errorf("runtime snapshot returned invalid JSON: %w", err)
 	}
+	if err := validateOpenClawRuntimeSnapshot(snapshot); err != nil {
+		return nil, err
+	}
 	return snapshot.Cards, nil
+}
+
+func validateOpenClawRuntimeSnapshot(snapshot openClawRuntimeSnapshot) error {
+	if strings.TrimSpace(snapshot.CardContract) != openClawRuntimeCardContract {
+		return fmt.Errorf("runtime snapshot contract = %q, want %s", snapshot.CardContract, openClawRuntimeCardContract)
+	}
+	for i, card := range snapshot.Cards {
+		if strings.TrimSpace(card.CardContract) != openClawRuntimeCardContract {
+			return fmt.Errorf("runtime card %d contract = %q, want %s", i, card.CardContract, openClawRuntimeCardContract)
+		}
+	}
+	return nil
 }
 
 func openClawRuntimeSession(card openClawRuntimeCard, index int, now time.Time) tmux.Session {
@@ -146,24 +179,31 @@ func openClawRuntimeSession(card openClawRuntimeCard, index int, now time.Time) 
 		Width:        100,
 		Height:       24,
 		Cockpit: &tmux.CockpitMeta{
-			ContractVersion: "display-only",
-			ManagedBy:       "openclaw_runtime_snapshot",
-			Kind:            "runtime",
-			Agent:           runtime,
-			Owner:           "",
-			Project:         "",
-			Goal:            label,
-			State:           state,
-			DisplayStatus:   cardSafeLine(valueOr(card.DisplayStatus, state)),
-			DisplayGroup:    cardSafeLine(valueOr(card.DisplayGroup, "unknown")),
-			Reason:          cardSafeLine(card.Reason),
-			NextAction:      cardSafeLine(card.NextAction),
-			SourceKinds:     cardSafeLine(strings.Join(card.SourceKinds, ",")),
-			SourceCount:     runtimeSourceCount(card),
-			SessionID:       firstNonEmpty(card.ChildSessionKey, card.RequesterSession, card.ParentFlowID, card.RunID, card.DedupeKey, card.ID),
-			UpdatedAt:       activity.UTC().Format(time.RFC3339),
-			EvidencePath:    runtimeCardEvidence(card),
-			HoldReason:      runtimeCardHoldReason(card),
+			ContractVersion:   runtimeCardContract(card),
+			ManagedBy:         "openclaw_runtime_snapshot",
+			Kind:              "runtime",
+			Agent:             runtime,
+			Owner:             "",
+			Project:           "",
+			Goal:              label,
+			State:             state,
+			DisplayStatus:     cardSafeLine(valueOr(card.DisplayStatus, state)),
+			DisplayGroup:      cardSafeLine(valueOr(card.DisplayGroup, "unknown")),
+			Reason:            cardSafeLine(card.Reason),
+			NextAction:        cardSafeLine(card.NextAction),
+			LifecycleState:    cardSafeLine(runtimeCardLifecycle(card)),
+			SourceTruth:       cardSafeLine(card.SourceTruth),
+			SourceProvenance:  cardSafeLine(card.SourceProvenance),
+			Actionability:     cardSafeLine(card.Actionability),
+			TeardownPolicy:    cardSafeLine(card.TeardownPolicy),
+			PolicyScope:       cardSafeLine(card.PolicyScope),
+			AggregationPolicy: cardSafeLine(card.AggregationPolicy),
+			SourceKinds:       cardSafeLine(strings.Join(card.SourceKinds, ",")),
+			SourceCount:       runtimeSourceCount(card),
+			SessionID:         firstNonEmpty(card.ChildSessionKey, card.RequesterSession, card.ParentFlowID, card.RunID, card.DedupeKey, card.ID),
+			UpdatedAt:         activity.UTC().Format(time.RFC3339),
+			EvidencePath:      runtimeCardEvidence(card),
+			HoldReason:        runtimeCardHoldReason(card),
 		},
 		PreviewText: runtimeCardPreview(card),
 	}
@@ -219,6 +259,36 @@ func runtimeCardState(card openClawRuntimeCard) string {
 	}
 }
 
+func runtimeCardContract(card openClawRuntimeCard) string {
+	return cardSafeLine(valueOr(card.CardContract, "runtime-card.unknown"))
+}
+
+func runtimeCardLifecycle(card openClawRuntimeCard) string {
+	if lifecycle := cardSafeLine(card.LifecycleState); lifecycle != "" {
+		return lifecycle
+	}
+	switch strings.ToLower(strings.TrimSpace(card.DisplayGroup)) {
+	case "needs_attention":
+		return "needs_attention"
+	case "active":
+		return "active"
+	case "completed":
+		return "resolved"
+	case "unknown":
+		return "unknown"
+	}
+	switch runtimeCardState(card) {
+	case "running":
+		return "active"
+	case "done":
+		return "resolved"
+	case "failed", "blocked", "review":
+		return "needs_attention"
+	default:
+		return "unknown"
+	}
+}
+
 func runtimeCardPreview(card openClawRuntimeCard) string {
 	evidence := runtimeCardEvidence(card)
 	sources := cardSafeLine(strings.Join(card.SourceKinds, ","))
@@ -227,8 +297,21 @@ func runtimeCardPreview(card openClawRuntimeCard) string {
 		"",
 		"runtime: " + cardSafeLine(valueOr(card.Runtime, "unknown")),
 		"status: " + cardSafeLine(valueOr(card.DisplayStatus, valueOr(card.Status, "unknown"))),
+		"lifecycle: " + runtimeCardLifecycle(card),
 		"cause: " + cardSafeLine(valueOr(card.Reason, valueOr(card.Summary, "unknown"))),
 		"next: " + cardSafeLine(valueOr(card.NextAction, "inspect manually")),
+	}
+	if action := cardSafeLine(card.Actionability); action != "" {
+		lines = append(lines, "action: "+action)
+	}
+	if source := runtimeCardSourceLine(card); source != "" {
+		lines = append(lines, "source: "+source)
+	}
+	if policy := runtimeCardPolicyLine(card); policy != "" {
+		lines = append(lines, "policy: "+policy)
+	}
+	if teardown := cardSafeLine(card.TeardownPolicy); teardown != "" {
+		lines = append(lines, "teardown: "+teardown)
 	}
 	if evidence != "" {
 		lines = append(lines, "evidence: "+cardSafeLine(evidence))
@@ -266,6 +349,37 @@ func runtimeCardPreview(card openClawRuntimeCard) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func runtimeCardSourceLine(card openClawRuntimeCard) string {
+	truth := cardSafeLine(card.SourceTruth)
+	provenance := cardSafeLine(card.SourceProvenance)
+	switch {
+	case truth != "" && provenance != "":
+		return truth + " via " + provenance
+	case truth != "":
+		return truth
+	default:
+		return provenance
+	}
+}
+
+func runtimeCardPolicyLine(card openClawRuntimeCard) string {
+	scope := cardSafeLine(card.PolicyScope)
+	aggregation := cardSafeLine(card.AggregationPolicy)
+	if scope == "" && aggregation == "" {
+		return ""
+	}
+	if scope == "source_identity" && (aggregation == "" || aggregation == "primary_identity") {
+		return ""
+	}
+	if scope != "" && aggregation != "" {
+		return scope + " · " + aggregation
+	}
+	if scope != "" {
+		return scope
+	}
+	return aggregation
 }
 
 func runtimeCardEvidence(card openClawRuntimeCard) string {

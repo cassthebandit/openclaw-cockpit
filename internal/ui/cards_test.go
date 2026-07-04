@@ -105,7 +105,7 @@ func TestFormatHeaderUsesCompactOpenClawRuntimeHeader(t *testing.T) {
 		Title:        "backend packet",
 		LastActivity: time.Now().Add(-2 * time.Minute),
 		Cockpit: &tmux.CockpitMeta{
-			ContractVersion: "display-only",
+			ContractVersion: "runtime-card.v1",
 			ManagedBy:       "openclaw_runtime_snapshot",
 			Kind:            "runtime",
 			Agent:           "taskflow",
@@ -142,7 +142,7 @@ func TestCardTopRowsStripWideGlyphs(t *testing.T) {
 	pane := tmux.Pane{
 		Title: "zsh",
 		Cockpit: &tmux.CockpitMeta{
-			ContractVersion: "display-only",
+			ContractVersion: "runtime-card.v1",
 			ManagedBy:       "openclaw_runtime_snapshot",
 			Kind:            "runtime",
 			Agent:           "subagent",

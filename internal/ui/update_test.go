@@ -123,6 +123,63 @@ func TestEnsurePreviewsUsesSyntheticPreviewText(t *testing.T) {
 	}
 }
 
+func TestEnsurePreviewsPrunesDisappearedRuntimeCard(t *testing.T) {
+	t.Parallel()
+
+	vp := viewportFor(innerDimension{width: 80, height: 5})
+	m := &Model{
+		previews: map[string]*sessionPreview{
+			"openclaw-runtime:old-card": {
+				viewport:    &vp,
+				paneID:      "%openclaw-runtime:old-card",
+				lastContent: "old runtime card",
+			},
+		},
+		hidden:    make(map[string]struct{}),
+		stale:     make(map[string]struct{}),
+		collapsed: make(map[string]struct{}),
+		width:     120,
+		height:    60,
+	}
+
+	if cmd := m.ensurePreviewsAndCapture(); cmd != nil {
+		t.Fatalf("expected no capture command with no sessions")
+	}
+	if _, ok := m.previews["openclaw-runtime:old-card"]; ok {
+		t.Fatalf("disappeared runtime card preview should be pruned")
+	}
+}
+
+func TestSnapshotPrunesHiddenDisappearedRuntimeCard(t *testing.T) {
+	t.Parallel()
+
+	m := &Model{
+		previews:  make(map[string]*sessionPreview),
+		hidden:    map[string]struct{}{"openclaw-runtime:old-card": {}, "$normal": {}},
+		stale:     make(map[string]struct{}),
+		collapsed: make(map[string]struct{}),
+		width:     120,
+		height:    60,
+	}
+	m.Update(snapshotMsg{snapshot: tmux.Snapshot{
+		Timestamp: time.Now(),
+		Sessions: []tmux.Session{{
+			ID: "$normal",
+			Windows: []tmux.Window{{
+				Active: true,
+				Panes:  []tmux.Pane{{ID: "%normal", Active: true, LastActivity: time.Now()}},
+			}},
+		}},
+	}})
+
+	if _, ok := m.hidden["openclaw-runtime:old-card"]; ok {
+		t.Fatalf("disappeared runtime card hidden state should be pruned")
+	}
+	if _, ok := m.hidden["$normal"]; !ok {
+		t.Fatalf("non-runtime hidden state should remain")
+	}
+}
+
 // TestPaneContentRespectsManualScroll keeps manual offsets when the user scrolls away from the bottom.
 func TestPaneContentRespectsManualScroll(t *testing.T) {
 	t.Parallel()

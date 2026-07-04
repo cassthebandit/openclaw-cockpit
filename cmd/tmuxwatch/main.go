@@ -109,6 +109,8 @@ func main() {
 	if *openclaw {
 		model.SetOpenClawRuntimeSource(*openclawScript, *openclawLimit, 20*time.Second)
 	}
+	restoreTabs := disableHardTabOptimization()
+	defer restoreTabs()
 	program := tea.NewProgram(model)
 
 	if _, err := program.Run(); err != nil {

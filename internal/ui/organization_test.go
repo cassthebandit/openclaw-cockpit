@@ -386,7 +386,7 @@ func TestOpenClawRuntimeDisplayGroupRoutesNeedsAttentionEvenWhenStale(t *testing
 
 	session := sessionForGroup("openclaw-runtime-flow-1", "openclaw-runtime", "/workspace", "backend packet")
 	session.Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{
-		ContractVersion: "display-only",
+		ContractVersion: "runtime-card.v1",
 		ManagedBy:       "openclaw_runtime_snapshot",
 		Kind:            "runtime",
 		Agent:           "taskflow",
@@ -410,7 +410,7 @@ func TestOpenClawRuntimeActiveGroupUsesDisplayGroup(t *testing.T) {
 
 	session := sessionForGroup("openclaw-runtime-flow-2", "openclaw-runtime", "/workspace", "live taskflow")
 	session.Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{
-		ContractVersion: "display-only",
+		ContractVersion: "runtime-card.v1",
 		ManagedBy:       "openclaw_runtime_snapshot",
 		Kind:            "runtime",
 		Agent:           "taskflow",
@@ -531,7 +531,7 @@ func TestOrganizedCardBodyHeightsKeepServicesCompactWhenAttentionCrowds(t *testi
 	for i := 0; i < 20; i++ {
 		session := sessionForGroup(fmt.Sprintf("runtime-attention-%02d", i), "openclaw-runtime", "/workspace", "blocked task")
 		session.Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{
-			ContractVersion: "display-only",
+			ContractVersion: "runtime-card.v1",
 			ManagedBy:       "openclaw_runtime_snapshot",
 			Kind:            "runtime",
 			Agent:           "taskflow",
@@ -584,7 +584,7 @@ func TestStaleSessionNamesOmitsOpenClawRuntime(t *testing.T) {
 
 	runtime := sessionForGroup("openclaw-runtime-flow-1", "openclaw-runtime", "/workspace", "backend packet")
 	runtime.Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{
-		ContractVersion: "display-only",
+		ContractVersion: "runtime-card.v1",
 		ManagedBy:       "openclaw_runtime_snapshot",
 		Kind:            "runtime",
 		Agent:           "taskflow",
