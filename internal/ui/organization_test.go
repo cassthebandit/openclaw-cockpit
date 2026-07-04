@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -457,6 +458,27 @@ func TestCardLayoutForCountUsesGroupWidth(t *testing.T) {
 	}
 }
 
+func TestCardLayoutForCountReservesColumnGutters(t *testing.T) {
+	t.Parallel()
+
+	m := NewModel(nil, time.Second, 4, nil, false, true)
+	m.SetOrganized(true)
+	m.width = 363
+	m.height = 89
+	m.preferredCols = 4
+
+	cols, inner := m.cardLayoutForCount(20)
+	cellWidth := inner + cardPadding*2 + 2
+	rowWidth := cols*cellWidth + (cols-1)*cardColumnGap
+
+	if cols != 4 {
+		t.Fatalf("cols = %d, want 4", cols)
+	}
+	if rowWidth > m.width {
+		t.Fatalf("row width = %d, terminal width = %d", rowWidth, m.width)
+	}
+}
+
 func TestOrganizedCardBodyHeightsUseVerticalSpace(t *testing.T) {
 	t.Parallel()
 
@@ -491,6 +513,50 @@ func TestOrganizedCardBodyHeightsUseVerticalSpace(t *testing.T) {
 	}
 	if done <= 0 || done > 7 {
 		t.Fatalf("done height = %d, want compact completed budget", done)
+	}
+}
+
+func TestOrganizedCardBodyHeightsKeepServicesCompactWhenAttentionCrowds(t *testing.T) {
+	t.Parallel()
+
+	m := NewModel(nil, time.Second, 4, nil, false, true)
+	m.SetOrganized(true)
+	m.width = 363
+	m.height = 89
+	m.previewOffset = 4
+	m.footerHeight = 4
+	m.preferredCols = 4
+	m.cardInnerWidth = 86
+
+	for i := 0; i < 20; i++ {
+		session := sessionForGroup(fmt.Sprintf("runtime-attention-%02d", i), "openclaw-runtime", "/workspace", "blocked task")
+		session.Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{
+			ContractVersion: "display-only",
+			ManagedBy:       "openclaw_runtime_snapshot",
+			Kind:            "runtime",
+			Agent:           "taskflow",
+			State:           "blocked",
+			DisplayGroup:    "needs_attention",
+		}
+		m.sessions = append(m.sessions, session)
+	}
+	for _, name := range []string{"AI-Alerts", "s-apple-detector", "smonitor"} {
+		session := sessionForGroup(name, "service", "/workspace/config/smonitor", name)
+		session.Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{
+			ContractVersion: "display-only",
+			ManagedBy:       "manual_adopt",
+			Kind:            "service",
+			Agent:           "service",
+			State:           "running",
+		}
+		m.sessions = append(m.sessions, session)
+	}
+
+	heights := m.cardBodyHeightsByGroup(m.sessions)
+	services := heights[groupServices.name]
+
+	if services <= 0 || services > 8 {
+		t.Fatalf("service height = %d, want compact service budget", services)
 	}
 }
 

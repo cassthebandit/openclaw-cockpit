@@ -8,6 +8,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.4
 	github.com/charmbracelet/x/cellbuf v0.0.15
 	github.com/golangci/golangci-lint/v2 v2.12.2
+	github.com/mattn/go-runewidth v0.0.24
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6
 	mvdan.cc/gofumpt v0.10.0
 )
@@ -137,7 +138,6 @@ require (
 	github.com/matoous/godox v1.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
-	github.com/mattn/go-runewidth v0.0.24 // indirect
 	github.com/mgechev/revive v1.15.0 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/moricho/tparallel v0.3.2 // indirect

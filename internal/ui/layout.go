@@ -57,7 +57,7 @@ func (m *Model) updatePreviewDimensions(count int) {
 
 	maxCols := 1
 	if m.viewMode != viewModeDetail && count > 1 {
-		maxCols = min(count, max(1, m.width/minColumnStride))
+		maxCols = min(count, max(1, (m.width+cardColumnGap)/(minColumnStride+cardColumnGap)))
 		if m.preferredCols > 0 {
 			maxCols = min(maxCols, m.preferredCols)
 		}
@@ -68,7 +68,12 @@ func (m *Model) updatePreviewDimensions(count int) {
 	selectedWidth := max(1, m.width-columnOverhead)
 
 	for cols := maxCols; cols >= 1; cols-- {
-		columnWidth := m.width / cols
+		gapWidth := (cols - 1) * cardColumnGap
+		usableWidth := m.width - gapWidth
+		if usableWidth < cols {
+			continue
+		}
+		columnWidth := usableWidth / cols
 		if columnWidth < minColumnStride && cols > 1 {
 			continue
 		}

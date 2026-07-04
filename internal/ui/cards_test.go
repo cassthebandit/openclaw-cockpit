@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/lipgloss/v2"
 	"github.com/steipete/tmuxwatch/internal/tmux"
 )
 
@@ -159,6 +160,35 @@ func TestFormatHeaderUsesServiceSessionName(t *testing.T) {
 	}
 	if strings.Contains(got, "ADOPTED") || strings.Contains(got, "Cass") || strings.Contains(got, "cameras") {
 		t.Fatalf("service header should stay specific and compact, got %q", got)
+	}
+}
+
+func TestFormatHeaderTruncatesLongLabelsToSingleLine(t *testing.T) {
+	t.Parallel()
+
+	session := tmux.Session{Name: "worker", Windows: []tmux.Window{{Name: "main"}}}
+	window := session.Windows[0]
+	pane := tmux.Pane{
+		Title:        "OOXML, hashes, secrets, or credentials. Final response: one concise sentence after a very long task title",
+		LastActivity: time.Now().Add(-20 * time.Hour),
+		Cockpit: &tmux.CockpitMeta{
+			Kind:    "agent",
+			Agent:   "cli",
+			Project: "OOXML, hashes, secrets, or credentials. Final response: one concise sentence after a very long task title",
+			State:   "failed",
+			Goal:    "OOXML, hashes, secrets, or credentials. Final response: one concise sentence after a very long task title",
+		},
+	}
+
+	got := formatHeader(88, session, window, pane, false, false, false, false, "failed", "[^] [-] [x]", "dev-host")
+	if strings.Contains(got, "\n") {
+		t.Fatalf("header should stay one line, got %q", got)
+	}
+	if width := lipgloss.Width(got); width > 88 {
+		t.Fatalf("header width = %d, want <= 88; got %q", width, got)
+	}
+	if !strings.Contains(got, "...") {
+		t.Fatalf("header should show truncation marker, got %q", got)
 	}
 }
 

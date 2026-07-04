@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/mattn/go-runewidth"
 	zone "github.com/steipete/tmuxwatch/internal/zone"
 
 	"github.com/steipete/tmuxwatch/internal/tmux"
@@ -58,9 +59,12 @@ func (m *Model) renderSessionPreviews(offset int) string {
 		if len(currentRow) == 0 {
 			return
 		}
-		padded := make([]string, 0, len(currentRow))
-		for _, card := range currentRow {
+		padded := make([]string, 0, len(currentRow)*2-1)
+		for i, card := range currentRow {
 			padded = append(padded, lipgloss.NewStyle().Width(currentCellWidth).Render(card))
+			if cardColumnGap > 0 && i < len(currentRow)-1 {
+				padded = append(padded, strings.Repeat(" ", cardColumnGap))
+			}
 		}
 		rendered = append(rendered, lipgloss.JoinHorizontal(lipgloss.Left, padded...))
 		currentRow = currentRow[:0]
@@ -245,17 +249,21 @@ func (m *Model) cardLayoutForCount(count int) (int, int) {
 	}
 	cols := 1
 	if count > 1 {
-		cols = min(count, max(1, m.width/minColumnStride))
+		cols = min(count, max(1, (m.width+cardColumnGap)/(minColumnStride+cardColumnGap)))
 		if m.preferredCols > 0 {
 			cols = min(cols, m.preferredCols)
 		}
 	}
 	innerWidth := m.cardInnerWidth
 	if m.organized && m.viewMode == viewModeOverview {
-		innerWidth = max(minInnerWidth, (m.width/cols)-columnOverhead)
+		gapWidth := (cols - 1) * cardColumnGap
+		usableWidth := max(cols, m.width-gapWidth)
+		innerWidth = max(minInnerWidth, (usableWidth/cols)-columnOverhead)
 	}
 	if innerWidth < 1 {
-		innerWidth = max(minInnerWidth, (m.width/max(1, cols))-columnOverhead)
+		gapWidth := (cols - 1) * cardColumnGap
+		usableWidth := max(cols, m.width-gapWidth)
+		innerWidth = max(minInnerWidth, (usableWidth/max(1, cols))-columnOverhead)
 	}
 	return max(1, cols), innerWidth
 }
@@ -322,20 +330,25 @@ func (m *Model) cardBodyHeightsByGroup(sessions []tmux.Session) map[string]int {
 		heights[section.group.name] = height
 		used += height * section.rows
 	}
-	if used > bodyRows {
-		heights = make(map[string]int)
-		used = 0
-		remaining := bodyRows
+	for used > bodyRows {
+		best := -1
+		bestWeight := int(^uint(0) >> 1)
 		for i, section := range sections {
-			sectionsLeft := len(sections) - i
-			height := 1
-			if sectionsLeft > 0 && remaining > sectionsLeft {
-				height = max(1, remaining/sectionsLeft/section.rows)
+			height := heights[section.group.name]
+			if height <= 1 {
+				continue
 			}
-			heights[section.group.name] = height
-			used += height * section.rows
-			remaining -= height * section.rows
+			if section.c.weight < bestWeight {
+				best = i
+				bestWeight = section.c.weight
+			}
 		}
+		if best < 0 {
+			break
+		}
+		section := sections[best]
+		heights[section.group.name]--
+		used -= section.rows
 	}
 
 	slack := bodyRows - used
@@ -468,14 +481,11 @@ func formatHeader(width int, session tmux.Session, window tmux.Window, pane tmux
 		label += " · " + strings.Join(meta, " · ")
 	}
 
-	labelWidth := lipgloss.Width(label)
 	spaceForLabel := width - lipgloss.Width(controls)
 	if spaceForLabel < 1 {
 		spaceForLabel = 1
 	}
-	if labelWidth > spaceForLabel {
-		label = lipgloss.NewStyle().Width(spaceForLabel).MaxWidth(spaceForLabel).Render(label)
-	}
+	label = truncateSingleLine(label, spaceForLabel)
 	padding := spaceForLabel - lipgloss.Width(label)
 	if padding < 0 {
 		padding = 0
@@ -509,6 +519,21 @@ func formatHeader(width int, session tmux.Session, window tmux.Window, pane tmux
 		style = style.Foreground(lipgloss.Color(headerColorBase))
 	}
 	return style.Render(header)
+}
+
+func truncateSingleLine(value string, width int) string {
+	value = strings.Join(strings.Fields(value), " ")
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(value) <= width {
+		return value
+	}
+	tail := "..."
+	if width < lipgloss.Width(tail)+1 {
+		tail = ""
+	}
+	return runewidth.Truncate(value, width, tail)
 }
 
 func cockpitTitleParts(session tmux.Session, window tmux.Window, pane tmux.Pane, host string) []string {

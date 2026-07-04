@@ -21,6 +21,7 @@ const (
 	maxOverviewBodyLines = 10
 	maxCapturesPerTick   = 6
 	cardPadding          = 1
+	cardColumnGap        = 1
 	closeLabel           = "[x]"
 	maximizeLabel        = "[^]"
 	restoreLabel         = "[v]"
