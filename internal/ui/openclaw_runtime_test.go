@@ -106,3 +106,33 @@ func TestOpenClawRuntimeSessionPrefersDisplayStatus(t *testing.T) {
 		t.Fatalf("display status = %q, want blocked", pane.Cockpit.DisplayStatus)
 	}
 }
+
+func TestOpenClawRuntimeSessionStripsWideGlyphsFromDisplayText(t *testing.T) {
+	t.Parallel()
+
+	session := openClawRuntimeSession(openClawRuntimeCard{
+		ID:            "emoji-runtime",
+		DisplayTitle:  "🌧️ backend packet",
+		DisplayStatus: "blocked",
+		DisplayGroup:  "needs_attention",
+		Runtime:       "taskflow",
+		Reason:        "done\tonly",
+		NextAction:    "inspect\tfinal",
+		Summary:       "💨 done only no final",
+		SourceSummaries: []string{
+			"🥊 backend handoff pending",
+		},
+	}, 0, time.Now())
+
+	pane := session.Windows[0].Panes[0]
+	for _, value := range []string{session.Name, pane.Title, pane.Cockpit.Goal, pane.Cockpit.HoldReason, pane.PreviewText} {
+		if strings.ContainsAny(value, "🌧️💨🥊\t") {
+			t.Fatalf("display text should be border-safe, got %q", value)
+		}
+	}
+	for _, want := range []string{"backend packet", "cause: done only", "next: inspect final", "done only no final", "- backend handoff pending"} {
+		if !strings.Contains(pane.PreviewText, want) {
+			t.Fatalf("preview missing %q: %q", want, pane.PreviewText)
+		}
+	}
+}

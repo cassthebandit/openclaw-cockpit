@@ -522,7 +522,7 @@ func formatHeader(width int, session tmux.Session, window tmux.Window, pane tmux
 }
 
 func truncateSingleLine(value string, width int) string {
-	value = strings.Join(strings.Fields(value), " ")
+	value = cardSafeLine(value)
 	if width <= 0 {
 		return ""
 	}
@@ -674,6 +674,7 @@ func cockpitAttentionLine(width int, m *Model, session tmux.Session, pane tmux.P
 }
 
 func cockpitSubtleLine(width int, line string) string {
+	line = cardSafeLine(line)
 	if width > 0 && lipgloss.Width(line) > width {
 		line = lipgloss.NewStyle().Width(width).MaxWidth(width).Render(line)
 	}

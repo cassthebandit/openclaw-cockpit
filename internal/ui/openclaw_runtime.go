@@ -126,8 +126,8 @@ func loadOpenClawRuntimeCards(source RuntimeSource) ([]openClawRuntimeCard, erro
 
 func openClawRuntimeSession(card openClawRuntimeCard, index int, now time.Time) tmux.Session {
 	id := sanitizedRuntimeID(firstNonEmpty(card.DedupeKey, card.ID))
-	runtime := valueOr(card.Runtime, "openclaw-runtime")
-	label := valueOr(card.DisplayTitle, valueOr(card.Label, runtime))
+	runtime := cardSafeLine(valueOr(card.Runtime, "openclaw-runtime"))
+	label := cardSafeLine(valueOr(card.DisplayTitle, valueOr(card.Label, runtime)))
 	state := runtimeCardState(card)
 	activity := runtimeCardActivity(card, now)
 	sessionID := "openclaw-runtime:" + id
@@ -154,11 +154,11 @@ func openClawRuntimeSession(card openClawRuntimeCard, index int, now time.Time) 
 			Project:         "",
 			Goal:            label,
 			State:           state,
-			DisplayStatus:   valueOr(card.DisplayStatus, state),
-			DisplayGroup:    valueOr(card.DisplayGroup, "unknown"),
-			Reason:          card.Reason,
-			NextAction:      card.NextAction,
-			SourceKinds:     strings.Join(card.SourceKinds, ","),
+			DisplayStatus:   cardSafeLine(valueOr(card.DisplayStatus, state)),
+			DisplayGroup:    cardSafeLine(valueOr(card.DisplayGroup, "unknown")),
+			Reason:          cardSafeLine(card.Reason),
+			NextAction:      cardSafeLine(card.NextAction),
+			SourceKinds:     cardSafeLine(strings.Join(card.SourceKinds, ",")),
 			SourceCount:     runtimeSourceCount(card),
 			SessionID:       firstNonEmpty(card.ChildSessionKey, card.RequesterSession, card.ParentFlowID, card.RunID, card.DedupeKey, card.ID),
 			UpdatedAt:       activity.UTC().Format(time.RFC3339),
@@ -221,32 +221,32 @@ func runtimeCardState(card openClawRuntimeCard) string {
 
 func runtimeCardPreview(card openClawRuntimeCard) string {
 	evidence := runtimeCardEvidence(card)
-	sources := strings.Join(card.SourceKinds, ",")
+	sources := cardSafeLine(strings.Join(card.SourceKinds, ","))
 	lines := []string{
-		valueOr(card.DisplayTitle, valueOr(card.Label, valueOr(card.Runtime, "OpenClaw runtime item"))),
+		cardSafeLine(valueOr(card.DisplayTitle, valueOr(card.Label, valueOr(card.Runtime, "OpenClaw runtime item")))),
 		"",
-		"runtime: " + valueOr(card.Runtime, "unknown"),
-		"status: " + valueOr(card.DisplayStatus, valueOr(card.Status, "unknown")),
-		"cause: " + valueOr(card.Reason, valueOr(card.Summary, "unknown")),
-		"next: " + valueOr(card.NextAction, "inspect manually"),
+		"runtime: " + cardSafeLine(valueOr(card.Runtime, "unknown")),
+		"status: " + cardSafeLine(valueOr(card.DisplayStatus, valueOr(card.Status, "unknown"))),
+		"cause: " + cardSafeLine(valueOr(card.Reason, valueOr(card.Summary, "unknown"))),
+		"next: " + cardSafeLine(valueOr(card.NextAction, "inspect manually")),
 	}
 	if evidence != "" {
-		lines = append(lines, "evidence: "+evidence)
+		lines = append(lines, "evidence: "+cardSafeLine(evidence))
 	}
 	if sources != "" || card.SourceCount > 0 {
 		lines = append(lines, "sources: "+runtimeSourceCount(card)+" "+sources)
 	}
 	if card.Severity != "" {
-		lines = append(lines, "severity: "+card.Severity)
+		lines = append(lines, "severity: "+cardSafeLine(card.Severity))
 	}
 	if card.DeliveryStatus != "" {
-		lines = append(lines, "delivery: "+card.DeliveryStatus)
+		lines = append(lines, "delivery: "+cardSafeLine(card.DeliveryStatus))
 	}
 	if card.Summary != "" {
-		lines = append(lines, "", card.Summary)
+		lines = append(lines, "", cardSafeLine(card.Summary))
 	}
 	for _, summary := range card.SourceSummaries {
-		summary = strings.TrimSpace(summary)
+		summary = cardSafeLine(summary)
 		if summary != "" && summary != card.Summary {
 			lines = append(lines, "- "+summary)
 		}
@@ -262,7 +262,7 @@ func runtimeCardPreview(card openClawRuntimeCard) string {
 		{"dedupe", firstNonEmpty(card.DedupeKey, card.ID)},
 	} {
 		if strings.TrimSpace(field.value) != "" {
-			lines = append(lines, field.name+": "+field.value)
+			lines = append(lines, field.name+": "+cardSafeLine(field.value))
 		}
 	}
 	return strings.Join(lines, "\n")
@@ -270,14 +270,14 @@ func runtimeCardPreview(card openClawRuntimeCard) string {
 
 func runtimeCardEvidence(card openClawRuntimeCard) string {
 	if len(card.EvidenceIDs) > 0 {
-		return strings.Join(card.EvidenceIDs, ",")
+		return cardSafeLine(strings.Join(card.EvidenceIDs, ","))
 	}
-	return firstNonEmpty(card.RunID, card.ChildSessionKey, card.ParentFlowID, card.DedupeKey, card.ID)
+	return cardSafeLine(firstNonEmpty(card.RunID, card.ChildSessionKey, card.ParentFlowID, card.DedupeKey, card.ID))
 }
 
 func runtimeCardHoldReason(card openClawRuntimeCard) string {
 	if card.Summary != "" && runtimeCardState(card) != "running" {
-		return card.Summary
+		return cardSafeLine(card.Summary)
 	}
 	return ""
 }

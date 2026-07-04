@@ -143,7 +143,7 @@ func (m *Model) ensurePreviewsAndCapture() tea.Cmd {
 			preview.vars = nil
 			preview.autoFollow = true
 		}
-		if content := strings.TrimRight(pane.PreviewText, "\n"); content != "" {
+		if content := cardSafeBlock(strings.TrimRight(pane.PreviewText, "\n")); content != "" {
 			if content != preview.lastContent {
 				preview.viewport.SetContent(content)
 				preview.lastContent = content

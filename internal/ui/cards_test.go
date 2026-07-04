@@ -134,6 +134,36 @@ func TestFormatHeaderUsesCompactOpenClawRuntimeHeader(t *testing.T) {
 	}
 }
 
+func TestCardTopRowsStripWideGlyphs(t *testing.T) {
+	t.Parallel()
+
+	session := tmux.Session{Name: "raw-session", Windows: []tmux.Window{{Name: "main"}}}
+	window := session.Windows[0]
+	pane := tmux.Pane{
+		Title: "zsh",
+		Cockpit: &tmux.CockpitMeta{
+			ContractVersion: "display-only",
+			ManagedBy:       "openclaw_runtime_snapshot",
+			Kind:            "runtime",
+			Agent:           "subagent",
+			Goal:            "🌧️ backend\tpacket",
+			State:           "blocked",
+			DisplayStatus:   "blocked",
+		},
+	}
+
+	header := formatHeader(100, session, window, pane, false, false, false, false, "blocked", "[x]", "dev-host")
+	goal := cockpitSubtleLine(100, "goal: "+pane.Cockpit.Goal)
+	for _, row := range []string{header, goal} {
+		if strings.ContainsAny(row, "🌧️\t") {
+			t.Fatalf("card top row should be border-safe, got %q", row)
+		}
+		if !strings.Contains(row, "backend packet") {
+			t.Fatalf("card top row lost normalized text: %q", row)
+		}
+	}
+}
+
 func TestFormatHeaderUsesServiceSessionName(t *testing.T) {
 	t.Parallel()
 
