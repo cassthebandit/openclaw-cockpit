@@ -15,6 +15,9 @@ func (m *Model) updateStaleSessions() {
 	}
 	now := time.Now()
 	for _, session := range m.sessions {
+		if sessionHasOpenClawRuntime(session) {
+			continue
+		}
 		if session.Attached {
 			continue
 		}
@@ -45,6 +48,9 @@ func (m *Model) staleSessionNames() []string {
 	}
 	names := make([]string, 0, len(m.stale))
 	for _, session := range m.sessions {
+		if sessionHasOpenClawRuntime(session) {
+			continue
+		}
 		if isServiceSession(session) && !sessionAllPanesDead(session) {
 			continue
 		}

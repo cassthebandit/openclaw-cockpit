@@ -2,6 +2,8 @@
 
 `tmuxwatch` is a Charmbracelet-powered dashboard that keeps eyes on every tmux session, window, and pane without ever leaving the terminal.
 
+Cass/OpenClaw packages this local fork as **OpenClaw Cockpit**. It is derived from Peter Steinberger's `tmuxwatch`, keeps the upstream Go module and many internal names for now, and adds OpenClaw runtime, ACP, TaskFlow, service, and display-only operator cards.
+
 Product principles and scope boundaries live in [`VISION.md`](VISION.md); detailed architecture and roadmap notes live in [`docs/spec.md`](docs/spec.md).
 
 ## Highlights

@@ -18,6 +18,8 @@ import (
 	"github.com/steipete/tmuxwatch/internal/ui"
 )
 
+const productName = "OpenClaw Cockpit"
+
 var version = "0.9.3"
 
 // main configures the tmux client, handles flag modes, and launches Bubble Tea.
@@ -45,7 +47,7 @@ func main() {
 	flag.Parse()
 
 	if *showVer {
-		fmt.Println("tmuxwatch", version)
+		fmt.Println(productName, version)
 		return
 	}
 
@@ -105,12 +107,12 @@ func main() {
 	model.SetPreferredColumns(*cols)
 	model.SetOrganized(*organize)
 	if *openclaw {
-		model.SetOpenClawRuntimeSource(*openclawScript, *openclawLimit, 10*time.Second)
+		model.SetOpenClawRuntimeSource(*openclawScript, *openclawLimit, 20*time.Second)
 	}
 	program := tea.NewProgram(model)
 
 	if _, err := program.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "tmuxwatch exited with error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "%s exited with error: %v\n", productName, err)
 		os.Exit(1)
 	}
 }
@@ -130,7 +132,7 @@ func runtimeSource(enabled bool, script string, limit int) ui.RuntimeSource {
 		Enabled: true,
 		Script:  script,
 		Limit:   limit,
-		Timeout: 10 * time.Second,
+		Timeout: 20 * time.Second,
 	}
 }
 

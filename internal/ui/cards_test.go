@@ -95,6 +95,44 @@ func TestFormatHeaderMarksDisplayOnlyMetadata(t *testing.T) {
 	}
 }
 
+func TestFormatHeaderUsesCompactOpenClawRuntimeHeader(t *testing.T) {
+	t.Parallel()
+
+	session := tmux.Session{Name: "openclaw-runtime:flow-1", Windows: []tmux.Window{{Name: "taskflow"}}}
+	window := session.Windows[0]
+	pane := tmux.Pane{
+		Title:        "backend packet",
+		LastActivity: time.Now().Add(-2 * time.Minute),
+		Cockpit: &tmux.CockpitMeta{
+			ContractVersion: "display-only",
+			ManagedBy:       "openclaw_runtime_snapshot",
+			Kind:            "runtime",
+			Agent:           "taskflow",
+			Owner:           "agent:main:discord:channel:1",
+			Project:         "OpenClaw Runtime",
+			Goal:            "backend packet",
+			State:           "blocked",
+			DisplayStatus:   "blocked",
+			DisplayGroup:    "needs_attention",
+		},
+	}
+
+	got := formatHeader(140, session, window, pane, false, false, false, false, "blocked", "[x]", "dev-host")
+	for _, want := range []string{"TASKFLOW", "blocked", "backend packet", "last"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("runtime header missing %q in %q", want, got)
+		}
+	}
+	for _, forbidden := range []string{"ADOPTED", "agent:main", "discord:channel", "OpenClaw Runtime"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("runtime header leaked %q in %q", forbidden, got)
+		}
+	}
+	if strings.Count(got, "blocked") != 1 {
+		t.Fatalf("runtime header should not duplicate state, got %q", got)
+	}
+}
+
 func TestFormatHeaderUsesServiceSessionName(t *testing.T) {
 	t.Parallel()
 

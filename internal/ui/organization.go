@@ -25,6 +25,9 @@ var (
 )
 
 func cockpitGroupFor(m *Model, session tmux.Session) cockpitGroup {
+	if group, ok := openClawRuntimeGroupFor(session); ok {
+		return group
+	}
 	state := sessionAttentionState(m, session)
 	if stateNeedsAttention(state) {
 		return groupNeedsInput
@@ -77,6 +80,17 @@ func sessionAttentionState(m *Model, session tmux.Session) string {
 func paneAttentionState(m *Model, session tmux.Session, pane tmux.Pane) string {
 	if outcome := semanticPaneOutcome(pane); outcome.state != "" {
 		return outcome.state
+	}
+	if isOpenClawRuntimePane(pane) {
+		state := strings.ToLower(strings.TrimSpace(pane.Cockpit.State))
+		switch state {
+		case "failed", "blocked", "running", "done", "review", "unknown":
+			return state
+		case "":
+			return "review"
+		default:
+			return state
+		}
 	}
 	if pane.Dead && pane.DeadStatus != 0 {
 		return "failed"
@@ -174,6 +188,18 @@ func sessionDetails(session tmux.Session) string {
 				b.WriteString(pane.Cockpit.Goal)
 				b.WriteByte(' ')
 				b.WriteString(pane.Cockpit.State)
+				b.WriteByte(' ')
+				b.WriteString(pane.Cockpit.DisplayStatus)
+				b.WriteByte(' ')
+				b.WriteString(pane.Cockpit.DisplayGroup)
+				b.WriteByte(' ')
+				b.WriteString(pane.Cockpit.Reason)
+				b.WriteByte(' ')
+				b.WriteString(pane.Cockpit.NextAction)
+				b.WriteByte(' ')
+				b.WriteString(pane.Cockpit.SourceKinds)
+				b.WriteByte(' ')
+				b.WriteString(pane.Cockpit.SourceCount)
 			}
 		}
 	}
@@ -200,6 +226,51 @@ func isShellOnly(session tmux.Session) bool {
 		}
 	}
 	return found
+}
+
+func sessionHasOpenClawRuntime(session tmux.Session) bool {
+	for _, window := range session.Windows {
+		for _, pane := range window.Panes {
+			if isOpenClawRuntimePane(pane) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isOpenClawRuntimePane(pane tmux.Pane) bool {
+	return pane.Cockpit != nil && strings.EqualFold(strings.TrimSpace(pane.Cockpit.ManagedBy), "openclaw_runtime_snapshot")
+}
+
+func openClawRuntimeGroupFor(session tmux.Session) (cockpitGroup, bool) {
+	for _, window := range session.Windows {
+		for _, pane := range window.Panes {
+			if !isOpenClawRuntimePane(pane) {
+				continue
+			}
+			switch strings.ToLower(strings.TrimSpace(pane.Cockpit.DisplayGroup)) {
+			case "needs_attention":
+				return groupNeedsInput, true
+			case "active":
+				return groupRunningAgents, true
+			case "completed":
+				return groupDoneHeld, true
+			case "unknown":
+				return groupDoneHeld, true
+			default:
+				state := strings.ToLower(strings.TrimSpace(pane.Cockpit.State))
+				if stateNeedsAttention(state) {
+					return groupNeedsInput, true
+				}
+				if stateIsActiveRun(state) {
+					return groupRunningAgents, true
+				}
+				return groupDoneHeld, true
+			}
+		}
+	}
+	return cockpitGroup{}, false
 }
 
 func containsAny(text string, needles ...string) bool {

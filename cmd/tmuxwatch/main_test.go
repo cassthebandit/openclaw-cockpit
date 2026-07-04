@@ -42,7 +42,7 @@ func TestVersionFlag(t *testing.T) {
 	}
 
 	outputStr := strings.TrimSpace(string(output))
-	expected := "tmuxwatch " + version
+	expected := productName + " " + version
 	if outputStr != expected {
 		t.Errorf("expected version output %q, got %q", expected, outputStr)
 	}

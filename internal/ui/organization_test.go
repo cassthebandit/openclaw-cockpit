@@ -380,6 +380,49 @@ func TestDisplayOnlyMetadataDoesNotOverrideStalePane(t *testing.T) {
 	}
 }
 
+func TestOpenClawRuntimeDisplayGroupRoutesNeedsAttentionEvenWhenStale(t *testing.T) {
+	t.Parallel()
+
+	session := sessionForGroup("openclaw-runtime-flow-1", "openclaw-runtime", "/workspace", "backend packet")
+	session.Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{
+		ContractVersion: "display-only",
+		ManagedBy:       "openclaw_runtime_snapshot",
+		Kind:            "runtime",
+		Agent:           "taskflow",
+		State:           "blocked",
+		DisplayStatus:   "blocked",
+		DisplayGroup:    "needs_attention",
+	}
+	m := NewModel(nil, time.Second, 4, nil, false, true)
+	m.stale[session.ID] = struct{}{}
+
+	if got := sessionAttentionState(m, session); got != "blocked" {
+		t.Fatalf("sessionAttentionState() = %q, want blocked", got)
+	}
+	if got := cockpitGroupFor(m, session).name; got != groupNeedsInput.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupNeedsInput.name)
+	}
+}
+
+func TestOpenClawRuntimeActiveGroupUsesDisplayGroup(t *testing.T) {
+	t.Parallel()
+
+	session := sessionForGroup("openclaw-runtime-flow-2", "openclaw-runtime", "/workspace", "live taskflow")
+	session.Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{
+		ContractVersion: "display-only",
+		ManagedBy:       "openclaw_runtime_snapshot",
+		Kind:            "runtime",
+		Agent:           "taskflow",
+		State:           "running",
+		DisplayStatus:   "active",
+		DisplayGroup:    "active",
+	}
+
+	if got := cockpitGroupFor(nil, session).name; got != groupRunningAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupRunningAgents.name)
+	}
+}
+
 func TestQuietServiceStaleDoesNotBecomeDoneHeld(t *testing.T) {
 	t.Parallel()
 
@@ -464,6 +507,33 @@ func TestStaleSessionNamesOmitsQuietLiveServices(t *testing.T) {
 	got := strings.Join(m.staleSessionNames(), ",")
 	if strings.Contains(got, "smonitor") {
 		t.Fatalf("quiet service should not appear in stale footer, got %q", got)
+	}
+	if !strings.Contains(got, "old-worker") {
+		t.Fatalf("stale worker should remain in footer, got %q", got)
+	}
+}
+
+func TestStaleSessionNamesOmitsOpenClawRuntime(t *testing.T) {
+	t.Parallel()
+
+	runtime := sessionForGroup("openclaw-runtime-flow-1", "openclaw-runtime", "/workspace", "backend packet")
+	runtime.Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{
+		ContractVersion: "display-only",
+		ManagedBy:       "openclaw_runtime_snapshot",
+		Kind:            "runtime",
+		Agent:           "taskflow",
+		State:           "blocked",
+		DisplayGroup:    "needs_attention",
+	}
+	worker := sessionForGroup("old-worker", "zsh", "/workspace", "")
+	m := NewModel(nil, time.Second, 4, nil, false, true)
+	m.sessions = []tmux.Session{runtime, worker}
+	m.stale[runtime.ID] = struct{}{}
+	m.stale[worker.ID] = struct{}{}
+
+	got := strings.Join(m.staleSessionNames(), ",")
+	if strings.Contains(got, "openclaw-runtime") {
+		t.Fatalf("runtime should not appear in stale footer, got %q", got)
 	}
 	if !strings.Contains(got, "old-worker") {
 		t.Fatalf("stale worker should remain in footer, got %q", got)

@@ -33,7 +33,7 @@ func renderTitleBar(m *Model, width int) string {
 	base := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("231")).
 		Background(lipgloss.Color("62"))
-	name := base.Bold(true).Padding(0, 2).Render("tmuxwatch")
+	name := base.Bold(true).Padding(0, 2).Render("OpenClaw Cockpit")
 
 	totalSessions := len(m.sessions)
 	staleCount := len(m.stale)

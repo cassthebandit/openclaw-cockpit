@@ -99,6 +99,9 @@ func (m *Model) renderSessionPreviews(offset int) string {
 
 		pulsing := now.Sub(preview.lastChanged) < pulseDuration
 		stale := m.isStale(session.ID)
+		if sessionHasOpenClawRuntime(session) {
+			stale = false
+		}
 		focused := session.ID == m.focusedSession
 		cursor := session.ID == m.cursorSession
 		hovered := session.ID == m.hoveredSession
@@ -451,7 +454,8 @@ func formatHeader(width int, session tmux.Session, window tmux.Window, pane tmux
 	if state == "" {
 		state = cockpitState(pane, stale)
 	}
-	if state != "" && state != "running" && state != "starting" && state != "quiet" && !(state == "done" && hasDoneTiming) {
+	runtimeHeader := isOpenClawRuntimePane(pane)
+	if state != "" && state != "running" && state != "starting" && state != "quiet" && !(state == "done" && hasDoneTiming) && !runtimeHeader {
 		meta = append(meta, state)
 	}
 	titleParts := cockpitTitleParts(session, window, pane, host)
@@ -510,6 +514,12 @@ func formatHeader(width int, session tmux.Session, window tmux.Window, pane tmux
 func cockpitTitleParts(session tmux.Session, window tmux.Window, pane tmux.Pane, host string) []string {
 	if pane.Cockpit != nil {
 		meta := pane.Cockpit
+		if isOpenClawRuntimePane(pane) {
+			runtime := strings.ToUpper(firstNonEmpty(meta.Agent, "runtime"))
+			status := firstNonEmpty(meta.DisplayStatus, meta.State, "unknown")
+			title := firstNonEmpty(meta.Goal, pane.TitleOrCmd(), session.Name)
+			return dedupeTitleParts([]string{runtime, status, title})
+		}
 		if strings.EqualFold(strings.TrimSpace(meta.Kind), "service") {
 			return dedupeTitleParts([]string{"SERVICE", session.Name})
 		}

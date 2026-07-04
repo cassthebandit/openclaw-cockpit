@@ -67,6 +67,12 @@ type CockpitMeta struct {
 	Project         string `json:",omitempty"`
 	Goal            string `json:",omitempty"`
 	State           string `json:",omitempty"`
+	DisplayStatus   string `json:",omitempty"`
+	DisplayGroup    string `json:",omitempty"`
+	Reason          string `json:",omitempty"`
+	NextAction      string `json:",omitempty"`
+	SourceKinds     string `json:",omitempty"`
+	SourceCount     string `json:",omitempty"`
 	RunRoot         string `json:",omitempty"`
 	ThreadID        string `json:",omitempty"`
 	SessionID       string `json:",omitempty"`
@@ -94,6 +100,12 @@ func (m CockpitMeta) HasData() bool {
 		strings.TrimSpace(m.Project) != "" ||
 		strings.TrimSpace(m.Goal) != "" ||
 		strings.TrimSpace(m.State) != "" ||
+		strings.TrimSpace(m.DisplayStatus) != "" ||
+		strings.TrimSpace(m.DisplayGroup) != "" ||
+		strings.TrimSpace(m.Reason) != "" ||
+		strings.TrimSpace(m.NextAction) != "" ||
+		strings.TrimSpace(m.SourceKinds) != "" ||
+		strings.TrimSpace(m.SourceCount) != "" ||
 		strings.TrimSpace(m.RunRoot) != "" ||
 		strings.TrimSpace(m.ThreadID) != "" ||
 		strings.TrimSpace(m.SessionID) != "" ||
