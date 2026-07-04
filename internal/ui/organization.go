@@ -161,6 +161,8 @@ func sessionDetails(session tmux.Session) string {
 			b.WriteString(pane.CurrentPath)
 			b.WriteByte(' ')
 			b.WriteString(pane.Title)
+			b.WriteByte(' ')
+			b.WriteString(pane.PreviewText)
 			if pane.Cockpit != nil {
 				b.WriteByte(' ')
 				b.WriteString(pane.Cockpit.Kind)

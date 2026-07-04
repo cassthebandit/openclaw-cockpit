@@ -155,6 +155,7 @@ type Model struct {
 	hostname    string
 	monitorOnly bool
 	organized   bool
+	runtime     RuntimeSource
 
 	lastUpdated time.Time
 	err         error
@@ -164,6 +165,15 @@ type Model struct {
 	paneParseWarnings int
 	lastCtrlC         time.Time
 	lastEsc           time.Time
+}
+
+// RuntimeSource configures an optional OpenClaw runtime snapshot source that is
+// rendered as read-only display panes alongside live tmux sessions.
+type RuntimeSource struct {
+	Enabled bool
+	Script  string
+	Limit   int
+	Timeout time.Duration
 }
 
 // SetPreferredColumns caps the overview grid at a caller-selected column
@@ -178,6 +188,22 @@ func (m *Model) SetPreferredColumns(cols int) {
 // SetOrganized enables cockpit grouping and sorting in the overview wall.
 func (m *Model) SetOrganized(enabled bool) {
 	m.organized = enabled
+}
+
+// SetOpenClawRuntimeSource enables read-only OpenClaw runtime cards.
+func (m *Model) SetOpenClawRuntimeSource(script string, limit int, timeout time.Duration) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	m.runtime = RuntimeSource{
+		Enabled: true,
+		Script:  strings.TrimSpace(script),
+		Limit:   limit,
+		Timeout: timeout,
+	}
 }
 
 // sessionLabel strips leading sigils from tmux session identifiers for
@@ -247,7 +273,7 @@ func footerViewport() *viewport.Model {
 // Init starts the initial tmux snapshot fetch and ticking loop.
 func (m *Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{
-		fetchSnapshotCmd(m.client),
+		fetchSnapshotCmd(m.client, m.runtime),
 		scheduleTick(m.pollInterval),
 	}
 	for _, msg := range m.debugMsgs {

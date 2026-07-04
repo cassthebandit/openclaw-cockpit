@@ -87,6 +87,42 @@ func TestEnsurePreviewsCapturesDetailSessions(t *testing.T) {
 	}
 }
 
+func TestEnsurePreviewsUsesSyntheticPreviewText(t *testing.T) {
+	t.Parallel()
+
+	m := &Model{
+		previews:  make(map[string]*sessionPreview),
+		hidden:    make(map[string]struct{}),
+		stale:     make(map[string]struct{}),
+		collapsed: make(map[string]struct{}),
+		width:     120,
+		height:    60,
+	}
+	m.sessions = []tmux.Session{{
+		ID: "$synthetic",
+		Windows: []tmux.Window{{
+			Active: true,
+			Panes: []tmux.Pane{{
+				ID:           "%synthetic",
+				Active:       true,
+				LastActivity: time.Now(),
+				PreviewText:  "runtime card\nblocked",
+			}},
+		}},
+	}}
+
+	if cmd := m.ensurePreviewsAndCapture(); cmd != nil {
+		t.Fatalf("expected no tmux capture command for synthetic preview text")
+	}
+	preview := m.previews["$synthetic"]
+	if preview == nil {
+		t.Fatalf("expected preview to be created")
+	}
+	if got := preview.lastContent; got != "runtime card\nblocked" {
+		t.Fatalf("lastContent = %q", got)
+	}
+}
+
 // TestPaneContentRespectsManualScroll keeps manual offsets when the user scrolls away from the bottom.
 func TestPaneContentRespectsManualScroll(t *testing.T) {
 	t.Parallel()

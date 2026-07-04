@@ -12,7 +12,7 @@ import (
 
 // fetchSnapshotCmd captures the current tmux snapshot or returns an error
 // message when it fails.
-func fetchSnapshotCmd(client *tmux.Client) tea.Cmd {
+func fetchSnapshotCmd(client *tmux.Client, runtime RuntimeSource) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -20,7 +20,7 @@ func fetchSnapshotCmd(client *tmux.Client) tea.Cmd {
 		if err != nil {
 			return errMsg{err: err}
 		}
-		return snapshotMsg{snapshot: snap}
+		return snapshotMsg{snapshot: AppendOpenClawRuntimeSessions(snap, runtime)}
 	}
 }
 

@@ -95,7 +95,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.inflight = true
-		return m, fetchSnapshotCmd(m.client)
+		return m, fetchSnapshotCmd(m.client, m.runtime)
 	}
 	return m, nil
 }
@@ -142,6 +142,15 @@ func (m *Model) ensurePreviewsAndCapture() tea.Cmd {
 			preview.lastContent = ""
 			preview.vars = nil
 			preview.autoFollow = true
+		}
+		if content := strings.TrimRight(pane.PreviewText, "\n"); content != "" {
+			if content != preview.lastContent {
+				preview.viewport.SetContent(content)
+				preview.lastContent = content
+				preview.lastChanged = time.Now()
+				preview.viewport.GotoTop()
+			}
+			continue
 		}
 		shouldCapture := true
 		if collapsed && !isFocused && !inDetail {

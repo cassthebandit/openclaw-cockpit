@@ -46,6 +46,7 @@ type Pane struct {
 	Dead          bool
 	DeadStatus    int
 	Cockpit       *CockpitMeta `json:",omitempty"`
+	PreviewText   string       `json:",omitempty"`
 }
 
 // Snapshot contains the state of the tmux server.

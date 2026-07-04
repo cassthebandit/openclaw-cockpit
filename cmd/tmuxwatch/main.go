@@ -25,19 +25,22 @@ func main() {
 	zone.NewGlobal()
 
 	var (
-		interval      = flag.Duration("interval", time.Second, "tmux poll interval")
-		cols          = flag.Int("cols", 0, "preferred number of preview columns in overview mode (0 = auto)")
-		captureBudget = flag.Int("capture-budget", 0, "maximum unfocused pane captures per tick (default 6)")
-		tmuxBin       = flag.String("tmux", "", "path to tmux binary (defaults to PATH lookup)")
-		showVer       = flag.Bool("version", false, "print version and exit")
-		dump          = flag.Bool("dump", false, "print current tmux snapshot as JSON and exit")
-		monitor       = flag.Bool("monitor-only", true, "compatibility flag; monitor-only is always enabled unless --control is set")
-		control       = flag.Bool("control", false, "enable interactive control actions such as key forwarding and session kills")
-		organize      = flag.Bool("organize", false, "organize overview cards into cockpit groups")
-		colors        = flag.Bool("preserve-colors", false, "preserve ANSI colours in captured pane previews")
-		exclude       = flag.String("exclude-session", "", "comma-separated tmux session names to hide from snapshots")
-		simulate      = flag.String("debug-click", "", "simulate a mouse left-click at the given coordinates (x,y)")
-		traceMouse    = flag.Bool("trace-mouse", false, "log mouse hit testing details to stderr")
+		interval       = flag.Duration("interval", time.Second, "tmux poll interval")
+		cols           = flag.Int("cols", 0, "preferred number of preview columns in overview mode (0 = auto)")
+		captureBudget  = flag.Int("capture-budget", 0, "maximum unfocused pane captures per tick (default 6)")
+		tmuxBin        = flag.String("tmux", "", "path to tmux binary (defaults to PATH lookup)")
+		showVer        = flag.Bool("version", false, "print version and exit")
+		dump           = flag.Bool("dump", false, "print current tmux snapshot as JSON and exit")
+		monitor        = flag.Bool("monitor-only", true, "compatibility flag; monitor-only is always enabled unless --control is set")
+		control        = flag.Bool("control", false, "enable interactive control actions such as key forwarding and session kills")
+		organize       = flag.Bool("organize", false, "organize overview cards into cockpit groups")
+		openclaw       = flag.Bool("openclaw-runtime", false, "include read-only OpenClaw runtime cards")
+		openclawScript = flag.String("openclaw-runtime-script", "", "path to OpenClaw runtime snapshot script")
+		openclawLimit  = flag.Int("openclaw-runtime-limit", 20, "maximum OpenClaw runtime cards to show")
+		colors         = flag.Bool("preserve-colors", false, "preserve ANSI colours in captured pane previews")
+		exclude        = flag.String("exclude-session", "", "comma-separated tmux session names to hide from snapshots")
+		simulate       = flag.String("debug-click", "", "simulate a mouse left-click at the given coordinates (x,y)")
+		traceMouse     = flag.Bool("trace-mouse", false, "log mouse hit testing details to stderr")
 	)
 	flag.Parse()
 
@@ -88,6 +91,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "failed to fetch tmux snapshot: %v\n", err)
 			os.Exit(1)
 		}
+		snap = ui.AppendOpenClawRuntimeSessions(snap, runtimeSource(*openclaw, *openclawScript, *openclawLimit))
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(snap); err != nil {
@@ -100,6 +104,9 @@ func main() {
 	model := ui.NewModel(client, *interval, *captureBudget, debugMsgs, *traceMouse, monitorOnly)
 	model.SetPreferredColumns(*cols)
 	model.SetOrganized(*organize)
+	if *openclaw {
+		model.SetOpenClawRuntimeSource(*openclawScript, *openclawLimit, 10*time.Second)
+	}
 	program := tea.NewProgram(model)
 
 	if _, err := program.Run(); err != nil {
@@ -110,6 +117,21 @@ func main() {
 
 func effectiveMonitorOnly(_ bool, control bool) bool {
 	return !control
+}
+
+func runtimeSource(enabled bool, script string, limit int) ui.RuntimeSource {
+	if !enabled {
+		return ui.RuntimeSource{}
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	return ui.RuntimeSource{
+		Enabled: true,
+		Script:  script,
+		Limit:   limit,
+		Timeout: 10 * time.Second,
+	}
 }
 
 func parseSessionList(value string) []string {
