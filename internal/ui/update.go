@@ -46,6 +46,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.inflight = false
 		m.err = nil
 		m.lastUpdated = msg.snapshot.Timestamp
+		m.updateRuntimeTimeline(msg.snapshot)
 		m.sessions = msg.snapshot.Sessions
 		m.paneParseWarnings = msg.snapshot.PaneParseWarnings
 		m.pruneHiddenRuntimeSessions()

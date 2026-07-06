@@ -161,6 +161,10 @@ type Model struct {
 	organized   bool
 	runtime     RuntimeSource
 
+	timelineSeeded      bool
+	lastRuntimeTimeline runtimeTimelineSnapshot
+	runtimeTimeline     []runtimeTimelineEvent
+
 	lastUpdated time.Time
 	err         error
 	inflight    bool
