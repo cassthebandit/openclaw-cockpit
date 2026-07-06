@@ -6,6 +6,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"charm.land/lipgloss/v2"
 	"github.com/steipete/tmuxwatch/internal/tmux"
 )
 
@@ -240,5 +241,218 @@ func TestRuntimeTimelineFooterDoesNotLeakEvidencePath(t *testing.T) {
 		if strings.Contains(got, forbidden) {
 			t.Fatalf("timeline footer leaked %q in %q", forbidden, got)
 		}
+	}
+}
+
+func TestRuntimeTimelineDetailLinesShowRecentSafeEvents(t *testing.T) {
+	t.Parallel()
+
+	m := &Model{runtimeTimeline: []runtimeTimelineEvent{
+		{Type: runtimeTimelineAppeared, Label: "Alpha", Reason: "appeared", At: time.Date(2026, 7, 6, 1, 2, 1, 0, time.UTC)},
+		{Type: runtimeTimelineResolved, Label: "Beta", Reason: "resolved", At: time.Date(2026, 7, 6, 1, 2, 2, 0, time.UTC)},
+		{Type: runtimeTimelineGrouped, Label: "Gamma", Reason: "grouped x3", At: time.Date(2026, 7, 6, 1, 2, 3, 0, time.UTC)},
+		{Type: runtimeTimelineHiddenSummary, Label: "runtime snapshot", Reason: "hidden 1 -> 2", At: time.Date(2026, 7, 6, 1, 2, 4, 0, time.UTC)},
+	}}
+
+	lines := m.runtimeTimelineDetailLines(100, 2)
+	if got, want := len(lines), 3; got != want {
+		t.Fatalf("detail line count = %d, want %d: %#v", got, want, lines)
+	}
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"timeline:",
+		"01:02:03 grouped Gamma - grouped x3",
+		"01:02:04 hidden runtime snapshot - hidden 1 -> 2",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("detail lines missing %q in %q", want, joined)
+		}
+	}
+	if strings.Contains(joined, "Alpha") || strings.Contains(joined, "Beta") {
+		t.Fatalf("detail lines should only show the most recent capped events, got %q", joined)
+	}
+}
+
+func TestRuntimeTimelineDetailReasonPolicyMatchesFooter(t *testing.T) {
+	t.Parallel()
+
+	m := &Model{runtimeTimeline: []runtimeTimelineEvent{
+		{Type: runtimeTimelineAppeared, Label: "Alpha", Reason: "safe appeared reason", At: time.Date(2026, 7, 6, 1, 2, 1, 0, time.UTC)},
+		{Type: runtimeTimelineResolved, Label: "Beta", Reason: "safe resolved reason", At: time.Date(2026, 7, 6, 1, 2, 2, 0, time.UTC)},
+		{Type: runtimeTimelineGrouped, Label: "Gamma", Reason: "grouped x3", At: time.Date(2026, 7, 6, 1, 2, 3, 0, time.UTC)},
+		{Type: runtimeTimelineHiddenSummary, Label: "runtime snapshot", Reason: "hidden 1 -> 2", At: time.Date(2026, 7, 6, 1, 2, 4, 0, time.UTC)},
+		{Type: runtimeTimelineSourceUnavailable, Label: "runtime source", Reason: "safe source reason", At: time.Date(2026, 7, 6, 1, 2, 5, 0, time.UTC)},
+	}}
+
+	got := strings.Join(m.runtimeTimelineDetailLines(140, 10), "\n")
+	for _, want := range []string{
+		"01:02:03 grouped Gamma - grouped x3",
+		"01:02:04 hidden runtime snapshot - hidden 1 -> 2",
+		"01:02:05 source unavailable runtime source",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("detail lines missing %q in %q", want, got)
+		}
+	}
+	for _, forbidden := range []string{
+		"safe appeared reason",
+		"safe resolved reason",
+		"safe source reason",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("detail lines should omit %q, got %q", forbidden, got)
+		}
+	}
+}
+
+func TestRuntimeTimelineDetailOnlyForSelectedRuntimeCard(t *testing.T) {
+	t.Parallel()
+
+	session := runtimeTimelineSession("a", "Runtime Card", tmux.CockpitMeta{})
+	pane := session.Windows[0].Panes[0]
+	m := &Model{
+		viewMode:      viewModeOverview,
+		detailSession: session.ID,
+		runtimeTimeline: []runtimeTimelineEvent{{
+			Type:   runtimeTimelineAppeared,
+			Label:  "Runtime Card",
+			Reason: "appeared",
+			At:     time.Date(2026, 7, 6, 1, 2, 3, 0, time.UTC),
+		}},
+	}
+
+	if got := strings.Join(cockpitCardInfoLines(100, m, session, pane, ""), "\n"); strings.Contains(got, "timeline:") {
+		t.Fatalf("overview info lines should not render timeline detail, got %q", got)
+	}
+
+	m.viewMode = viewModeDetail
+	if got := strings.Join(cockpitCardInfoLines(100, m, session, pane, ""), "\n"); !strings.Contains(got, "timeline:") {
+		t.Fatalf("selected runtime detail should render timeline detail, got %q", got)
+	}
+
+	m.detailSession = "openclaw-runtime:other"
+	if got := strings.Join(cockpitCardInfoLines(100, m, session, pane, ""), "\n"); strings.Contains(got, "timeline:") {
+		t.Fatalf("unselected runtime card should not render timeline detail, got %q", got)
+	}
+
+	plain := tmux.Session{
+		ID: "plain",
+		Windows: []tmux.Window{{
+			Panes: []tmux.Pane{{ID: "%plain"}},
+		}},
+	}
+	m.detailSession = plain.ID
+	if got := strings.Join(cockpitCardInfoLines(100, m, plain, plain.Windows[0].Panes[0], ""), "\n"); strings.Contains(got, "timeline:") {
+		t.Fatalf("non-runtime detail should not render timeline detail, got %q", got)
+	}
+}
+
+func TestRuntimeTimelineDetailEmptyTimelineSilent(t *testing.T) {
+	t.Parallel()
+
+	session := runtimeTimelineSession("a", "Runtime Card", tmux.CockpitMeta{})
+	pane := session.Windows[0].Panes[0]
+	m := &Model{viewMode: viewModeDetail, detailSession: session.ID}
+
+	got := strings.Join(cockpitCardInfoLines(100, m, session, pane, ""), "\n")
+	if strings.Contains(got, "timeline:") {
+		t.Fatalf("empty timeline should render no detail block, got %q", got)
+	}
+}
+
+func TestRuntimeTimelineDetailDoesNotLeakKeysOrUnsafeReasonsAcrossEventTypes(t *testing.T) {
+	t.Parallel()
+
+	m := &Model{runtimeTimeline: []runtimeTimelineEvent{
+		{
+			Type:   runtimeTimelineAppeared,
+			Key:    "/Users/cass/private/key-appeared",
+			Label:  "Appeared Card",
+			Reason: "/Users/cass/private/reason-appeared",
+			At:     time.Date(2026, 7, 6, 1, 2, 1, 0, time.UTC),
+		},
+		{
+			Type:   runtimeTimelineResolved,
+			Key:    "workspace/memory/runs/key-resolved",
+			Label:  "Resolved Card",
+			Reason: "secret-evidence-id-42",
+			At:     time.Date(2026, 7, 6, 1, 2, 2, 0, time.UTC),
+		},
+		{
+			Type:   runtimeTimelineGrouped,
+			Key:    "secret-evidence-id-43",
+			Label:  "Grouped Card",
+			Reason: "raw-id-1,raw-id-2",
+			At:     time.Date(2026, 7, 6, 1, 2, 3, 0, time.UTC),
+		},
+		{
+			Type:   runtimeTimelineHiddenSummary,
+			Key:    "/private/tmp/key-hidden",
+			Label:  "/Users/cass/.openclaw/workspace/memory/runs/private-run/RESULT.md",
+			Reason: "/Users/cass/.openclaw/workspace/memory/runs/private-run/RESULT.md",
+			At:     time.Date(2026, 7, 6, 1, 2, 4, 0, time.UTC),
+		},
+		{
+			Type:   runtimeTimelineSourceUnavailable,
+			Key:    "id-4,id-3",
+			Label:  "runtime source",
+			Reason: "id-4,id-3",
+			At:     time.Date(2026, 7, 6, 1, 2, 5, 0, time.UTC),
+		},
+	}}
+
+	got := strings.Join(m.runtimeTimelineDetailLines(120, 10), "\n")
+	for _, want := range []string{"timeline:", "Appeared Card", "Resolved Card", "Grouped Card", "runtime item", "runtime source"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("detail lines missing safe text %q in %q", want, got)
+		}
+	}
+	for _, forbidden := range []string{
+		"key-appeared",
+		"reason-appeared",
+		"key-resolved",
+		"secret-evidence-id-42",
+		"secret-evidence-id-43",
+		"raw-id-1",
+		"raw-id-2",
+		"key-hidden",
+		"/Users/cass",
+		"/private/tmp",
+		".openclaw",
+		"workspace/memory/runs",
+		"private-run",
+		"RESULT.md",
+		"id-4",
+		"id-3",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("timeline detail leaked %q in %q", forbidden, got)
+		}
+	}
+}
+
+func TestRuntimeTimelineDetailTruncatesLongRows(t *testing.T) {
+	t.Parallel()
+
+	m := &Model{runtimeTimeline: []runtimeTimelineEvent{{
+		Type:   runtimeTimelineGrouped,
+		Label:  strings.Repeat("longlabel", 12),
+		Reason: "grouped " + strings.Repeat("reason", 12),
+		At:     time.Date(2026, 7, 6, 1, 2, 3, 0, time.UTC),
+	}}}
+
+	lines := m.runtimeTimelineDetailLines(42, 1)
+	if got, want := len(lines), 2; got != want {
+		t.Fatalf("detail line count = %d, want %d: %#v", got, want, lines)
+	}
+	row := lines[1]
+	if !utf8.ValidString(row) {
+		t.Fatalf("truncated detail row should remain valid UTF-8, got %q", row)
+	}
+	if width := lipgloss.Width(row); width > 42 {
+		t.Fatalf("truncated detail row width = %d, want <= 42: %q", width, row)
+	}
+	if !strings.Contains(row, "...") {
+		t.Fatalf("long detail row should include ellipsis, got %q", row)
 	}
 }

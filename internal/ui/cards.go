@@ -664,6 +664,12 @@ func cockpitCardInfoLines(width int, m *Model, session tmux.Session, pane tmux.P
 		lines = append(lines, attention)
 	}
 	lines = append(lines, cockpitInfoLines(width, pane)...)
+	if m != nil &&
+		m.viewMode == viewModeDetail &&
+		m.detailSession == session.ID &&
+		isOpenClawRuntimePane(pane) {
+		lines = append(lines, m.runtimeTimelineDetailLines(width, maxRuntimeTimelineDetailRows)...)
+	}
 	return lines
 }
 

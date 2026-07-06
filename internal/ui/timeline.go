@@ -6,11 +6,16 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/steipete/tmuxwatch/internal/tmux"
 )
 
-const maxRuntimeTimelineEvents = 250
+const (
+	maxRuntimeTimelineEvents     = 250
+	maxRuntimeTimelineDetailRows = 12
+	runtimeTimelineDetailRowCap  = 20
+)
 
 type runtimeTimelineEventType string
 
@@ -274,6 +279,160 @@ func (m *Model) formatRuntimeTimelineLine(width int) string {
 		return cardSafeLine(truncateRunes(line, max(0, width-1)))
 	}
 	return cardSafeLine(line)
+}
+
+func (m *Model) runtimeTimelineDetailLines(width int, limit int) []string {
+	if m == nil || len(m.runtimeTimeline) == 0 || limit <= 0 {
+		return nil
+	}
+	if limit > runtimeTimelineDetailRowCap {
+		limit = runtimeTimelineDetailRowCap
+	}
+	start := len(m.runtimeTimeline) - limit
+	if start < 0 {
+		start = 0
+	}
+	lines := []string{cockpitSubtleLine(width, "timeline:")}
+	for _, event := range m.runtimeTimeline[start:] {
+		if line := event.detailLine(width); line != "" {
+			lines = append(lines, cockpitSubtleLine(width, line))
+		}
+	}
+	if len(lines) == 1 {
+		return nil
+	}
+	return lines
+}
+
+func (e runtimeTimelineEvent) detailLine(width int) string {
+	label := runtimeTimelineSafeLabel(e.Label)
+	displayType := runtimeTimelineDisplayType(e.Type)
+	parts := []string{runtimeTimelineEventClock(e.At), displayType}
+	if label != "" {
+		parts = append(parts, label)
+	}
+	line := strings.Join(parts, " ")
+	if reason := e.detailReason(displayType, label); reason != "" {
+		line += " - " + reason
+	}
+	if width > 0 {
+		line = truncateSingleLine(line, width)
+	}
+	return cardSafeLine(line)
+}
+
+func (e runtimeTimelineEvent) detailReason(displayType string, label string) string {
+	switch e.Type {
+	case runtimeTimelineGrouped, runtimeTimelineHiddenSummary:
+	default:
+		return ""
+	}
+	reason := runtimeTimelineSafeReason(e.Reason)
+	if reason == "" ||
+		strings.EqualFold(reason, displayType) ||
+		strings.EqualFold(reason, label) {
+		return ""
+	}
+	return reason
+}
+
+func runtimeTimelineEventClock(at time.Time) string {
+	if at.IsZero() {
+		return "--:--:--"
+	}
+	return at.Format("15:04:05")
+}
+
+func runtimeTimelineDisplayType(eventType runtimeTimelineEventType) string {
+	switch eventType {
+	case runtimeTimelineHiddenSummary:
+		return "hidden"
+	case runtimeTimelineSourceUnavailable:
+		return "source unavailable"
+	case runtimeTimelineAppeared, runtimeTimelineResolved, runtimeTimelineGrouped:
+		return string(eventType)
+	default:
+		return "event"
+	}
+}
+
+func runtimeTimelineSafeLabel(value string) string {
+	return runtimeTimelineSafeSummary(value, "runtime item")
+}
+
+func runtimeTimelineSafeReason(value string) string {
+	return runtimeTimelineSafeSummary(value, "")
+}
+
+func runtimeTimelineSafeSummary(value string, fallback string) string {
+	value = cardSafeLine(value)
+	if value == "" {
+		return fallback
+	}
+	if runtimeTimelineSummaryUnsafe(value) {
+		return fallback
+	}
+	return value
+}
+
+func runtimeTimelineSummaryUnsafe(value string) bool {
+	lower := strings.ToLower(value)
+	if strings.ContainsAny(value, `/\`) ||
+		strings.HasPrefix(value, "~") ||
+		strings.Contains(lower, ".openclaw") ||
+		strings.Contains(lower, "/users/") ||
+		strings.Contains(lower, "/private/") ||
+		strings.Contains(lower, "workspace/memory/runs") ||
+		strings.HasPrefix(strings.TrimSpace(value), "{") ||
+		strings.HasPrefix(strings.TrimSpace(value), "[") {
+		return true
+	}
+	return runtimeTimelineLooksLikeEvidenceIDs(value)
+}
+
+func runtimeTimelineLooksLikeEvidenceIDs(value string) bool {
+	parts := strings.Split(value, ",")
+	if len(parts) > 1 {
+		for _, part := range parts {
+			if !runtimeTimelineLooksLikeIDToken(strings.TrimSpace(part)) {
+				return false
+			}
+		}
+		return true
+	}
+	return runtimeTimelineLooksLikeOpaqueID(value)
+}
+
+func runtimeTimelineLooksLikeIDToken(value string) bool {
+	if len(value) < 3 || strings.ContainsAny(value, " \t") {
+		return false
+	}
+	hasSeparator := false
+	hasDigit := false
+	for _, r := range value {
+		switch {
+		case unicode.IsLetter(r):
+		case unicode.IsDigit(r):
+			hasDigit = true
+		case r == '-' || r == '_' || r == ':' || r == '.':
+			hasSeparator = true
+		default:
+			return false
+		}
+	}
+	lower := strings.ToLower(value)
+	return hasSeparator && (hasDigit || strings.Contains(lower, "id"))
+}
+
+func runtimeTimelineLooksLikeOpaqueID(value string) bool {
+	if len(value) < 12 || strings.ContainsAny(value, " \t") {
+		return false
+	}
+	if !runtimeTimelineLooksLikeIDToken(value) {
+		return false
+	}
+	lower := strings.ToLower(value)
+	return strings.Contains(lower, "evidence") || strings.Contains(lower, "secret")
 }
 
 func truncateRunes(value string, limit int) string {
