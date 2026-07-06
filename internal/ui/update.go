@@ -26,6 +26,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.paletteOpen {
 			return m.handlePaletteKey(msg)
 		}
+		if m.commanding {
+			return m.handleCommandKey(msg)
+		}
 		if m.searching {
 			return m.handleSearchKey(msg)
 		}
@@ -261,6 +264,9 @@ func (m *Model) filteredSessionsFull() []tmux.Session {
 		if m.isHidden(session.ID) {
 			continue
 		}
+		if !m.sessionMatchesViewFilter(session) {
+			continue
+		}
 		if query == "" || sessionMatches(session, query) {
 			out = append(out, session)
 		}
@@ -269,6 +275,23 @@ func (m *Model) filteredSessionsFull() []tmux.Session {
 		sortSessionsForCockpit(m, out)
 	}
 	return out
+}
+
+func (m *Model) sessionMatchesViewFilter(session tmux.Session) bool {
+	switch m.viewFilter {
+	case "":
+		return true
+	case "decision":
+		return cockpitGroupFor(m, session).name == groupNeedsDecision.name
+	case "route":
+		return cockpitGroupFor(m, session).name == groupRouteHealth.name
+	case "handoff":
+		return cockpitGroupFor(m, session).name == groupDelivery.name
+	case "services":
+		return cockpitGroupFor(m, session).name == groupServices.name
+	default:
+		return true
+	}
 }
 
 // filteredSessionCount provides a quick count for layout calculations.

@@ -17,6 +17,12 @@ func renderSearchBar(input textinput.Model) string {
 	return lipgloss.JoinHorizontal(lipgloss.Left, label, input.View())
 }
 
+// renderCommandBar prints the interactive Pulse view filter prompt.
+func renderCommandBar(input textinput.Model) string {
+	label := lipgloss.NewStyle().Padding(0, 1).Foreground(lipgloss.Color("62")).Render("Filter")
+	return lipgloss.JoinHorizontal(lipgloss.Left, label, input.View())
+}
+
 // renderSearchSummary shows the current filter query when the search box is
 // closed.
 func renderSearchSummary(query string) string {
@@ -33,17 +39,9 @@ func renderTitleBar(m *Model, width int) string {
 	base := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("231")).
 		Background(lipgloss.Color("62"))
-	name := base.Bold(true).Padding(0, 2).Render("OpenClaw Cockpit")
+	name := base.Bold(true).Padding(0, 2).Render("OpenClaw Cockpit · " + m.titleViewLabel())
 
-	totalSessions := len(m.sessions)
-	staleCount := len(m.stale)
-	activeCount := totalSessions - staleCount
-	if activeCount < 0 {
-		activeCount = 0
-	}
-
-	summary := fmt.Sprintf("%d sessions (%d active, %d stale)", totalSessions, activeCount, staleCount)
-	metaParts := []string{summary}
+	metaParts := []string{m.titleSummary()}
 	if !m.lastUpdated.IsZero() {
 		metaParts = append(metaParts, fmt.Sprintf("refreshed %s ago", coarseDuration(time.Since(m.lastUpdated))))
 	}
@@ -68,6 +66,84 @@ func renderTitleBar(m *Model, width int) string {
 		content += padding
 	}
 	return content
+}
+
+func (m *Model) titleViewLabel() string {
+	if m.viewMode != viewModeDetail || m.detailSession == "" {
+		label := "Pulse"
+		if filter := m.viewFilterLabel(); filter != "" {
+			label += " / " + filter
+		}
+		return label
+	}
+	if session, ok := m.sessionByID(m.detailSession); ok {
+		if strings.TrimSpace(session.Name) != "" {
+			return "Detail / " + session.Name
+		}
+	}
+	return "Detail / " + sessionLabel(m.detailSession)
+}
+
+func (m *Model) viewFilterLabel() string {
+	switch m.viewFilter {
+	case "decision":
+		return "Decision"
+	case "route":
+		return "Route"
+	case "handoff":
+		return "Handoff"
+	case "services":
+		return "Services"
+	default:
+		return ""
+	}
+}
+
+func (m *Model) titleSummary() string {
+	total := len(m.sessions)
+	if total == 0 {
+		return "0 items"
+	}
+
+	services := 0
+	staleCount := len(m.staleSessionNames())
+	groupCounts := map[string]int{}
+	attention := 0
+	for _, session := range m.sessions {
+		group := cockpitGroupFor(m, session)
+		groupCounts[group.name]++
+		if group.name == groupServices.name {
+			services++
+			continue
+		}
+		if stateNeedsAttention(sessionAttentionState(m, session)) {
+			attention++
+		}
+	}
+
+	parts := []string{fmt.Sprintf("%d items", total)}
+	if attention > 0 {
+		parts = append(parts, fmt.Sprintf("attention %d", attention))
+	}
+	if n := groupCounts[groupNeedsDecision.name]; n > 0 {
+		parts = append(parts, fmt.Sprintf("decision %d", n))
+	}
+	if n := groupCounts[groupRouteHealth.name]; n > 0 {
+		parts = append(parts, fmt.Sprintf("route %d", n))
+	}
+	if n := groupCounts[groupDelivery.name]; n > 0 {
+		parts = append(parts, fmt.Sprintf("handoff %d", n))
+	}
+	if n := groupCounts[groupSourceUnknown.name]; n > 0 {
+		parts = append(parts, fmt.Sprintf("unknown %d", n))
+	}
+	if services > 0 {
+		parts = append(parts, fmt.Sprintf("services %d", services))
+	}
+	if staleCount > 0 {
+		parts = append(parts, fmt.Sprintf("stale %d", staleCount))
+	}
+	return strings.Join(parts, " · ")
 }
 
 // formatPaneVariables formats sorted tmux pane variables for display.

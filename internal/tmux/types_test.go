@@ -77,6 +77,9 @@ func TestCockpitMetaHasData(t *testing.T) {
 	if !(CockpitMeta{ProgressPath: "progress.jsonl"}).HasData() {
 		t.Fatal("new cockpit metadata fields should report data")
 	}
+	if !(CockpitMeta{PresentationGroup: "route_health"}).HasData() {
+		t.Fatal("presentation metadata fields should report data")
+	}
 }
 
 func TestCockpitMetaDisplayOnly(t *testing.T) {

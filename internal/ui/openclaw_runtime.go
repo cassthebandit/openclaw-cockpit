@@ -20,45 +20,71 @@ const (
 )
 
 type openClawRuntimeSnapshot struct {
-	CardContract string                `json:"cardContract"`
-	Cards        []openClawRuntimeCard `json:"cards"`
+	CardContract string                 `json:"cardContract"`
+	Summary      openClawRuntimeSummary `json:"summary"`
+	Cards        []openClawRuntimeCard  `json:"cards"`
+}
+
+type openClawRuntimeSummary struct {
+	RawRuntimeCardCount     int `json:"rawRuntimeCardCount"`
+	VisibleRuntimeCardCount int `json:"visibleRuntimeCardCount"`
+	GroupedRuntimeCardCount int `json:"groupedRuntimeCardCount"`
+	HiddenRuntimeCardCount  int `json:"hiddenRuntimeCardCount"`
 }
 
 type openClawRuntimeCard struct {
-	ID                string   `json:"id"`
-	DedupeKey         string   `json:"dedupeKey"`
-	CardContract      string   `json:"cardContract"`
-	Kind              string   `json:"kind"`
-	Label             string   `json:"label"`
-	DisplayTitle      string   `json:"displayTitle"`
-	DisplayStatus     string   `json:"displayStatus"`
-	DisplayGroup      string   `json:"displayGroup"`
-	Reason            string   `json:"reason"`
-	NextAction        string   `json:"nextAction"`
-	Runtime           string   `json:"runtime"`
-	StateClass        string   `json:"stateClass"`
-	Status            string   `json:"status"`
-	Severity          string   `json:"severity"`
-	LifecycleState    string   `json:"lifecycleState"`
-	SourceTruth       string   `json:"sourceTruth"`
-	SourceProvenance  string   `json:"sourceProvenance"`
-	Actionability     string   `json:"actionability"`
-	TeardownPolicy    string   `json:"teardownPolicy"`
-	PolicyScope       string   `json:"policyScope"`
-	AggregationPolicy string   `json:"aggregationPolicy"`
-	Summary           string   `json:"summary"`
-	DeliveryStatus    string   `json:"deliveryStatus"`
-	RunID             string   `json:"runId"`
-	ChildSessionKey   string   `json:"childSessionKey"`
-	OwnerKey          string   `json:"ownerKey"`
-	ParentFlowID      string   `json:"parentFlowId"`
-	LastEventAgeMs    *int64   `json:"lastEventAgeMs"`
-	CreatedAgeMs      *int64   `json:"createdAgeMs"`
-	RequesterSession  string   `json:"requesterSessionKey"`
-	EvidenceIDs       []string `json:"evidenceIds"`
-	SourceKinds       []string `json:"sourceKinds"`
-	SourceCount       int      `json:"sourceCount"`
-	SourceSummaries   []string `json:"sourceSummaries"`
+	ID                     string   `json:"id"`
+	DedupeKey              string   `json:"dedupeKey"`
+	CardContract           string   `json:"cardContract"`
+	Kind                   string   `json:"kind"`
+	Label                  string   `json:"label"`
+	DisplayTitle           string   `json:"displayTitle"`
+	DisplayStatus          string   `json:"displayStatus"`
+	DisplayGroup           string   `json:"displayGroup"`
+	PresentationGroup      string   `json:"presentationGroup"`
+	PresentationLabel      string   `json:"presentationLabel"`
+	Reason                 string   `json:"reason"`
+	NextAction             string   `json:"nextAction"`
+	WhyVisible             string   `json:"whyVisible"`
+	SuggestionKind         string   `json:"suggestionKind"`
+	SuggestedAction        string   `json:"suggestedAction"`
+	SuggestedCommand       string   `json:"suggestedCommand"`
+	SuggestionConfidence   string   `json:"suggestionConfidence"`
+	Skeleton               bool     `json:"skeleton"`
+	SkeletonReason         string   `json:"skeletonReason"`
+	Suppressed             bool     `json:"suppressed"`
+	Runtime                string   `json:"runtime"`
+	StateClass             string   `json:"stateClass"`
+	Status                 string   `json:"status"`
+	Severity               string   `json:"severity"`
+	LifecycleState         string   `json:"lifecycleState"`
+	SourceTruth            string   `json:"sourceTruth"`
+	SourceProvenance       string   `json:"sourceProvenance"`
+	Actionability          string   `json:"actionability"`
+	TeardownPolicy         string   `json:"teardownPolicy"`
+	PolicyScope            string   `json:"policyScope"`
+	AggregationPolicy      string   `json:"aggregationPolicy"`
+	Summary                string   `json:"summary"`
+	DeliveryStatus         string   `json:"deliveryStatus"`
+	RunID                  string   `json:"runId"`
+	ChildSessionKey        string   `json:"childSessionKey"`
+	OwnerKey               string   `json:"ownerKey"`
+	ParentFlowID           string   `json:"parentFlowId"`
+	LastEventAgeMs         *int64   `json:"lastEventAgeMs"`
+	CreatedAgeMs           *int64   `json:"createdAgeMs"`
+	RequesterSession       string   `json:"requesterSessionKey"`
+	EvidenceIDs            []string `json:"evidenceIds"`
+	SourceKinds            []string `json:"sourceKinds"`
+	SourceCount            int      `json:"sourceCount"`
+	SourceSummaries        []string `json:"sourceSummaries"`
+	LogicalGroupKey        string   `json:"logicalGroupKey"`
+	GroupedRecordCount     int      `json:"groupedRecordCount"`
+	RawCardCount           int      `json:"rawCardCount"`
+	VisibleCardCount       int      `json:"visibleCardCount"`
+	GroupedEvidenceIDs     []string `json:"groupedEvidenceIds"`
+	GroupedSourceKinds     []string `json:"groupedSourceKinds"`
+	GroupedSourceSummaries []string `json:"groupedSourceSummaries"`
+	summary                openClawRuntimeSummary
 }
 
 // AppendOpenClawRuntimeSessions adds optional OpenClaw runtime cards to a tmux
@@ -142,6 +168,9 @@ func loadOpenClawRuntimeCards(source RuntimeSource) ([]openClawRuntimeCard, erro
 	if err := validateOpenClawRuntimeSnapshot(snapshot); err != nil {
 		return nil, err
 	}
+	for i := range snapshot.Cards {
+		snapshot.Cards[i].summary = snapshot.Summary
+	}
 	return snapshot.Cards, nil
 }
 
@@ -179,31 +208,47 @@ func openClawRuntimeSession(card openClawRuntimeCard, index int, now time.Time) 
 		Width:        100,
 		Height:       24,
 		Cockpit: &tmux.CockpitMeta{
-			ContractVersion:   runtimeCardContract(card),
-			ManagedBy:         "openclaw_runtime_snapshot",
-			Kind:              "runtime",
-			Agent:             runtime,
-			Owner:             "",
-			Project:           "",
-			Goal:              label,
-			State:             state,
-			DisplayStatus:     cardSafeLine(valueOr(card.DisplayStatus, state)),
-			DisplayGroup:      cardSafeLine(valueOr(card.DisplayGroup, "unknown")),
-			Reason:            cardSafeLine(card.Reason),
-			NextAction:        cardSafeLine(card.NextAction),
-			LifecycleState:    cardSafeLine(runtimeCardLifecycle(card)),
-			SourceTruth:       cardSafeLine(card.SourceTruth),
-			SourceProvenance:  cardSafeLine(card.SourceProvenance),
-			Actionability:     cardSafeLine(card.Actionability),
-			TeardownPolicy:    cardSafeLine(card.TeardownPolicy),
-			PolicyScope:       cardSafeLine(card.PolicyScope),
-			AggregationPolicy: cardSafeLine(card.AggregationPolicy),
-			SourceKinds:       cardSafeLine(strings.Join(card.SourceKinds, ",")),
-			SourceCount:       runtimeSourceCount(card),
-			SessionID:         firstNonEmpty(card.ChildSessionKey, card.RequesterSession, card.ParentFlowID, card.RunID, card.DedupeKey, card.ID),
-			UpdatedAt:         activity.UTC().Format(time.RFC3339),
-			EvidencePath:      runtimeCardEvidence(card),
-			HoldReason:        runtimeCardHoldReason(card),
+			ContractVersion:      runtimeCardContract(card),
+			ManagedBy:            "openclaw_runtime_snapshot",
+			Kind:                 "runtime",
+			Agent:                runtime,
+			Owner:                "",
+			Project:              "",
+			Goal:                 label,
+			State:                state,
+			DisplayStatus:        cardSafeLine(valueOr(card.DisplayStatus, state)),
+			DisplayGroup:         cardSafeLine(valueOr(card.DisplayGroup, "unknown")),
+			PresentationGroup:    cardSafeLine(card.PresentationGroup),
+			PresentationLabel:    cardSafeLine(card.PresentationLabel),
+			Reason:               cardSafeLine(card.Reason),
+			NextAction:           cardSafeLine(card.NextAction),
+			WhyVisible:           cardSafeLine(card.WhyVisible),
+			SuggestionKind:       cardSafeLine(card.SuggestionKind),
+			SuggestedAction:      cardSafeLine(card.SuggestedAction),
+			SuggestedCommand:     cardSafeLine(card.SuggestedCommand),
+			SuggestionConfidence: cardSafeLine(card.SuggestionConfidence),
+			Skeleton:             boolString(card.Skeleton),
+			SkeletonReason:       cardSafeLine(card.SkeletonReason),
+			Suppressed:           boolString(card.Suppressed),
+			LifecycleState:       cardSafeLine(runtimeCardLifecycle(card)),
+			SourceTruth:          cardSafeLine(card.SourceTruth),
+			SourceProvenance:     cardSafeLine(card.SourceProvenance),
+			Actionability:        cardSafeLine(card.Actionability),
+			TeardownPolicy:       cardSafeLine(card.TeardownPolicy),
+			PolicyScope:          cardSafeLine(card.PolicyScope),
+			AggregationPolicy:    cardSafeLine(card.AggregationPolicy),
+			SourceKinds:          cardSafeLine(strings.Join(card.SourceKinds, ",")),
+			SourceCount:          runtimeSourceCount(card),
+			LogicalGroupKey:      cardSafeLine(card.LogicalGroupKey),
+			GroupedRecordCount:   intString(card.GroupedRecordCount),
+			RawCardCount:         intString(firstPositive(card.summary.RawRuntimeCardCount, card.RawCardCount)),
+			VisibleCardCount:     intString(firstPositive(card.summary.VisibleRuntimeCardCount, card.VisibleCardCount)),
+			GroupedCardCount:     intString(card.summary.GroupedRuntimeCardCount),
+			HiddenCardCount:      intString(card.summary.HiddenRuntimeCardCount),
+			SessionID:            firstNonEmpty(card.ChildSessionKey, card.RequesterSession, card.ParentFlowID, card.RunID, card.DedupeKey, card.ID),
+			UpdatedAt:            activity.UTC().Format(time.RFC3339),
+			EvidencePath:         runtimeCardEvidence(card),
+			HoldReason:           runtimeCardHoldReason(card),
 		},
 		PreviewText: runtimeCardPreview(card),
 	}
@@ -301,6 +346,24 @@ func runtimeCardPreview(card openClawRuntimeCard) string {
 		"cause: " + cardSafeLine(valueOr(card.Reason, valueOr(card.Summary, "unknown"))),
 		"next: " + cardSafeLine(valueOr(card.NextAction, "inspect manually")),
 	}
+	if group := cardSafeLine(firstNonEmpty(card.PresentationLabel, card.PresentationGroup)); group != "" {
+		lines = append(lines, "presentation: "+group)
+	}
+	if groupLine := runtimeCardGroupLine(card); groupLine != "" {
+		lines = append(lines, "group: "+groupLine)
+	}
+	if summaryLine := runtimeCardSummaryLine(card); summaryLine != "" {
+		lines = append(lines, "snapshot: "+summaryLine)
+	}
+	if why := cardSafeLine(card.WhyVisible); why != "" {
+		lines = append(lines, "why visible: "+why)
+	}
+	if suggestion := runtimeCardSuggestionLine(card); suggestion != "" {
+		lines = append(lines, "suggestion: "+suggestion)
+	}
+	if card.Skeleton || card.Suppressed || strings.TrimSpace(card.SkeletonReason) != "" {
+		lines = append(lines, "skeleton: "+runtimeCardSkeletonLine(card))
+	}
 	if action := cardSafeLine(card.Actionability); action != "" {
 		lines = append(lines, "action: "+action)
 	}
@@ -313,10 +376,14 @@ func runtimeCardPreview(card openClawRuntimeCard) string {
 	if teardown := cardSafeLine(card.TeardownPolicy); teardown != "" {
 		lines = append(lines, "teardown: "+teardown)
 	}
-	if evidence != "" {
+	if groupedEvidence := cardSafeLine(strings.Join(card.GroupedEvidenceIDs, ",")); groupedEvidence != "" {
+		lines = append(lines, "evidence: "+groupedEvidence)
+	} else if evidence != "" {
 		lines = append(lines, "evidence: "+cardSafeLine(evidence))
 	}
-	if sources != "" || card.SourceCount > 0 {
+	if groupedSources := cardSafeLine(strings.Join(card.GroupedSourceKinds, ",")); groupedSources != "" {
+		lines = append(lines, "sources: "+runtimeSourceCount(card)+" "+groupedSources)
+	} else if sources != "" || card.SourceCount > 0 {
 		lines = append(lines, "sources: "+runtimeSourceCount(card)+" "+sources)
 	}
 	if card.Severity != "" {
@@ -328,7 +395,11 @@ func runtimeCardPreview(card openClawRuntimeCard) string {
 	if card.Summary != "" {
 		lines = append(lines, "", cardSafeLine(card.Summary))
 	}
-	for _, summary := range card.SourceSummaries {
+	summaries := card.SourceSummaries
+	if len(card.GroupedSourceSummaries) > 0 {
+		summaries = card.GroupedSourceSummaries
+	}
+	for _, summary := range summaries {
 		summary = cardSafeLine(summary)
 		if summary != "" && summary != card.Summary {
 			lines = append(lines, "- "+summary)
@@ -349,6 +420,42 @@ func runtimeCardPreview(card openClawRuntimeCard) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func runtimeCardGroupLine(card openClawRuntimeCard) string {
+	count := card.GroupedRecordCount
+	if count <= 1 {
+		return ""
+	}
+	parts := []string{fmt.Sprintf("%d runtime cards", count)}
+	if key := cardSafeLine(card.LogicalGroupKey); key != "" {
+		parts = append(parts, "key "+key)
+	}
+	return strings.Join(parts, " · ")
+}
+
+func runtimeCardSummaryLine(card openClawRuntimeCard) string {
+	raw := firstPositive(card.summary.RawRuntimeCardCount, card.RawCardCount)
+	visible := firstPositive(card.summary.VisibleRuntimeCardCount, card.VisibleCardCount)
+	grouped := card.summary.GroupedRuntimeCardCount
+	hidden := card.summary.HiddenRuntimeCardCount
+	if raw <= 0 && visible <= 0 && grouped <= 0 && hidden <= 0 {
+		return ""
+	}
+	parts := []string{}
+	if raw > 0 {
+		parts = append(parts, fmt.Sprintf("raw %d", raw))
+	}
+	if visible > 0 {
+		parts = append(parts, fmt.Sprintf("shown %d", visible))
+	}
+	if grouped > 0 {
+		parts = append(parts, fmt.Sprintf("grouped %d", grouped))
+	}
+	if hidden > 0 {
+		parts = append(parts, fmt.Sprintf("hidden %d", hidden))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func runtimeCardSourceLine(card openClawRuntimeCard) string {
@@ -382,6 +489,39 @@ func runtimeCardPolicyLine(card openClawRuntimeCard) string {
 	return aggregation
 }
 
+func runtimeCardSuggestionLine(card openClawRuntimeCard) string {
+	parts := []string{}
+	if action := cardSafeLine(card.SuggestedAction); action != "" {
+		parts = append(parts, action)
+	}
+	if kind := cardSafeLine(card.SuggestionKind); kind != "" && kind != "none" {
+		parts = append(parts, "kind "+kind)
+	}
+	if confidence := cardSafeLine(card.SuggestionConfidence); confidence != "" {
+		parts = append(parts, "confidence "+confidence)
+	}
+	if command := cardSafeLine(card.SuggestedCommand); command != "" {
+		parts = append(parts, "read-only hint: "+command)
+	}
+	return strings.Join(parts, " · ")
+}
+
+func runtimeCardSkeletonLine(card openClawRuntimeCard) string {
+	parts := []string{}
+	if card.Skeleton {
+		parts = append(parts, "true")
+	} else {
+		parts = append(parts, "false")
+	}
+	if card.Suppressed {
+		parts = append(parts, "suppressed")
+	}
+	if reason := cardSafeLine(card.SkeletonReason); reason != "" {
+		parts = append(parts, reason)
+	}
+	return strings.Join(parts, " · ")
+}
+
 func runtimeCardEvidence(card openClawRuntimeCard) string {
 	if len(card.EvidenceIDs) > 0 {
 		return cardSafeLine(strings.Join(card.EvidenceIDs, ","))
@@ -404,6 +544,22 @@ func runtimeSourceCount(card openClawRuntimeCard) string {
 		return strconv.Itoa(len(card.SourceKinds))
 	}
 	return ""
+}
+
+func intString(value int) string {
+	if value > 0 {
+		return strconv.Itoa(value)
+	}
+	return ""
+}
+
+func firstPositive(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 func sanitizedRuntimeID(id string) string {
@@ -430,4 +586,11 @@ func valueOr(value, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func boolString(value bool) string {
+	if value {
+		return "true"
+	}
+	return ""
 }

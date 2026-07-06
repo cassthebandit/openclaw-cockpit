@@ -4,6 +4,8 @@ package ui
 import (
 	"strings"
 	"testing"
+
+	"github.com/steipete/tmuxwatch/internal/tmux"
 )
 
 func TestClampHeight(t *testing.T) {
@@ -63,5 +65,35 @@ func TestPlaceGridContent(t *testing.T) {
 
 	if got := placeGridContent("irrelevant", 10, 0); got != "" {
 		t.Fatalf("expected empty string for zero height, got %q", got)
+	}
+}
+
+func TestViewBundlesPulseIntoTitleBar(t *testing.T) {
+	t.Parallel()
+
+	m := NewModel(nil, 0, 0, nil, false, true)
+	m.width = 100
+	m.height = 12
+	m.sessions = []tmux.Session{{
+		ID:   "$dev",
+		Name: "dev",
+		Windows: []tmux.Window{{
+			ID:   "@1",
+			Name: "main",
+			Panes: []tmux.Pane{{
+				ID:      "%1",
+				Session: "$dev",
+			}},
+		}},
+	}}
+	vp := viewportFor(innerDimension{width: 40, height: 3})
+	m.previews["$dev"] = &sessionPreview{viewport: &vp, paneID: "%1"}
+
+	got := m.View().Content
+	if !strings.Contains(got, "OpenClaw Cockpit · Pulse") {
+		t.Fatalf("title should include pulse view label, got %q", got)
+	}
+	if strings.Contains(got, "\n Overview\n") {
+		t.Fatalf("overview should not render as its own header row: %q", got)
 	}
 }

@@ -51,7 +51,7 @@ func (m *Model) staleSessionNames() []string {
 		if sessionHasOpenClawRuntime(session) {
 			continue
 		}
-		if isServiceSession(session) && !sessionAllPanesDead(session) {
+		if isQuietLiveServiceSession(session) {
 			continue
 		}
 		if m.isStale(session.ID) {

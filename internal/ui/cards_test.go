@@ -134,6 +134,61 @@ func TestFormatHeaderUsesCompactOpenClawRuntimeHeader(t *testing.T) {
 	}
 }
 
+func TestFormatHeaderShowsGroupedRuntimeBadge(t *testing.T) {
+	t.Parallel()
+
+	session := tmux.Session{Name: "openclaw-runtime:grouped", Windows: []tmux.Window{{Name: "cron"}}}
+	window := session.Windows[0]
+	pane := tmux.Pane{
+		Title:        "qmd-sidecar-live-shadow-collector-step06b",
+		LastActivity: time.Now().Add(-2 * time.Minute),
+		Cockpit: &tmux.CockpitMeta{
+			ContractVersion:    "runtime-card.v1",
+			ManagedBy:          "openclaw_runtime_snapshot",
+			Kind:               "runtime",
+			Agent:              "cron",
+			Goal:               "qmd-sidecar-live-shadow-collector-step06b",
+			State:              "failed",
+			DisplayStatus:      "failed",
+			DisplayGroup:       "needs_attention",
+			GroupedRecordCount: "4",
+		},
+	}
+
+	got := formatHeader(140, session, window, pane, false, false, false, false, "failed", "[x]", "dev-host")
+	if !strings.Contains(got, "x4") {
+		t.Fatalf("runtime header missing grouped badge: %q", got)
+	}
+}
+
+func TestCockpitEvidenceLineCompactsGroupedEvidence(t *testing.T) {
+	t.Parallel()
+
+	meta := &tmux.CockpitMeta{
+		EvidencePath:       "id-4,id-3,id-2,id-1",
+		GroupedRecordCount: "4",
+	}
+
+	got := cockpitEvidenceLine(meta)
+	if got != "evidence: 4 ids, open detail for full list" {
+		t.Fatalf("cockpitEvidenceLine() = %q", got)
+	}
+}
+
+func TestCockpitEvidenceLineCountsIDsNotGroupedRecords(t *testing.T) {
+	t.Parallel()
+
+	meta := &tmux.CockpitMeta{
+		EvidencePath:       "task-4,task-3,task-2,task-1",
+		GroupedRecordCount: "2",
+	}
+
+	got := cockpitEvidenceLine(meta)
+	if got != "evidence: 4 ids, open detail for full list" {
+		t.Fatalf("cockpitEvidenceLine() = %q", got)
+	}
+}
+
 func TestCardTopRowsStripWideGlyphs(t *testing.T) {
 	t.Parallel()
 

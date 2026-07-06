@@ -12,33 +12,40 @@ func TestOpenClawRuntimeSessionMapsAttentionCard(t *testing.T) {
 	ageMs := int64(90_000)
 	now := time.Date(2026, 7, 4, 15, 0, 0, 0, time.UTC)
 	session := openClawRuntimeSession(openClawRuntimeCard{
-		ID:                "flow:123",
-		DedupeKey:         "flow:123",
-		CardContract:      "runtime-card.v1",
-		Kind:              "flow",
-		Label:             "backend packet",
-		DisplayTitle:      "backend packet",
-		DisplayStatus:     "blocked",
-		DisplayGroup:      "needs_attention",
-		Reason:            "done_only_no_final",
-		NextAction:        "inspect final delivery",
-		Runtime:           "taskflow",
-		StateClass:        "attention",
-		Status:            "blocked",
-		LifecycleState:    "needs_attention",
-		SourceTruth:       "reported_by_openclaw",
-		SourceProvenance:  "openclaw tasks/list + tasks/flow/list + tasks/audit",
-		Actionability:     "operator_action",
-		TeardownPolicy:    "drop_when_source_absent",
-		PolicyScope:       "source_identity",
-		AggregationPolicy: "primary_identity",
-		Summary:           "needs a final deliverable",
-		OwnerKey:          "agent:main",
-		ParentFlowID:      "flow-123",
-		LastEventAgeMs:    &ageMs,
-		EvidenceIDs:       []string{"flow-123", "task-1"},
-		SourceKinds:       []string{"flow", "task"},
-		SourceCount:       2,
+		ID:                   "flow:123",
+		DedupeKey:            "flow:123",
+		CardContract:         "runtime-card.v1",
+		Kind:                 "flow",
+		Label:                "backend packet",
+		DisplayTitle:         "backend packet",
+		DisplayStatus:        "blocked",
+		DisplayGroup:         "needs_attention",
+		PresentationGroup:    "delivery_handoff",
+		PresentationLabel:    "Delivery / Handoff",
+		Reason:               "done_only_no_final",
+		NextAction:           "inspect final delivery",
+		WhyVisible:           "Work may have finished, but no clean final-delivery marker is present.",
+		SuggestionKind:       "inspect_handoff",
+		SuggestedAction:      "Inspect parent/child handoff before marking this resolved.",
+		SuggestedCommand:     "openclaw tasks flow list --json",
+		SuggestionConfidence: "medium",
+		Runtime:              "taskflow",
+		StateClass:           "attention",
+		Status:               "blocked",
+		LifecycleState:       "needs_attention",
+		SourceTruth:          "reported_by_openclaw",
+		SourceProvenance:     "openclaw tasks/list + tasks/flow/list + tasks/audit",
+		Actionability:        "operator_action",
+		TeardownPolicy:       "drop_when_source_absent",
+		PolicyScope:          "source_identity",
+		AggregationPolicy:    "primary_identity",
+		Summary:              "needs a final deliverable",
+		OwnerKey:             "agent:main",
+		ParentFlowID:         "flow-123",
+		LastEventAgeMs:       &ageMs,
+		EvidenceIDs:          []string{"flow-123", "task-1"},
+		SourceKinds:          []string{"flow", "task"},
+		SourceCount:          2,
 	}, 2, now)
 
 	if session.ID != "openclaw-runtime:flow-123" {
@@ -66,6 +73,9 @@ func TestOpenClawRuntimeSessionMapsAttentionCard(t *testing.T) {
 	if pane.Cockpit.DisplayGroup != "needs_attention" {
 		t.Fatalf("display group = %q, want needs_attention", pane.Cockpit.DisplayGroup)
 	}
+	if pane.Cockpit.PresentationGroup != "delivery_handoff" || pane.Cockpit.PresentationLabel != "Delivery / Handoff" {
+		t.Fatalf("presentation metadata missing from cockpit meta: %#v", pane.Cockpit)
+	}
 	if !strings.Contains(pane.PreviewText, "needs a final deliverable") {
 		t.Fatalf("preview missing summary: %q", pane.PreviewText)
 	}
@@ -73,6 +83,9 @@ func TestOpenClawRuntimeSessionMapsAttentionCard(t *testing.T) {
 		"lifecycle: needs_attention",
 		"cause: done_only_no_final",
 		"next: inspect final delivery",
+		"presentation: Delivery / Handoff",
+		"why visible: Work may have finished",
+		"suggestion: Inspect parent/child handoff before marking this resolved. · kind inspect_handoff · confidence medium · read-only hint: openclaw tasks flow list --json",
 		"action: operator_action",
 		"source: reported_by_openclaw via openclaw tasks/list + tasks/flow/list + tasks/audit",
 		"teardown: drop_when_source_absent",
@@ -86,6 +99,91 @@ func TestOpenClawRuntimeSessionMapsAttentionCard(t *testing.T) {
 	}
 	if got := now.Sub(session.LastActivity); got != 90*time.Second {
 		t.Fatalf("LastActivity age = %s", got)
+	}
+}
+
+func TestOpenClawRuntimeSessionCarriesSkeletonMetadata(t *testing.T) {
+	t.Parallel()
+
+	session := openClawRuntimeSession(openClawRuntimeCard{
+		ID:                "skeleton-card",
+		CardContract:      "runtime-card.v1",
+		DisplayTitle:      "old expected control",
+		DisplayStatus:     "blocked",
+		DisplayGroup:      "needs_attention",
+		PresentationGroup: "skeletons",
+		PresentationLabel: "Skeletons",
+		Runtime:           "cron",
+		Reason:            "blocked_flow_stale",
+		Skeleton:          true,
+		SkeletonReason:    "expected-control suppression from policy",
+		Suppressed:        true,
+	}, 0, time.Now())
+
+	pane := session.Windows[0].Panes[0]
+	if pane.Cockpit.Skeleton != "true" || pane.Cockpit.Suppressed != "true" {
+		t.Fatalf("skeleton metadata missing from cockpit meta: %#v", pane.Cockpit)
+	}
+	if !strings.Contains(pane.PreviewText, "skeleton: true · suppressed · expected-control suppression from policy") {
+		t.Fatalf("preview missing skeleton line: %q", pane.PreviewText)
+	}
+}
+
+func TestOpenClawRuntimeSessionCarriesPulseGroupDetail(t *testing.T) {
+	t.Parallel()
+
+	session := openClawRuntimeSession(openClawRuntimeCard{
+		ID:                     "pulse:needs_decision:cron:runtime_failed",
+		DedupeKey:              "pulse:needs_decision:cron:runtime_failed",
+		CardContract:           "runtime-card.v1",
+		DisplayTitle:           "qmd-sidecar-live-shadow-collector-step06b",
+		DisplayStatus:          "failed",
+		DisplayGroup:           "needs_attention",
+		PresentationGroup:      "needs_decision",
+		PresentationLabel:      "Needs Decision",
+		Runtime:                "cron",
+		Reason:                 "runtime_failed",
+		NextAction:             "inspect runtime failure",
+		LifecycleState:         "needs_attention",
+		SourceTruth:            "reported_by_openclaw",
+		SourceProvenance:       "openclaw tasks/list",
+		Actionability:          "operator_action",
+		TeardownPolicy:         "drop_when_source_absent",
+		PolicyScope:            "local_overlay",
+		AggregationPolicy:      "primary_identity+pulse_group",
+		SourceCount:            4,
+		LogicalGroupKey:        "pulse:needs_decision:cron:runtime_failed:inspect-runtime-failure:qmd",
+		GroupedRecordCount:     4,
+		RawCardCount:           4,
+		VisibleCardCount:       19,
+		EvidenceIDs:            []string{"task-4", "task-3", "task-2", "task-1"},
+		SourceKinds:            []string{"task"},
+		GroupedEvidenceIDs:     []string{"task-4", "task-3", "task-2", "task-1"},
+		GroupedSourceKinds:     []string{"task"},
+		GroupedSourceSummaries: []string{"runtime failed copy 4", "runtime failed copy 3"},
+		summary: openClawRuntimeSummary{
+			RawRuntimeCardCount:     26,
+			VisibleRuntimeCardCount: 19,
+			GroupedRuntimeCardCount: 3,
+			HiddenRuntimeCardCount:  7,
+		},
+	}, 0, time.Now())
+
+	pane := session.Windows[0].Panes[0]
+	if pane.Cockpit.GroupedRecordCount != "4" || pane.Cockpit.RawCardCount != "26" || pane.Cockpit.VisibleCardCount != "19" {
+		t.Fatalf("grouped summary metadata missing: %#v", pane.Cockpit)
+	}
+	for _, want := range []string{
+		"group: 4 runtime cards",
+		"snapshot: raw 26 · shown 19 · grouped 3 · hidden 7",
+		"evidence: task-4,task-3,task-2,task-1",
+		"sources: 4 task",
+		"policy: local_overlay · primary_identity+pulse_group",
+		"- runtime failed copy 4",
+	} {
+		if !strings.Contains(pane.PreviewText, want) {
+			t.Fatalf("grouped preview missing %q: %q", want, pane.PreviewText)
+		}
 	}
 }
 

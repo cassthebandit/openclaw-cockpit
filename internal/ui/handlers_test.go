@@ -202,6 +202,53 @@ func TestCockpitCleanupKeysAreDisabled(t *testing.T) {
 	}
 }
 
+func TestDKeyEntersDetailForCursorSession(t *testing.T) {
+	t.Parallel()
+
+	m := &Model{
+		cursorSession: "s1",
+		sessions: []tmux.Session{{
+			ID:   "s1",
+			Name: "runtime grouped",
+		}},
+		previews: map[string]*sessionPreview{
+			"s1": {viewport: &viewport.Model{}},
+		},
+	}
+
+	handled, cmd := m.handleGlobalKey(tea.KeyPressMsg{Text: "d", Code: 'd'})
+	if !handled || cmd != nil {
+		t.Fatalf("d key handled=%v cmd=%v, want handled without cmd", handled, cmd)
+	}
+	if m.viewMode != viewModeDetail || m.detailSession != "s1" {
+		t.Fatalf("d key did not enter detail: mode=%v detail=%q", m.viewMode, m.detailSession)
+	}
+}
+
+func TestDKeyEntersDetailWhenOrganized(t *testing.T) {
+	t.Parallel()
+
+	m := &Model{
+		organized:     true,
+		cursorSession: "s1",
+		sessions: []tmux.Session{{
+			ID:   "s1",
+			Name: "runtime grouped",
+		}},
+		previews: map[string]*sessionPreview{
+			"s1": {viewport: &viewport.Model{}},
+		},
+	}
+
+	handled, _ := m.handleGlobalKey(tea.KeyPressMsg{Text: "d", Code: 'd'})
+	if !handled {
+		t.Fatal("d key should be handled")
+	}
+	if m.viewMode != viewModeDetail || m.detailSession != "s1" || m.activeTab != 1 {
+		t.Fatalf("organized d key did not enter detail: mode=%v detail=%q tab=%d", m.viewMode, m.detailSession, m.activeTab)
+	}
+}
+
 func TestMonitorOnlyBlocksKeyForwarding(t *testing.T) {
 	t.Parallel()
 

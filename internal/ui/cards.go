@@ -103,7 +103,7 @@ func (m *Model) renderSessionPreviews(offset int) string {
 
 		pulsing := now.Sub(preview.lastChanged) < pulseDuration
 		stale := m.isStale(session.ID)
-		if sessionHasOpenClawRuntime(session) {
+		if sessionHasOpenClawRuntime(session) || isQuietLiveServiceSession(session) {
 			stale = false
 		}
 		focused := session.ID == m.focusedSession
@@ -183,7 +183,7 @@ func (m *Model) renderSessionPreviews(offset int) string {
 		borderStyle := baseStyle
 		state := sessionState
 		if state == "" {
-			state = cockpitState(pane, stale)
+			state = sessionCockpitState(session, pane, stale)
 		}
 		if body != "" {
 			body = compactFinishedBody(innerWidth, body, state, bodyBudget)
@@ -468,6 +468,9 @@ func formatHeader(width int, session tmux.Session, window tmux.Window, pane tmux
 		meta = append(meta, state)
 	}
 	titleParts := cockpitTitleParts(session, window, pane, host)
+	if badge := cockpitGroupBadge(pane.Cockpit); badge != "" {
+		titleParts = append(titleParts, badge)
+	}
 	label := strings.Join(titleParts, " · ")
 	if stale && state == "" {
 		meta = append(meta, "stale")
@@ -633,6 +636,13 @@ func cockpitState(pane tmux.Pane, stale bool) string {
 	return ""
 }
 
+func sessionCockpitState(session tmux.Session, pane tmux.Pane, stale bool) string {
+	if stale && isQuietLiveServiceSession(session) {
+		stale = false
+	}
+	return cockpitState(pane, stale)
+}
+
 func cockpitInfoLines(width int, pane tmux.Pane) []string {
 	if pane.Cockpit == nil {
 		return nil
@@ -757,13 +767,56 @@ func cockpitCleanupLine(pane tmux.Pane) string {
 	if progress := displayEvidencePath(meta.ProgressPath); progress != "" {
 		parts = append(parts, "progress: "+progress)
 	}
-	if evidence := displayEvidencePath(meta.EvidencePath); evidence != "" {
-		parts = append(parts, "evidence: "+evidence)
+	if evidence := cockpitEvidenceLine(meta); evidence != "" {
+		parts = append(parts, evidence)
 	}
 	if len(parts) == 0 {
 		return ""
 	}
 	return strings.Join(parts, " · ")
+}
+
+func cockpitGroupBadge(meta *tmux.CockpitMeta) string {
+	if meta == nil {
+		return ""
+	}
+	count := cockpitIntField(meta.GroupedRecordCount)
+	if count <= 1 {
+		return ""
+	}
+	return fmt.Sprintf("x%d", count)
+}
+
+func cockpitEvidenceLine(meta *tmux.CockpitMeta) string {
+	if meta == nil {
+		return ""
+	}
+	evidence := strings.TrimSpace(meta.EvidencePath)
+	if evidence == "" {
+		return ""
+	}
+	grouped := cockpitIntField(meta.GroupedRecordCount)
+	if grouped > 1 {
+		evidenceCount := countEvidenceIDs(evidence)
+		if evidenceCount == 0 {
+			evidenceCount = grouped
+		}
+		return fmt.Sprintf("evidence: %d ids, open detail for full list", evidenceCount)
+	}
+	if value := displayEvidencePath(evidence); value != "" {
+		return "evidence: " + value
+	}
+	return ""
+}
+
+func countEvidenceIDs(value string) int {
+	count := 0
+	for _, part := range strings.Split(value, ",") {
+		if strings.TrimSpace(part) != "" {
+			count++
+		}
+	}
+	return count
 }
 
 func displayEvidencePath(value string) string {

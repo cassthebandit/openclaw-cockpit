@@ -59,42 +59,58 @@ type Snapshot struct {
 // CockpitMeta holds optional OpenClaw/Cass item metadata carried by tmux pane
 // user options. Plain tmux panes leave this nil and keep the old UI behaviour.
 type CockpitMeta struct {
-	ContractVersion   string `json:",omitempty"`
-	ManagedBy         string `json:",omitempty"`
-	Kind              string `json:",omitempty"`
-	Agent             string `json:",omitempty"`
-	Owner             string `json:",omitempty"`
-	Project           string `json:",omitempty"`
-	Goal              string `json:",omitempty"`
-	State             string `json:",omitempty"`
-	DisplayStatus     string `json:",omitempty"`
-	DisplayGroup      string `json:",omitempty"`
-	Reason            string `json:",omitempty"`
-	NextAction        string `json:",omitempty"`
-	LifecycleState    string `json:",omitempty"`
-	SourceTruth       string `json:",omitempty"`
-	SourceProvenance  string `json:",omitempty"`
-	Actionability     string `json:",omitempty"`
-	TeardownPolicy    string `json:",omitempty"`
-	PolicyScope       string `json:",omitempty"`
-	AggregationPolicy string `json:",omitempty"`
-	SourceKinds       string `json:",omitempty"`
-	SourceCount       string `json:",omitempty"`
-	RunRoot           string `json:",omitempty"`
-	ThreadID          string `json:",omitempty"`
-	SessionID         string `json:",omitempty"`
-	StartedAt         string `json:",omitempty"`
-	UpdatedAt         string `json:",omitempty"`
-	CompletedAt       string `json:",omitempty"`
-	ExitCode          string `json:",omitempty"`
-	TTL               string `json:",omitempty"`
-	CleanupPolicy     string `json:",omitempty"`
-	EvidencePath      string `json:",omitempty"`
-	HoldReason        string `json:",omitempty"`
-	WhyHeadless       string `json:",omitempty"`
-	ProgressPath      string `json:",omitempty"`
-	EndReason         string `json:",omitempty"`
-	RouteFailure      string `json:",omitempty"`
+	ContractVersion      string `json:",omitempty"`
+	ManagedBy            string `json:",omitempty"`
+	Kind                 string `json:",omitempty"`
+	Agent                string `json:",omitempty"`
+	Owner                string `json:",omitempty"`
+	Project              string `json:",omitempty"`
+	Goal                 string `json:",omitempty"`
+	State                string `json:",omitempty"`
+	DisplayStatus        string `json:",omitempty"`
+	DisplayGroup         string `json:",omitempty"`
+	PresentationGroup    string `json:",omitempty"`
+	PresentationLabel    string `json:",omitempty"`
+	Reason               string `json:",omitempty"`
+	NextAction           string `json:",omitempty"`
+	WhyVisible           string `json:",omitempty"`
+	SuggestionKind       string `json:",omitempty"`
+	SuggestedAction      string `json:",omitempty"`
+	SuggestedCommand     string `json:",omitempty"`
+	SuggestionConfidence string `json:",omitempty"`
+	Skeleton             string `json:",omitempty"`
+	SkeletonReason       string `json:",omitempty"`
+	Suppressed           string `json:",omitempty"`
+	LifecycleState       string `json:",omitempty"`
+	SourceTruth          string `json:",omitempty"`
+	SourceProvenance     string `json:",omitempty"`
+	Actionability        string `json:",omitempty"`
+	TeardownPolicy       string `json:",omitempty"`
+	PolicyScope          string `json:",omitempty"`
+	AggregationPolicy    string `json:",omitempty"`
+	SourceKinds          string `json:",omitempty"`
+	SourceCount          string `json:",omitempty"`
+	LogicalGroupKey      string `json:",omitempty"`
+	GroupedRecordCount   string `json:",omitempty"`
+	RawCardCount         string `json:",omitempty"`
+	VisibleCardCount     string `json:",omitempty"`
+	GroupedCardCount     string `json:",omitempty"`
+	HiddenCardCount      string `json:",omitempty"`
+	RunRoot              string `json:",omitempty"`
+	ThreadID             string `json:",omitempty"`
+	SessionID            string `json:",omitempty"`
+	StartedAt            string `json:",omitempty"`
+	UpdatedAt            string `json:",omitempty"`
+	CompletedAt          string `json:",omitempty"`
+	ExitCode             string `json:",omitempty"`
+	TTL                  string `json:",omitempty"`
+	CleanupPolicy        string `json:",omitempty"`
+	EvidencePath         string `json:",omitempty"`
+	HoldReason           string `json:",omitempty"`
+	WhyHeadless          string `json:",omitempty"`
+	ProgressPath         string `json:",omitempty"`
+	EndReason            string `json:",omitempty"`
+	RouteFailure         string `json:",omitempty"`
 }
 
 // HasData reports whether any cockpit metadata field is populated.
@@ -109,8 +125,18 @@ func (m CockpitMeta) HasData() bool {
 		strings.TrimSpace(m.State) != "" ||
 		strings.TrimSpace(m.DisplayStatus) != "" ||
 		strings.TrimSpace(m.DisplayGroup) != "" ||
+		strings.TrimSpace(m.PresentationGroup) != "" ||
+		strings.TrimSpace(m.PresentationLabel) != "" ||
 		strings.TrimSpace(m.Reason) != "" ||
 		strings.TrimSpace(m.NextAction) != "" ||
+		strings.TrimSpace(m.WhyVisible) != "" ||
+		strings.TrimSpace(m.SuggestionKind) != "" ||
+		strings.TrimSpace(m.SuggestedAction) != "" ||
+		strings.TrimSpace(m.SuggestedCommand) != "" ||
+		strings.TrimSpace(m.SuggestionConfidence) != "" ||
+		strings.TrimSpace(m.Skeleton) != "" ||
+		strings.TrimSpace(m.SkeletonReason) != "" ||
+		strings.TrimSpace(m.Suppressed) != "" ||
 		strings.TrimSpace(m.LifecycleState) != "" ||
 		strings.TrimSpace(m.SourceTruth) != "" ||
 		strings.TrimSpace(m.SourceProvenance) != "" ||
@@ -120,6 +146,12 @@ func (m CockpitMeta) HasData() bool {
 		strings.TrimSpace(m.AggregationPolicy) != "" ||
 		strings.TrimSpace(m.SourceKinds) != "" ||
 		strings.TrimSpace(m.SourceCount) != "" ||
+		strings.TrimSpace(m.LogicalGroupKey) != "" ||
+		strings.TrimSpace(m.GroupedRecordCount) != "" ||
+		strings.TrimSpace(m.RawCardCount) != "" ||
+		strings.TrimSpace(m.VisibleCardCount) != "" ||
+		strings.TrimSpace(m.GroupedCardCount) != "" ||
+		strings.TrimSpace(m.HiddenCardCount) != "" ||
 		strings.TrimSpace(m.RunRoot) != "" ||
 		strings.TrimSpace(m.ThreadID) != "" ||
 		strings.TrimSpace(m.SessionID) != "" ||

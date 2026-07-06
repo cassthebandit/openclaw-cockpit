@@ -128,10 +128,13 @@ type Model struct {
 	paletteIndex    int
 	paletteCommands []commandItem
 
-	searchInput textinput.Model
-	searching   bool
-	searchQuery string
-	toast       *toastState
+	searchInput  textinput.Model
+	searching    bool
+	searchQuery  string
+	commandInput textinput.Model
+	commanding   bool
+	viewFilter   string
+	toast        *toastState
 
 	focusedSession string
 	cardLayout     []cardBounds
@@ -228,6 +231,10 @@ func NewModel(client *tmux.Client, poll time.Duration, captureBudget int, debugM
 	ti.Placeholder = "filter sessions, windows, panes"
 	ti.CharLimit = 256
 	ti.Prompt = "/ "
+	ci := textinput.New()
+	ci.Placeholder = "pulse, all, decision, route, handoff, services"
+	ci.CharLimit = 64
+	ci.Prompt = ": "
 	return &Model{
 		client:          client,
 		pollInterval:    poll,
@@ -238,6 +245,7 @@ func NewModel(client *tmux.Client, poll time.Duration, captureBudget int, debugM
 		stale:           make(map[string]struct{}),
 		collapsed:       make(map[string]struct{}),
 		searchInput:     ti,
+		commandInput:    ci,
 		cardLayout:      make([]cardBounds, 0),
 		cardCols:        1,
 		cardInnerWidth:  20,

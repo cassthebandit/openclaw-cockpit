@@ -19,6 +19,19 @@ func (m *Model) handleGlobalKey(msg tea.KeyMsg) (bool, tea.Cmd) {
 	if _, ok := msg.(tea.KeyPressMsg); !ok {
 		return false, nil
 	}
+	if press, ok := msg.(tea.KeyPressMsg); ok {
+		switch press.Key().Text {
+		case ":", "v":
+			m.resetCtrlC()
+			m.commanding = true
+			m.commandInput.SetValue("")
+			m.commandInput.CursorEnd()
+			m.commandInput.Focus()
+			return true, nil
+		case "d":
+			return m.enterDetailFromKeyboard()
+		}
+	}
 	if msg.String() != "esc" {
 		m.lastEsc = time.Time{}
 	}
@@ -84,6 +97,14 @@ func (m *Model) handleGlobalKey(msg tea.KeyMsg) (bool, tea.Cmd) {
 		m.searching = true
 		m.searchInput.SetValue(m.searchQuery)
 		m.searchInput.CursorEnd()
+		m.searchInput.Focus()
+		return true, nil
+	case ":", "shift+;", "v":
+		m.resetCtrlC()
+		m.commanding = true
+		m.commandInput.SetValue("")
+		m.commandInput.CursorEnd()
+		m.commandInput.Focus()
 		return true, nil
 	case "esc":
 		if m.viewMode == viewModeDetail && m.activeTab == 1 {
@@ -94,6 +115,12 @@ func (m *Model) handleGlobalKey(msg tea.KeyMsg) (bool, tea.Cmd) {
 		if m.searchQuery != "" {
 			m.resetCtrlC()
 			m.searchQuery = ""
+			m.updatePreviewDimensions(m.filteredSessionCount())
+			return true, nil
+		}
+		if m.viewFilter != "" {
+			m.resetCtrlC()
+			m.viewFilter = ""
 			m.updatePreviewDimensions(m.filteredSessionCount())
 			return true, nil
 		}
@@ -118,6 +145,8 @@ func (m *Model) handleGlobalKey(msg tea.KeyMsg) (bool, tea.Cmd) {
 			m.openCommandPalette()
 		}
 		return true, nil
+	case "d":
+		return m.enterDetailFromKeyboard()
 	case "H":
 		if len(m.hidden) > 0 {
 			m.resetCtrlC()
@@ -139,6 +168,18 @@ func (m *Model) handleGlobalKey(msg tea.KeyMsg) (bool, tea.Cmd) {
 		return true, showStatusMessage("cleanup disabled: use session_hygiene.py or safe_kill.py")
 	}
 	return false, nil
+}
+
+func (m *Model) enterDetailFromKeyboard() (bool, tea.Cmd) {
+	target := m.focusedSession
+	if target == "" {
+		target = m.cursorSession
+	}
+	if target != "" {
+		m.handleDetailToggle(target)
+		m.updatePreviewDimensions(m.filteredSessionCount())
+	}
+	return true, nil
 }
 
 // handleFocusedKey forwards navigation and control keys to the focused pane or
@@ -456,6 +497,55 @@ func (m *Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.searchQuery = strings.TrimSpace(m.searchInput.Value())
 	m.updatePreviewDimensions(m.filteredSessionCount())
 	return m, cmd
+}
+
+// handleCommandKey updates the Pulse command filter when the user is editing
+// the ':' prompt.
+func (m *Model) handleCommandKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if _, ok := msg.(tea.KeyPressMsg); !ok {
+		return m, nil
+	}
+	switch msg.String() {
+	case "esc":
+		m.commanding = false
+		m.commandInput.Blur()
+		return m, nil
+	case "enter":
+		command := strings.TrimSpace(strings.TrimPrefix(m.commandInput.Value(), ":"))
+		m.commanding = false
+		m.commandInput.Blur()
+		if command == "" {
+			return m, nil
+		}
+		if m.applyViewFilterCommand(command) {
+			m.updatePreviewDimensions(m.filteredSessionCount())
+			return m, nil
+		}
+		return m, showStatusMessage(fmt.Sprintf("unknown filter :%s", command))
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	var cmd tea.Cmd
+	m.commandInput, cmd = m.commandInput.Update(msg)
+	return m, cmd
+}
+
+func (m *Model) applyViewFilterCommand(command string) bool {
+	switch strings.ToLower(strings.TrimSpace(command)) {
+	case "pulse", "all":
+		m.viewFilter = ""
+	case "decision", "decisions":
+		m.viewFilter = "decision"
+	case "route", "routes":
+		m.viewFilter = "route"
+	case "handoff", "handoffs", "delivery":
+		m.viewFilter = "handoff"
+	case "services", "service":
+		m.viewFilter = "services"
+	default:
+		return false
+	}
+	return true
 }
 
 // isHidden reports whether the given session ID is hidden from the grid.

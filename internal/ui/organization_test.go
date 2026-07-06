@@ -424,6 +424,45 @@ func TestOpenClawRuntimeActiveGroupUsesDisplayGroup(t *testing.T) {
 	}
 }
 
+func TestOpenClawRuntimePresentationGroupRoutesRuntimeCards(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		presentationGroup string
+		want              string
+	}{
+		{name: "current work", presentationGroup: "current_work", want: groupRuntimeCurrent.name},
+		{name: "needs decision", presentationGroup: "needs_decision", want: groupNeedsDecision.name},
+		{name: "route health", presentationGroup: "route_health", want: groupRouteHealth.name},
+		{name: "delivery handoff", presentationGroup: "delivery_handoff", want: groupDelivery.name},
+		{name: "source unknown", presentationGroup: "source_unknown", want: groupSourceUnknown.name},
+		{name: "expected controls", presentationGroup: "expected_controls", want: groupExpectedControls.name},
+		{name: "skeletons", presentationGroup: "skeletons", want: groupSkeletons.name},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			session := sessionForGroup("openclaw-runtime-"+tt.name, "openclaw-runtime", "OpenClaw Runtime", "")
+			session.Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{
+				ManagedBy:         "openclaw_runtime_snapshot",
+				Kind:              "runtime",
+				Agent:             "openclaw-runtime",
+				State:             "review",
+				DisplayGroup:      "needs_attention",
+				PresentationGroup: tt.presentationGroup,
+			}
+
+			if got := cockpitGroupFor(nil, session).name; got != tt.want {
+				t.Fatalf("cockpitGroupFor() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestQuietServiceStaleDoesNotBecomeDoneHeld(t *testing.T) {
 	t.Parallel()
 

@@ -22,20 +22,16 @@ func (m *Model) View() tea.View {
 
 	targetWidth := max(m.width, 1)
 	targetHeight := max(m.height, 1)
-	padding := lipgloss.NewStyle().Width(targetWidth).Render(" ")
 
+	m.setActiveTab(m.activeTab)
 	headerParts := []string{renderTitleBar(m, targetWidth)}
-	if m.searching {
+	if m.commanding {
+		headerParts = append(headerParts, renderCommandBar(m.commandInput))
+	} else if m.searching {
 		headerParts = append(headerParts, renderSearchBar(m.searchInput))
 	} else if m.searchQuery != "" {
 		headerParts = append(headerParts, renderSearchSummary(m.searchQuery))
 	}
-
-	m.setActiveTab(m.activeTab)
-	if tabBar := m.renderTabBar(targetWidth); tabBar != "" {
-		headerParts = append(headerParts, tabBar)
-	}
-	headerParts = append(headerParts, padding)
 
 	header := lipgloss.JoinVertical(lipgloss.Left, headerParts...)
 	headerHeight := max(1, countLines(header))

@@ -71,3 +71,137 @@ func TestFormatCockpitSummaryIncludesAttentionAndSemanticStates(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatCockpitSummaryCountsSkeletonsSuppressedAndGrouped(t *testing.T) {
+	t.Parallel()
+
+	session := tmux.Session{
+		ID:   "runtime-skeleton",
+		Name: "runtime-skeleton",
+		Windows: []tmux.Window{{
+			ID:   "runtime-skeleton-win",
+			Name: "main",
+			Panes: []tmux.Pane{{
+				ID:      "runtime-skeleton-pane",
+				Session: "runtime-skeleton",
+				Cockpit: &tmux.CockpitMeta{
+					ManagedBy:          "openclaw_runtime_snapshot",
+					Kind:               "runtime",
+					Agent:              "openclaw-runtime",
+					State:              "review",
+					Skeleton:           "true",
+					Suppressed:         "true",
+					SourceCount:        "3",
+					GroupedRecordCount: "3",
+				},
+			}},
+		}},
+	}
+
+	m := &Model{sessions: []tmux.Session{session}}
+
+	got := m.formatCockpitSummary(200)
+	for _, want := range []string{"cockpit items: 1", "review 1", "skeletons 1", "suppressed 1", "grouped 1"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("cockpit summary missing %q in %q", want, got)
+		}
+	}
+}
+
+func TestFormatCockpitSummaryUsesSnapshotRawForGroupedOnlyCards(t *testing.T) {
+	t.Parallel()
+
+	session := tmux.Session{
+		ID:   "runtime-grouped",
+		Name: "runtime-grouped",
+		Windows: []tmux.Window{{
+			ID:   "runtime-grouped-win",
+			Name: "main",
+			Panes: []tmux.Pane{{
+				ID:      "runtime-grouped-pane",
+				Session: "runtime-grouped",
+				Cockpit: &tmux.CockpitMeta{
+					ManagedBy:          "openclaw_runtime_snapshot",
+					Kind:               "runtime",
+					Agent:              "openclaw-runtime",
+					State:              "failed",
+					GroupedRecordCount: "4",
+					RawCardCount:       "26",
+					VisibleCardCount:   "19",
+					GroupedCardCount:   "3",
+					HiddenCardCount:    "7",
+				},
+			}},
+		}},
+	}
+
+	m := &Model{sessions: []tmux.Session{session}}
+
+	got := m.formatCockpitSummary(200)
+	for _, want := range []string{"grouped 1", "raw 26/shown 19/pulse groups 3/hidden 7"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("cockpit summary missing %q in %q", want, got)
+		}
+	}
+}
+
+func TestRenderTitleBarExcludesQuietServicesFromStaleCount(t *testing.T) {
+	t.Parallel()
+
+	service := sessionForGroup("smonitor", "go2rtc", "/Users/cass/.openclaw/workspace/config/camera-rtsp", "")
+	m := &Model{
+		sessions: []tmux.Session{service},
+		stale: map[string]struct{}{
+			service.ID: {},
+		},
+	}
+
+	got := renderTitleBar(m, 120)
+	if !strings.Contains(got, "1 items") || !strings.Contains(got, "services 1") {
+		t.Fatalf("title should summarize quiet live service as service item, got %q", got)
+	}
+	if strings.Contains(got, "stale") {
+		t.Fatalf("title should not show stale for quiet live service, got %q", got)
+	}
+}
+
+func TestRenderTitleBarShowsRuntimeGroupSummary(t *testing.T) {
+	t.Parallel()
+
+	runtime := func(name, state, presentation string) tmux.Session {
+		session := tmux.Session{
+			ID:   name,
+			Name: name,
+			Windows: []tmux.Window{{
+				ID:   name + "-win",
+				Name: "main",
+				Panes: []tmux.Pane{{
+					ID:      name + "-pane",
+					Session: name,
+					Cockpit: &tmux.CockpitMeta{
+						ManagedBy:         "openclaw_runtime_snapshot",
+						Kind:              "runtime",
+						Agent:             "openclaw-runtime",
+						State:             state,
+						PresentationGroup: presentation,
+					},
+				}},
+			}},
+		}
+		return session
+	}
+	m := &Model{
+		sessions: []tmux.Session{
+			runtime("decision", "failed", "needs_decision"),
+			runtime("route", "failed", "route_health"),
+			runtime("handoff", "blocked", "delivery_handoff"),
+		},
+	}
+
+	got := renderTitleBar(m, 180)
+	for _, want := range []string{"3 items", "attention 3", "decision 1", "route 1", "handoff 1"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("title summary missing %q in %q", want, got)
+		}
+	}
+}

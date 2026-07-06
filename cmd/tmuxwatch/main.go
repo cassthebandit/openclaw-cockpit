@@ -19,6 +19,7 @@ import (
 )
 
 const productName = "OpenClaw Cockpit"
+const defaultOpenClawRuntimeLimit = 80
 
 var version = "0.9.3"
 
@@ -38,7 +39,7 @@ func main() {
 		organize       = flag.Bool("organize", false, "organize overview cards into cockpit groups")
 		openclaw       = flag.Bool("openclaw-runtime", false, "include read-only OpenClaw runtime cards")
 		openclawScript = flag.String("openclaw-runtime-script", "", "path to OpenClaw runtime snapshot script")
-		openclawLimit  = flag.Int("openclaw-runtime-limit", 20, "maximum OpenClaw runtime cards to show")
+		openclawLimit  = flag.Int("openclaw-runtime-limit", defaultOpenClawRuntimeLimit, "maximum OpenClaw runtime cards to show")
 		colors         = flag.Bool("preserve-colors", false, "preserve ANSI colours in captured pane previews")
 		exclude        = flag.String("exclude-session", "", "comma-separated tmux session names to hide from snapshots")
 		simulate       = flag.String("debug-click", "", "simulate a mouse left-click at the given coordinates (x,y)")
@@ -128,13 +129,13 @@ func runtimeSource(enabled bool, script string, limit int) ui.RuntimeSource {
 		return ui.RuntimeSource{}
 	}
 	if limit <= 0 {
-		limit = 20
+		limit = defaultOpenClawRuntimeLimit
 	}
 	return ui.RuntimeSource{
 		Enabled: true,
 		Script:  script,
 		Limit:   limit,
-		Timeout: 20 * time.Second,
+		Timeout: 45 * time.Second,
 	}
 }
 

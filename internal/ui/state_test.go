@@ -14,8 +14,8 @@ func TestTabTitles(t *testing.T) {
 
 	m := &Model{}
 	titles := m.tabTitles()
-	if len(titles) != 1 || titles[0] != "Overview" {
-		t.Fatalf("tabTitles() = %v, want [Overview]", titles)
+	if len(titles) != 1 || titles[0] != "Pulse" {
+		t.Fatalf("tabTitles() = %v, want [Pulse]", titles)
 	}
 
 	m.sessions = []tmux.Session{{ID: "$1", Name: "dev"}}

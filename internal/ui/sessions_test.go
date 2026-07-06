@@ -51,18 +51,22 @@ func TestSessionMatchesCockpitMetadata(t *testing.T) {
 				Name: "main",
 				Panes: []tmux.Pane{
 					{Cockpit: &tmux.CockpitMeta{
-						Agent:   "fable",
-						Owner:   "workshop-4",
-						Project: "clean-draft",
-						State:   "waiting",
-						Goal:    "Spec B extraction build",
+						Agent:             "fable",
+						Owner:             "workshop-4",
+						Project:           "clean-draft",
+						State:             "waiting",
+						Goal:              "Spec B extraction build",
+						PresentationGroup: "route_health",
+						PresentationLabel: "Route Health",
+						WhyVisible:        "Source reports an ACP route or turn failure.",
+						SuggestedAction:   "Inspect ACP route health.",
 					}},
 				},
 			},
 		},
 	}
 
-	for _, query := range []string{"fable", "workshop-4", "clean-draft", "waiting", "spec b"} {
+	for _, query := range []string{"fable", "workshop-4", "clean-draft", "waiting", "spec b", "route_health", "route health", "inspect acp"} {
 		if !sessionMatches(session, query) {
 			t.Fatalf("sessionMatches(%q) should match cockpit metadata", query)
 		}

@@ -28,7 +28,7 @@ var (
 func (m *Model) tabTitles() []string {
 	sessions := m.filteredSessionsFull()
 	titles := make([]string, 1, len(sessions)+1)
-	titles[0] = "Overview"
+	titles[0] = "Pulse"
 	m.tabSessionIDs = m.tabSessionIDs[:0]
 	if m.organized {
 		if m.viewMode == viewModeDetail && m.detailSession != "" {
@@ -125,6 +125,7 @@ func (m *Model) enterDetail(sessionID string) {
 		return
 	}
 	m.detailSession = sessionID
+	m.viewMode = viewModeDetail
 	m.focusedSession = sessionID
 	m.cursorSession = sessionID
 	titles := m.tabTitles()

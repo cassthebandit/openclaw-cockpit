@@ -13,15 +13,22 @@ type cockpitGroup struct {
 }
 
 var (
-	groupNeedsInput    = cockpitGroup{name: "Needs Attention", rank: 0}
-	groupFailed        = cockpitGroup{name: "Needs Attention", rank: 0}
-	groupRunningAgents = cockpitGroup{name: "Active Agent Runs", rank: 1}
-	groupWork          = cockpitGroup{name: "Active Work", rank: 3}
-	groupDoneHeld      = cockpitGroup{name: "Completed Agent Runs", rank: 5}
-	groupDashboard     = cockpitGroup{name: "Dashboards", rank: 6}
-	groupViewers       = cockpitGroup{name: "Viewers", rank: 7}
-	groupIdle          = cockpitGroup{name: "Idle / Unowned", rank: 8}
-	groupServices      = cockpitGroup{name: "Services", rank: 9}
+	groupNeedsInput       = cockpitGroup{name: "Needs Attention", rank: 0}
+	groupFailed           = cockpitGroup{name: "Needs Attention", rank: 0}
+	groupRunningAgents    = cockpitGroup{name: "Active Agent Runs", rank: 1}
+	groupRuntimeCurrent   = cockpitGroup{name: "Current Work", rank: 1}
+	groupNeedsDecision    = cockpitGroup{name: "Needs Decision", rank: 2}
+	groupRouteHealth      = cockpitGroup{name: "Route Health", rank: 3}
+	groupDelivery         = cockpitGroup{name: "Delivery / Handoff", rank: 4}
+	groupSourceUnknown    = cockpitGroup{name: "Source Unknown", rank: 5}
+	groupExpectedControls = cockpitGroup{name: "Expected Controls", rank: 6}
+	groupSkeletons        = cockpitGroup{name: "Skeletons", rank: 7}
+	groupWork             = cockpitGroup{name: "Active Work", rank: 8}
+	groupDoneHeld         = cockpitGroup{name: "Completed Agent Runs", rank: 9}
+	groupDashboard        = cockpitGroup{name: "Dashboards", rank: 10}
+	groupViewers          = cockpitGroup{name: "Viewers", rank: 11}
+	groupIdle             = cockpitGroup{name: "Idle / Unowned", rank: 12}
+	groupServices         = cockpitGroup{name: "Services", rank: 13}
 )
 
 func cockpitGroupFor(m *Model, session tmux.Session) cockpitGroup {
@@ -106,6 +113,9 @@ func paneAttentionState(m *Model, session tmux.Session, pane tmux.Pane) string {
 		if pane.Cockpit.DisplayOnly() {
 			if pane.Dead {
 				return "done"
+			}
+			if m != nil && m.isStale(session.ID) && isQuietLiveServiceSession(session) {
+				return "quiet"
 			}
 			if m != nil && m.isStale(session.ID) {
 				return "stale"
@@ -193,9 +203,17 @@ func sessionDetails(session tmux.Session) string {
 				b.WriteByte(' ')
 				b.WriteString(pane.Cockpit.DisplayGroup)
 				b.WriteByte(' ')
+				b.WriteString(pane.Cockpit.PresentationGroup)
+				b.WriteByte(' ')
+				b.WriteString(pane.Cockpit.PresentationLabel)
+				b.WriteByte(' ')
 				b.WriteString(pane.Cockpit.Reason)
 				b.WriteByte(' ')
 				b.WriteString(pane.Cockpit.NextAction)
+				b.WriteByte(' ')
+				b.WriteString(pane.Cockpit.WhyVisible)
+				b.WriteByte(' ')
+				b.WriteString(pane.Cockpit.SuggestedAction)
 				b.WriteByte(' ')
 				b.WriteString(pane.Cockpit.SourceKinds)
 				b.WriteByte(' ')
@@ -212,6 +230,10 @@ func sessionSearchText(session tmux.Session) string {
 
 func isServiceSession(session tmux.Session) bool {
 	return containsAny(sessionSearchText(session), "go2rtc", "frigate", "camera", "pantry", "detector", "alerts", "notification-watcher", "smonitor")
+}
+
+func isQuietLiveServiceSession(session tmux.Session) bool {
+	return isServiceSession(session) && !sessionAllPanesDead(session)
 }
 
 func isShellOnly(session tmux.Session) bool {
@@ -248,6 +270,24 @@ func openClawRuntimeGroupFor(session tmux.Session) (cockpitGroup, bool) {
 		for _, pane := range window.Panes {
 			if !isOpenClawRuntimePane(pane) {
 				continue
+			}
+			switch strings.ToLower(strings.TrimSpace(pane.Cockpit.PresentationGroup)) {
+			case "current_work":
+				return groupRuntimeCurrent, true
+			case "needs_decision":
+				return groupNeedsDecision, true
+			case "route_health":
+				return groupRouteHealth, true
+			case "delivery_handoff":
+				return groupDelivery, true
+			case "source_unknown":
+				return groupSourceUnknown, true
+			case "expected_controls":
+				return groupExpectedControls, true
+			case "skeletons":
+				return groupSkeletons, true
+			case "completed":
+				return groupDoneHeld, true
 			}
 			switch strings.ToLower(strings.TrimSpace(pane.Cockpit.DisplayGroup)) {
 			case "needs_attention":

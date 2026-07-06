@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/steipete/tmuxwatch/internal/tmux"
 )
 
 // renderStatus returns the cached status footer, recomputing when necessary.
@@ -23,11 +24,11 @@ func (m *Model) renderStatus() string {
 // buildStatusLine assembles the footer lines detailing input helpers, stale
 // sessions, pane variables, toasts, and errors.
 func (m *Model) buildStatusLine(width int) string {
-	helper := fmt.Sprintf("mouse: click focus, scroll, %s/%s detail, %s/%s collapse, close %s · keys: / search, H show hidden, ctrl+P palette, q quit", maximizeLabel, restoreLabel, collapseLabel, expandLabel, closeLabel)
+	helper := fmt.Sprintf("monitor-only · mouse scroll/click · %s/d detail · %s/%s collapse · keys / search, :/v filter, H hidden, q quit", maximizeLabel, collapseLabel, expandLabel)
 	if m.monitorOnly {
-		helper = "monitor-only: no session cleanup, no key forwarding · " + helper
+		helper += " · no cleanup/key forwarding"
 	} else {
-		helper += ", cleanup via session_hygiene.py or safe_kill.py"
+		helper += " · cleanup via session_hygiene.py or safe_kill.py"
 	}
 	lines := []string{
 		lipgloss.NewStyle().
@@ -84,6 +85,13 @@ func (m *Model) buildStatusLine(width int) string {
 func (m *Model) formatCockpitSummary(width int) string {
 	counts := map[string]int{}
 	total := 0
+	skeletons := 0
+	suppressed := 0
+	grouped := 0
+	rawCards := 0
+	visibleCards := 0
+	groupedCards := 0
+	hiddenCards := 0
 	for _, session := range m.sessions {
 		if !sessionHasCockpitAgent(session) {
 			continue
@@ -94,6 +102,26 @@ func (m *Model) formatCockpitSummary(width int) string {
 		}
 		counts[state]++
 		total++
+		for _, window := range session.Windows {
+			for _, pane := range window.Panes {
+				if pane.Cockpit == nil {
+					continue
+				}
+				if strings.EqualFold(strings.TrimSpace(pane.Cockpit.Skeleton), "true") {
+					skeletons++
+				}
+				if strings.EqualFold(strings.TrimSpace(pane.Cockpit.Suppressed), "true") {
+					suppressed++
+				}
+				if cockpitGroupedRecordCount(pane) > 1 {
+					grouped++
+				}
+				rawCards = max(rawCards, cockpitIntField(pane.Cockpit.RawCardCount))
+				visibleCards = max(visibleCards, cockpitIntField(pane.Cockpit.VisibleCardCount))
+				groupedCards = max(groupedCards, cockpitIntField(pane.Cockpit.GroupedCardCount))
+				hiddenCards = max(hiddenCards, cockpitIntField(pane.Cockpit.HiddenCardCount))
+			}
+		}
 	}
 	if total == 0 {
 		return ""
@@ -121,11 +149,51 @@ func (m *Model) formatCockpitSummary(width int) string {
 	for _, state := range remainingStates {
 		parts = append(parts, fmt.Sprintf("%s %d", state, counts[state]))
 	}
+	if skeletons > 0 {
+		parts = append(parts, fmt.Sprintf("skeletons %d", skeletons))
+	}
+	if suppressed > 0 {
+		parts = append(parts, fmt.Sprintf("suppressed %d", suppressed))
+	}
+	if grouped > 0 {
+		parts = append(parts, fmt.Sprintf("grouped %d", grouped))
+	}
+	if rawCards > 0 || visibleCards > 0 || groupedCards > 0 || hiddenCards > 0 {
+		cardParts := []string{}
+		if rawCards > 0 {
+			cardParts = append(cardParts, fmt.Sprintf("raw %d", rawCards))
+		}
+		if visibleCards > 0 {
+			cardParts = append(cardParts, fmt.Sprintf("shown %d", visibleCards))
+		}
+		if groupedCards > 0 {
+			cardParts = append(cardParts, fmt.Sprintf("pulse groups %d", groupedCards))
+		}
+		if hiddenCards > 0 {
+			cardParts = append(cardParts, fmt.Sprintf("hidden %d", hiddenCards))
+		}
+		parts = append(parts, strings.Join(cardParts, "/"))
+	}
 	line := strings.Join(parts, " · ")
 	if width > 0 && lipgloss.Width(line) > width {
 		return lipgloss.NewStyle().Width(width).MaxWidth(width).Render(line)
 	}
 	return line
+}
+
+func cockpitGroupedRecordCount(pane tmux.Pane) int {
+	if pane.Cockpit == nil {
+		return 0
+	}
+	return cockpitIntField(pane.Cockpit.GroupedRecordCount)
+}
+
+func cockpitIntField(value string) int {
+	var n int
+	if _, err := fmt.Sscanf(strings.TrimSpace(value), "%d", &n); err != nil {
+		return 0
+	}
+	return n
 }
 
 func formatStaleLine(names []string, width int) string {
