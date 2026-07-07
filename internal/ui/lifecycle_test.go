@@ -35,6 +35,19 @@ const (
 
 │ › `
 
+	fableBakedReadyForParentReview = `  Deliverables under the run root: logs/fable-slice5d-implementation-notes.md,
+  outputs/fable-slice5d-completion-report.md, outputs/fable-slice5d-diffstat.txt
+  (+308/−41 total), outputs/fable-slice5d-gates.md, plus baseline/final pytest,
+  smoke, census, and containment logs.
+
+  FABLE_SLICE5D_BUILD_DONE
+  status=READY_FOR_PARENT_REVIEW
+
+✻ Baked for 17m 19s
+
+────────────────────────────────────────────────────── cd-slice5d-fable-build ──
+❯ `
+
 	geminiIdleFinished = `✦ Completed the refactor across 3 files and verified the build.
 
   Completed in 1m 45s
@@ -75,11 +88,12 @@ func TestScreenIsIdleFinishedPositives(t *testing.T) {
 	t.Parallel()
 
 	cases := map[string]string{
-		"codex":  codexIdleFinished,
-		"claude": claudeIdleFinished,
-		"fable":  fableIdleFinished,
-		"gemini": geminiIdleFinished,
-		"agy":    agyIdleFinished,
+		"codex":             codexIdleFinished,
+		"claude":            claudeIdleFinished,
+		"fable":             fableIdleFinished,
+		"fable baked ready": fableBakedReadyForParentReview,
+		"gemini":            geminiIdleFinished,
+		"agy":               agyIdleFinished,
 	}
 	for name, fixture := range cases {
 		name, fixture := name, fixture
@@ -189,6 +203,23 @@ func TestIdleFinishedAgentRoutesToCompleted(t *testing.T) {
 	pane.Cockpit.Kind = "visible-agent"
 	pane.Cockpit.Agent = "fable"
 	pane.PreviewText = fableIdleFinished
+
+	if got := sessionAttentionState(nil, session); got != "delivered-idle" {
+		t.Fatalf("sessionAttentionState() = %q, want delivered-idle", got)
+	}
+	if got := cockpitGroupFor(nil, session).name; got != groupInactiveAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupInactiveAgents.name)
+	}
+}
+
+func TestFableBakedReadyForParentReviewRoutesToInactive(t *testing.T) {
+	t.Parallel()
+
+	session := agentSessionForGroup("cd-slice5d-fable-build", "running")
+	pane := &session.Windows[0].Panes[0]
+	pane.Cockpit.Kind = "visible-agent"
+	pane.Cockpit.Agent = "fable"
+	pane.PreviewText = fableBakedReadyForParentReview
 
 	if got := sessionAttentionState(nil, session); got != "delivered-idle" {
 		t.Fatalf("sessionAttentionState() = %q, want delivered-idle", got)

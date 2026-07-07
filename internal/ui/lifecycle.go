@@ -84,11 +84,13 @@ var lifecycleErrorMarkers = []string{
 
 // idleFinishedCompletionMarkers are runtime-aware "the run finished" signatures.
 // Deliberately NOT Codex-only: Codex says "worked for", Fable/Claude panes show
-// "cooked for"/"brewed for", Gemini/AGY use "completed in"/"task complete", etc.
+// "cooked for"/"brewed for"/"baked for", Gemini/AGY use "completed in"/
+// "task complete", etc.
 var idleFinishedCompletionMarkers = []string{
 	"worked for ",
 	"cooked for ",
 	"brewed for ",
+	"baked for ",
 	"ran for ",
 	"done in ",
 	"completed in ",
@@ -97,6 +99,7 @@ var idleFinishedCompletionMarkers = []string{
 	"goal complete",
 	"task complete",
 	"all done",
+	"ready_for_parent_review",
 }
 
 // idleFinishedPromptPrefixes identify an idle input prompt after border glyphs
@@ -320,11 +323,13 @@ func hasCompletionMarkerFor(lowered string, managed bool) bool {
 		"worked for ",
 		"cooked for ",
 		"brewed for ",
+		"baked for ",
 		"goal achieved",
 		"goal complete",
 		"task complete",
 		"completed in ",
 		"finished in ",
+		"ready_for_parent_review",
 	} {
 		if strings.Contains(lowered, marker) {
 			return true
