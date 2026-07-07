@@ -174,9 +174,12 @@ func (m *Model) ensurePreviewsAndCapture() tea.Cmd {
 			shouldCapture = false
 		}
 
-		prioritized := isFocused || inDetail
+		prioritized := isFocused || inDetail || m.shouldFastCapture(session)
 		if shouldCapture {
-			if !prioritized && captureBudget <= 0 {
+			if prioritized {
+				// Focused/detail/live-agent panes are the wall's real-time path.
+				// Leave the rotating budget for background runtime/service cards.
+			} else if captureBudget <= 0 {
 				shouldCapture = false
 			} else {
 				captureBudget--
@@ -210,8 +213,8 @@ func (m *Model) pruneHiddenRuntimeSessions() {
 }
 
 // captureOrder returns sessions in the order we should attempt pane captures,
-// prioritising focused/detail sessions and rotating through the rest so work
-// is spread across ticks.
+// prioritising focused/detail/live-agent sessions and rotating through the rest
+// so background work is spread across ticks.
 func (m *Model) captureOrder() []tmux.Session {
 	if len(m.sessions) == 0 {
 		return nil
@@ -248,6 +251,16 @@ func (m *Model) captureOrder() []tmux.Session {
 		if _, ok := seen[session.ID]; ok {
 			continue
 		}
+		if m.shouldFastCapture(session) {
+			ordered = append(ordered, session)
+			seen[session.ID] = struct{}{}
+		}
+	}
+	for i := 0; i < len(m.sessions); i++ {
+		session := m.sessions[(start+i)%len(m.sessions)]
+		if _, ok := seen[session.ID]; ok {
+			continue
+		}
 		ordered = append(ordered, session)
 	}
 
@@ -256,6 +269,10 @@ func (m *Model) captureOrder() []tmux.Session {
 	}
 
 	return ordered
+}
+
+func (m *Model) shouldFastCapture(session tmux.Session) bool {
+	return cockpitGroupFor(m, session).name == groupActiveAgents.name
 }
 
 // filteredSessions applies the active search filter and hidden toggles to the

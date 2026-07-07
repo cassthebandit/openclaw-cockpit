@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
@@ -84,6 +86,91 @@ func TestEnsurePreviewsCapturesDetailSessions(t *testing.T) {
 
 	if cmd := m.ensurePreviewsAndCapture(); cmd == nil {
 		t.Fatalf("expected capture command for detail session")
+	}
+}
+
+func TestEnsurePreviewsFastCapturesActiveAgentsWithoutSpendingBackgroundBudget(t *testing.T) {
+	t.Parallel()
+
+	client, err := tmux.NewClient("/bin/echo")
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	m := NewModel(client, time.Second, 1, nil, false, true)
+	m.sessions = []tmux.Session{
+		captureTestSession("$active-1", "%active-1", tmux.CockpitMeta{Kind: "agent", Agent: "fable", State: "waiting"}),
+		captureTestSession("$active-2", "%active-2", tmux.CockpitMeta{Kind: "agent", Agent: "codex", State: "running"}),
+		captureTestSession("$background", "%background", tmux.CockpitMeta{}),
+	}
+
+	cmd := m.ensurePreviewsAndCapture()
+	if cmd == nil {
+		t.Fatalf("expected capture commands")
+	}
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("capture commands = %T, want tea.BatchMsg", msg)
+	}
+	if got, want := len(batch), 3; got != want {
+		t.Fatalf("capture command count = %d, want %d", got, want)
+	}
+}
+
+func TestCaptureOrderPrioritizesActiveAgentsBeforeBackgroundRotation(t *testing.T) {
+	t.Parallel()
+
+	m := &Model{
+		previews:         make(map[string]*sessionPreview),
+		hidden:           make(map[string]struct{}),
+		stale:            make(map[string]struct{}),
+		collapsed:        make(map[string]struct{}),
+		classifyCache:    make(map[string]*sessionClassification),
+		captureOffset:    1,
+		focusedSession:   "$focused",
+		cursorSession:    "$cursor",
+		viewMode:         viewModeDetail,
+		detailSession:    "$detail",
+		artifactOutcomes: make(map[string]string),
+	}
+	m.sessions = []tmux.Session{
+		captureTestSession("$background-0", "%background-0", tmux.CockpitMeta{}),
+		captureTestSession("$active", "%active", tmux.CockpitMeta{Kind: "agent", Agent: "fable", State: "waiting"}),
+		captureTestSession("$background-1", "%background-1", tmux.CockpitMeta{}),
+		captureTestSession("$focused", "%focused", tmux.CockpitMeta{}),
+		captureTestSession("$detail", "%detail", tmux.CockpitMeta{}),
+		captureTestSession("$cursor", "%cursor", tmux.CockpitMeta{}),
+	}
+
+	order := m.captureOrder()
+	var got []string
+	for _, session := range order {
+		got = append(got, session.ID)
+	}
+	wantPrefix := []string{"$focused", "$detail", "$cursor", "$active"}
+	if len(got) < len(wantPrefix) {
+		t.Fatalf("capture order too short: %#v", got)
+	}
+	for i, want := range wantPrefix {
+		if got[i] != want {
+			t.Fatalf("capture order prefix = %#v, want prefix %#v", got[:len(wantPrefix)], wantPrefix)
+		}
+	}
+}
+
+func captureTestSession(sessionID, paneID string, meta tmux.CockpitMeta) tmux.Session {
+	pane := tmux.Pane{ID: paneID, Active: true, LastActivity: time.Now()}
+	if meta.HasData() {
+		pane.Cockpit = &meta
+	}
+	return tmux.Session{
+		ID:   sessionID,
+		Name: strings.TrimPrefix(sessionID, "$"),
+		Windows: []tmux.Window{{
+			ID:     sessionID + ":w",
+			Active: true,
+			Panes:  []tmux.Pane{pane},
+		}},
 	}
 }
 
