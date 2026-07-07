@@ -314,6 +314,31 @@ func TestMissingDeclaredEvidencePathNeedsReview(t *testing.T) {
 	}
 }
 
+func TestModelAttentionStateUsesCachedArtifactOutcome(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	session := sessionForGroup("worker", "run.sh", root, "spark")
+	pane := &session.Windows[0].Panes[0]
+	pane.Cockpit = &tmux.CockpitMeta{
+		Kind:         "batch-worker",
+		Agent:        "codex",
+		State:        "done",
+		RunRoot:      root,
+		EvidencePath: "results/missing/RESULT.md",
+	}
+
+	m := &Model{artifactOutcomes: map[string]string{artifactOutcomeCacheKey(*pane): "pass"}}
+	if got := paneAttentionState(m, session, *pane); got != "pass" {
+		t.Fatalf("paneAttentionState() = %q, want cached pass", got)
+	}
+
+	m.artifactOutcomes = map[string]string{}
+	if got := paneAttentionState(m, session, *pane); got != "done" {
+		t.Fatalf("paneAttentionState without cache = %q, want metadata state without filesystem read", got)
+	}
+}
+
 func TestClassificationStateRequiresExactToken(t *testing.T) {
 	t.Parallel()
 

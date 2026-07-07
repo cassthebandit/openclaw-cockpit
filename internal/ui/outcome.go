@@ -33,6 +33,66 @@ func semanticPaneOutcome(pane tmux.Pane) cockpitOutcome {
 	return cockpitOutcome{}
 }
 
+func (m *Model) semanticPaneOutcome(pane tmux.Pane) cockpitOutcome {
+	if pane.Cockpit == nil {
+		return cockpitOutcome{}
+	}
+	if pane.Dead && pane.DeadStatus != 0 {
+		return cockpitOutcome{}
+	}
+	if state := m.cachedArtifactOutcome(pane); state != "" {
+		return cockpitOutcome{state: state}
+	}
+	meta := pane.Cockpit
+	if strings.TrimSpace(meta.RouteFailure) != "" {
+		return cockpitOutcome{state: "route-fail"}
+	}
+	if strings.Contains(strings.ToLower(meta.EndReason), "safety") {
+		return cockpitOutcome{state: "safety-fail"}
+	}
+	return cockpitOutcome{}
+}
+
+func (m *Model) refreshArtifactOutcomes() {
+	if m == nil {
+		return
+	}
+	next := make(map[string]string)
+	for _, session := range m.sessions {
+		for _, window := range session.Windows {
+			for _, pane := range window.Panes {
+				key := artifactOutcomeCacheKey(pane)
+				if key == "" {
+					continue
+				}
+				if state := artifactOutcomeState(pane); state != "" {
+					next[key] = state
+				}
+			}
+		}
+	}
+	m.artifactOutcomes = next
+}
+
+func (m *Model) cachedArtifactOutcome(pane tmux.Pane) string {
+	if m == nil || len(m.artifactOutcomes) == 0 {
+		return ""
+	}
+	return m.artifactOutcomes[artifactOutcomeCacheKey(pane)]
+}
+
+func artifactOutcomeCacheKey(pane tmux.Pane) string {
+	if pane.Cockpit == nil {
+		return ""
+	}
+	runRoot := strings.TrimSpace(pane.Cockpit.RunRoot)
+	evidence := strings.TrimSpace(pane.Cockpit.EvidencePath)
+	if runRoot == "" || evidence == "" {
+		return ""
+	}
+	return strings.Join([]string{pane.ID, runRoot, evidence}, "\x00")
+}
+
 func artifactOutcomeState(pane tmux.Pane) string {
 	meta := pane.Cockpit
 	if meta == nil {

@@ -29,6 +29,7 @@ func main() {
 
 	var (
 		interval       = flag.Duration("interval", time.Second, "tmux poll interval")
+		fps            = flag.Int("fps", 12, "maximum UI render frames per second")
 		cols           = flag.Int("cols", 0, "preferred number of preview columns in overview mode (0 = auto)")
 		captureBudget  = flag.Int("capture-budget", 0, "maximum unfocused pane captures per tick (default 6)")
 		tmuxBin        = flag.String("tmux", "", "path to tmux binary (defaults to PATH lookup)")
@@ -112,7 +113,7 @@ func main() {
 	}
 	restoreTabs := disableHardTabOptimization()
 	defer restoreTabs()
-	program := tea.NewProgram(model)
+	program := tea.NewProgram(model, tea.WithFPS(*fps))
 
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "%s exited with error: %v\n", productName, err)

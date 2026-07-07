@@ -187,6 +187,8 @@ type Model struct {
 	lastRuntimeTimeline runtimeTimelineSnapshot
 	runtimeTimeline     []runtimeTimelineEvent
 
+	artifactOutcomes map[string]string
+
 	lastUpdated time.Time
 	err         error
 	inflight    bool
@@ -262,35 +264,36 @@ func NewModel(client *tmux.Client, poll time.Duration, captureBudget int, debugM
 	ci.CharLimit = 64
 	ci.Prompt = ": "
 	return &Model{
-		client:          client,
-		pollInterval:    poll,
-		captureBudget:   captureBudget,
-		zonePrefix:      zone.NewPrefix(),
-		previews:        make(map[string]*sessionPreview),
-		hidden:          make(map[string]struct{}),
-		stale:           make(map[string]struct{}),
-		collapsed:       make(map[string]struct{}),
-		collapsedGroups: make(map[string]struct{}),
-		seededGroups:    make(map[string]struct{}),
-		cardTopLine:     make(map[string]int),
-		cardLineHeight:  make(map[string]int),
-		searchInput:     ti,
-		commandInput:    ci,
-		cardLayout:      make([]cardBounds, 0),
-		cardCols:        1,
-		cardInnerWidth:  20,
-		cardInnerHeight: minPreviewHeight,
-		inflight:        true,
-		previewOffset:   topPaddingLines,
-		debugMsgs:       append([]tea.Msg(nil), debugMsgs...),
-		traceMouse:      traceMouse,
-		monitorOnly:     monitorOnly,
-		toast:           &toastState{},
-		viewMode:        viewModeOverview,
-		tabSessionIDs:   make([]string, 0),
-		footer:          footerViewport(),
-		footerHeight:    3,
-		hostname:        lookupHostname(),
+		client:           client,
+		pollInterval:     poll,
+		captureBudget:    captureBudget,
+		zonePrefix:       zone.NewPrefix(),
+		previews:         make(map[string]*sessionPreview),
+		hidden:           make(map[string]struct{}),
+		stale:            make(map[string]struct{}),
+		collapsed:        make(map[string]struct{}),
+		collapsedGroups:  make(map[string]struct{}),
+		seededGroups:     make(map[string]struct{}),
+		artifactOutcomes: make(map[string]string),
+		cardTopLine:      make(map[string]int),
+		cardLineHeight:   make(map[string]int),
+		searchInput:      ti,
+		commandInput:     ci,
+		cardLayout:       make([]cardBounds, 0),
+		cardCols:         1,
+		cardInnerWidth:   20,
+		cardInnerHeight:  minPreviewHeight,
+		inflight:         true,
+		previewOffset:    topPaddingLines,
+		debugMsgs:        append([]tea.Msg(nil), debugMsgs...),
+		traceMouse:       traceMouse,
+		monitorOnly:      monitorOnly,
+		toast:            &toastState{},
+		viewMode:         viewModeOverview,
+		tabSessionIDs:    make([]string, 0),
+		footer:           footerViewport(),
+		footerHeight:     3,
+		hostname:         lookupHostname(),
 	}
 }
 

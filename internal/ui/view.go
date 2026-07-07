@@ -83,7 +83,7 @@ func (m *Model) View() tea.View {
 
 	content := tea.NewView(zone.Scan(view))
 	content.AltScreen = true
-	content.MouseMode = tea.MouseModeAllMotion
+	content.MouseMode = tea.MouseModeCellMotion
 	return content
 }
 

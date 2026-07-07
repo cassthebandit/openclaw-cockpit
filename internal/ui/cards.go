@@ -212,7 +212,7 @@ func (m *Model) renderSessionPreviews(offset int) string {
 		borderStyle := baseStyle
 		state := sessionState
 		if state == "" {
-			state = sessionCockpitState(session, pane, stale)
+			state = sessionCockpitState(m, session, pane, stale)
 		}
 		if body != "" {
 			body = compactFinishedBody(innerWidth, body, state, bodyBudget)
@@ -779,7 +779,15 @@ func parseCockpitTimestamp(value string) time.Time {
 }
 
 func cockpitState(pane tmux.Pane, stale bool) string {
-	if outcome := semanticPaneOutcome(pane); outcome.state != "" {
+	return cockpitStateWithModel(nil, pane, stale)
+}
+
+func cockpitStateWithModel(m *Model, pane tmux.Pane, stale bool) string {
+	if m != nil {
+		if outcome := m.semanticPaneOutcome(pane); outcome.state != "" {
+			return outcome.state
+		}
+	} else if outcome := semanticPaneOutcome(pane); outcome.state != "" {
 		return outcome.state
 	}
 	if pane.Dead && pane.DeadStatus != 0 {
@@ -807,11 +815,11 @@ func cockpitState(pane tmux.Pane, stale bool) string {
 	return ""
 }
 
-func sessionCockpitState(session tmux.Session, pane tmux.Pane, stale bool) string {
+func sessionCockpitState(m *Model, session tmux.Session, pane tmux.Pane, stale bool) string {
 	if stale && isQuietLiveServiceSession(session) {
 		stale = false
 	}
-	return cockpitState(pane, stale)
+	return cockpitStateWithModel(m, pane, stale)
 }
 
 func cockpitInfoLines(width int, pane tmux.Pane) []string {

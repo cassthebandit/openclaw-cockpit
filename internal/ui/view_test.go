@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
@@ -176,5 +178,18 @@ func TestViewBundlesPulseIntoTitleBar(t *testing.T) {
 	}
 	if strings.Contains(got, "\n Overview\n") {
 		t.Fatalf("overview should not render as its own header row: %q", got)
+	}
+}
+
+func TestViewUsesCellMotionMouseMode(t *testing.T) {
+	t.Parallel()
+
+	m := NewModel(nil, 0, 0, nil, false, true)
+	m.width = 20
+	m.height = 5
+
+	got := m.View()
+	if got.MouseMode != tea.MouseModeCellMotion {
+		t.Fatalf("MouseMode = %v, want %v", got.MouseMode, tea.MouseModeCellMotion)
 	}
 }

@@ -134,7 +134,11 @@ func sessionAttentionState(m *Model, session tmux.Session) string {
 }
 
 func paneAttentionState(m *Model, session tmux.Session, pane tmux.Pane) string {
-	if outcome := semanticPaneOutcome(pane); outcome.state != "" {
+	if m != nil {
+		if outcome := m.semanticPaneOutcome(pane); outcome.state != "" {
+			return outcome.state
+		}
+	} else if outcome := semanticPaneOutcome(pane); outcome.state != "" {
 		return outcome.state
 	}
 	if isOpenClawRuntimePane(pane) {
