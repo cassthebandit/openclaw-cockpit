@@ -61,6 +61,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.updateStaleSessions()
+		m.invalidateClassifications()
 		cmd := m.ensurePreviewsAndCapture()
 		m.updatePreviewDimensions(m.filteredSessionCount())
 		return m, tea.Batch(scheduleTick(m.pollInterval), cmd)
@@ -86,7 +87,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					preview.viewport.GotoBottom()
 					preview.autoFollow = true
 				}
+				m.refreshPaneLifecycleVerdict(msg.sessionID, msg.paneID, content)
 				m.updateStaleSessions()
+				m.invalidateClassifications()
 			}
 		}
 	case paneVarsMsg:
@@ -136,9 +139,12 @@ func (m *Model) ensurePreviewsAndCapture() tea.Cmd {
 		}
 		preview := m.previews[session.ID]
 		if preview == nil {
+			// New previews start at card dimensions, not terminal dimensions:
+			// the render pass owns per-card viewport sizing, and captures size
+			// themselves from viewport height (captureLinesFor).
 			vp := viewportFor(innerDimension{
-				width:  m.width,
-				height: m.height,
+				width:  m.cardInnerWidth,
+				height: m.cardInnerHeight,
 			})
 			preview = &sessionPreview{viewport: &vp, lastChanged: time.Now(), autoFollow: true}
 			m.previews[session.ID] = preview

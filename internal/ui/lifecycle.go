@@ -155,6 +155,11 @@ func paneHasAgentIdentity(pane tmux.Pane) bool {
 	}
 }
 
+// refreshLifecycleVerdicts recomputes every pane's verdict from the freshest
+// content available: the snapshot's PreviewText, or the captured preview
+// content when the snapshot carries none. Verdicts for panes whose content
+// arrives later via capture are updated per pane in refreshPaneLifecycleVerdict,
+// which is what keeps cachedLifecycleVerdict a pure lookup on the hot path.
 func (m *Model) refreshLifecycleVerdicts() {
 	if m == nil {
 		return
@@ -164,6 +169,11 @@ func (m *Model) refreshLifecycleVerdicts() {
 		agentLike := sessionHasManagedAgent(session) || containsAny(sessionChromeText(session), agentNameTokens...)
 		for _, window := range session.Windows {
 			for _, pane := range window.Panes {
+				if strings.TrimSpace(pane.PreviewText) == "" {
+					if preview := m.previews[session.ID]; preview != nil && preview.paneID == pane.ID {
+						pane.PreviewText = preview.lastContent
+					}
+				}
 				verdict := paneLifecycleVerdictFor(pane, agentLike)
 				if verdict.state != "" {
 					next[pane.ID] = verdict
@@ -174,20 +184,57 @@ func (m *Model) refreshLifecycleVerdicts() {
 	m.lifecycleVerdicts = next
 }
 
-func (m *Model) cachedLifecycleVerdict(pane tmux.Pane, session tmux.Session) paneLifecycleVerdict {
-	if strings.TrimSpace(pane.PreviewText) == "" {
-		if preview := m.previews[session.ID]; preview != nil && preview.paneID == pane.ID {
-			pane.PreviewText = preview.lastContent
+// refreshPaneLifecycleVerdict recomputes a single pane's cached verdict after
+// its captured content changed (paneContentMsg), so classification stays fresh
+// between snapshots without re-running ANSI stripping on every read.
+func (m *Model) refreshPaneLifecycleVerdict(sessionID, paneID, content string) {
+	if m == nil {
+		return
+	}
+	session, ok := m.sessionByID(sessionID)
+	if !ok {
+		return
+	}
+	agentLike := sessionHasManagedAgent(session) || containsAny(sessionChromeText(session), agentNameTokens...)
+	for _, window := range session.Windows {
+		for _, pane := range window.Panes {
+			if pane.ID != paneID {
+				continue
+			}
+			if strings.TrimSpace(pane.PreviewText) == "" {
+				pane.PreviewText = content
+			}
+			verdict := paneLifecycleVerdictFor(pane, agentLike)
+			if m.lifecycleVerdicts == nil {
+				m.lifecycleVerdicts = make(map[string]paneLifecycleVerdict)
+			}
+			if verdict.state != "" {
+				m.lifecycleVerdicts[pane.ID] = verdict
+			} else {
+				delete(m.lifecycleVerdicts, pane.ID)
+			}
+			return
 		}
 	}
-	if m == nil || len(m.lifecycleVerdicts) == 0 {
-		return paneLifecycleVerdictFor(pane, sessionHasManagedAgent(session) || containsAny(sessionChromeText(session), agentNameTokens...))
+}
+
+// cachedLifecycleVerdict returns the pane's cached verdict. The cache is kept
+// fresh by refreshLifecycleVerdicts (per snapshot) and
+// refreshPaneLifecycleVerdict (per capture), so hot paths never re-run the
+// ANSI-stripping classifier; the compute fallback only covers panes that have
+// not been through either refresh (e.g. models built directly in tests).
+func (m *Model) cachedLifecycleVerdict(pane tmux.Pane, session tmux.Session) paneLifecycleVerdict {
+	if m != nil && len(m.lifecycleVerdicts) > 0 {
+		if verdict, ok := m.lifecycleVerdicts[pane.ID]; ok {
+			return verdict
+		}
 	}
-	if strings.TrimSpace(pane.PreviewText) != "" {
-		return paneLifecycleVerdictFor(pane, sessionHasManagedAgent(session) || containsAny(sessionChromeText(session), agentNameTokens...))
-	}
-	if verdict, ok := m.lifecycleVerdicts[pane.ID]; ok {
-		return verdict
+	if strings.TrimSpace(pane.PreviewText) == "" {
+		if m != nil {
+			if preview := m.previews[session.ID]; preview != nil && preview.paneID == pane.ID {
+				pane.PreviewText = preview.lastContent
+			}
+		}
 	}
 	return paneLifecycleVerdictFor(pane, sessionHasManagedAgent(session) || containsAny(sessionChromeText(session), agentNameTokens...))
 }

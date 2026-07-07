@@ -85,6 +85,19 @@ func (m *Model) renderSessionPreviews(offset int) string {
 			m.cardTopLine[id] = lineCursor
 			m.cardLineHeight[id] = rowLines
 		}
+		// Backfill hit-test geometry for this row's cardLayout entries (they
+		// are appended in the same order as currentRowIDs, before the flush).
+		// cardAt falls back to this when windowing clipped a card's zone.
+		if base := len(m.cardLayout) - len(currentRowIDs); base >= 0 {
+			for i := range currentRowIDs {
+				cb := &m.cardLayout[base+i]
+				cb.screenX0 = i * (currentCellWidth + cardColumnGap)
+				cb.screenX1 = cb.screenX0 + currentCellWidth - 1
+				cb.gridTop = lineCursor
+				cb.gridHeight = rowLines
+				cb.hasGeometry = true
+			}
+		}
 		rendered = append(rendered, rowStr)
 		lineCursor += rowLines
 		currentRow = currentRow[:0]
@@ -274,10 +287,8 @@ func (m *Model) renderSessionPreviews(offset int) string {
 
 		currentRow = append(currentRow, cardContent)
 		currentRowIDs = append(currentRowIDs, session.ID)
-		if len(currentRow) >= currentCols {
-			flushRow()
-		}
-
+		// Appended before the flush so flushRow can backfill this row's
+		// geometry into exactly the trailing len(currentRowIDs) entries.
 		m.cardLayout = append(m.cardLayout, cardBounds{
 			sessionID:      session.ID,
 			zoneID:         cardID,
@@ -285,6 +296,9 @@ func (m *Model) renderSessionPreviews(offset int) string {
 			maximizeZoneID: maxID,
 			collapseZoneID: collapseID,
 		})
+		if len(currentRow) >= currentCols {
+			flushRow()
+		}
 	}
 
 	flushRow()

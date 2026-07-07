@@ -135,12 +135,12 @@ func (m *Model) updatePreviewDimensions(count int) {
 	m.cardCols = selectedCols
 	m.cardInnerWidth = selectedWidth
 	m.cardInnerHeight = selectedHeight
-	for _, preview := range m.previews {
-		if preview.viewport != nil {
-			preview.viewport.SetWidth(m.cardInnerWidth)
-			preview.viewport.SetHeight(m.cardInnerHeight)
-		}
-	}
+	// Preview viewports are deliberately NOT resized here. renderSessionPreviews
+	// is the single owner of per-card viewport dimensions (per-group widths and
+	// per-card body budgets differ from these global values in organized mode).
+	// Resizing here made AtBottom()/autoFollow decisions in paneContentMsg run
+	// against a height the card was never rendered with, which broke preview
+	// scroll anchoring during interaction.
 }
 
 // pageScrollBy moves the whole-wall offset by delta lines, clamped to the
@@ -199,14 +199,50 @@ func (m *Model) scrollCursorIntoView() {
 	}
 }
 
-// cardAt resolves the card located at the given mouse coordinates.
+// cardAt resolves the card located at the given mouse coordinates. Zones are
+// checked first; when whole-wall windowing clipped one of a card's two zone
+// markers (a card straddling the scroll window edge), the zone does not exist
+// for this frame, so render-time geometry is used as a fallback. Without the
+// fallback, partially visible cards are unclickable and un-hoverable.
 func (m *Model) cardAt(msg tea.MouseMsg) (cardBounds, bool) {
 	for _, card := range m.cardLayout {
 		if info := zone.Get(card.zoneID); info != nil && info.InBounds(msg) {
 			return card, true
 		}
 	}
+	mouse := msg.Mouse()
+	for _, card := range m.cardLayout {
+		if m.cardGeometryContains(card, mouse.X, mouse.Y) {
+			return card, true
+		}
+	}
 	return cardBounds{}, false
+}
+
+// cardGeometryContains reports whether the screen coordinate falls inside the
+// card's render-time geometry, mapping screen lines back to grid lines through
+// the whole-wall scroll state of the same frame (windowGrid reserves one top
+// indicator line when engaged).
+func (m *Model) cardGeometryContains(card cardBounds, x, y int) bool {
+	if !card.hasGeometry || card.gridHeight <= 0 {
+		return false
+	}
+	if x < card.screenX0 || x > card.screenX1 {
+		return false
+	}
+	gridY := 0
+	if m.pageScrollEngaged {
+		if y <= m.previewOffset || y > m.previewOffset+m.pageContentHeight {
+			return false
+		}
+		gridY = y - m.previewOffset - 1 + m.pageOffset
+	} else {
+		if y < m.previewOffset || y >= m.previewOffset+m.pageContentHeight {
+			return false
+		}
+		gridY = y - m.previewOffset
+	}
+	return gridY >= card.gridTop && gridY < card.gridTop+card.gridHeight
 }
 
 // groupAt resolves the accordion group divider located at the given mouse

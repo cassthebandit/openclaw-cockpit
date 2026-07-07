@@ -105,6 +105,16 @@ type cardBounds struct {
 	closeZoneID    string
 	maximizeZoneID string
 	collapseZoneID string
+
+	// Render-time geometry: screen columns and grid-space line range of the
+	// card's row. Used as a hit-test fallback when whole-wall windowing clips
+	// one of the card's zone markers and the zone therefore does not exist for
+	// this frame (see Model.cardAt).
+	screenX0    int
+	screenX1    int
+	gridTop     int
+	gridHeight  int
+	hasGeometry bool
 }
 
 // groupZone records the clickable hit-test region for an accordion group
@@ -194,7 +204,9 @@ type Model struct {
 	runtimeTimeline     []runtimeTimelineEvent
 
 	artifactOutcomes  map[string]string
+	artifactProbes    map[string]artifactOutcomeProbe
 	lifecycleVerdicts map[string]paneLifecycleVerdict
+	classifyCache     map[string]*sessionClassification
 
 	lastUpdated time.Time
 	err         error
@@ -282,7 +294,9 @@ func NewModel(client *tmux.Client, poll time.Duration, captureBudget int, debugM
 		collapsedGroups:   make(map[string]struct{}),
 		seededGroups:      make(map[string]struct{}),
 		artifactOutcomes:  make(map[string]string),
+		artifactProbes:    make(map[string]artifactOutcomeProbe),
 		lifecycleVerdicts: make(map[string]paneLifecycleVerdict),
+		classifyCache:     make(map[string]*sessionClassification),
 		cardTopLine:       make(map[string]int),
 		cardLineHeight:    make(map[string]int),
 		searchInput:       ti,

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,11 +54,22 @@ func (m *Model) semanticPaneOutcome(pane tmux.Pane) cockpitOutcome {
 	return cockpitOutcome{}
 }
 
+// artifactOutcomeProbe caches an evidence outcome together with the stat
+// identity (mtime+size) of the files it was derived from, so the per-snapshot
+// refresh only re-reads and re-parses evidence when something on disk actually
+// changed. Refresh runs on the Update goroutine; unbounded ReadFile+JSON per
+// pane per second was a measurable input-hitch source.
+type artifactOutcomeProbe struct {
+	statKey string
+	state   string
+}
+
 func (m *Model) refreshArtifactOutcomes() {
 	if m == nil {
 		return
 	}
 	next := make(map[string]string)
+	probes := make(map[string]artifactOutcomeProbe)
 	for _, session := range m.sessions {
 		for _, window := range session.Windows {
 			for _, pane := range window.Panes {
@@ -65,13 +77,69 @@ func (m *Model) refreshArtifactOutcomes() {
 				if key == "" {
 					continue
 				}
-				if state := artifactOutcomeState(pane); state != "" {
+				statKey := artifactStatKey(pane)
+				if prev, ok := m.artifactProbes[key]; ok && statKey != "" && prev.statKey == statKey {
+					if prev.state != "" {
+						next[key] = prev.state
+					}
+					probes[key] = prev
+					continue
+				}
+				state := artifactOutcomeState(pane)
+				if state != "" {
 					next[key] = state
 				}
+				probes[key] = artifactOutcomeProbe{statKey: statKey, state: state}
 			}
 		}
 	}
 	m.artifactOutcomes = next
+	m.artifactProbes = probes
+}
+
+// artifactStatKey fingerprints the evidence path and its candidate outcome
+// files by mtime+size. Returns "" when the path cannot be resolved, which
+// disables probe reuse for that pane (full recompute each snapshot, matching
+// the old behaviour).
+func artifactStatKey(pane tmux.Pane) string {
+	meta := pane.Cockpit
+	if meta == nil {
+		return ""
+	}
+	runRoot := strings.TrimSpace(meta.RunRoot)
+	evidence := strings.TrimSpace(meta.EvidencePath)
+	if runRoot == "" || evidence == "" {
+		return ""
+	}
+	root, err := filepath.Abs(filepath.Clean(runRoot))
+	if err != nil {
+		return ""
+	}
+	evidencePath := evidence
+	if !filepath.IsAbs(evidencePath) {
+		evidencePath = filepath.Join(root, evidencePath)
+	}
+	evidencePath, err = filepath.Abs(filepath.Clean(evidencePath))
+	if err != nil {
+		return ""
+	}
+	var b strings.Builder
+	appendStat := func(path string) os.FileInfo {
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			b.WriteString(path)
+			b.WriteString("=missing;")
+			return nil
+		}
+		fmt.Fprintf(&b, "%s=%d:%d;", path, info.ModTime().UnixNano(), info.Size())
+		return info
+	}
+	if info := appendStat(evidencePath); info != nil && info.IsDir() {
+		for _, name := range []string{"verification.json", "analysis.json", "summary.json", "RESULT.md"} {
+			appendStat(filepath.Join(evidencePath, name))
+		}
+	}
+	return b.String()
 }
 
 func (m *Model) cachedArtifactOutcome(pane tmux.Pane) string {

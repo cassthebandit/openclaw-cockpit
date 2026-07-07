@@ -43,7 +43,56 @@ var agentNameTokens = []string{
 	"agy", "antigravity", "opencode", "aider",
 }
 
+// sessionClassification memoizes the two per-session classifiers that
+// dominate frame cost (group routing and attention state). Entries are only
+// valid until invalidateClassifications, which runs whenever classification
+// inputs change: snapshot swap, pane capture content, stale-set recompute.
+type sessionClassification struct {
+	groupKnown     bool
+	group          cockpitGroup
+	attentionKnown bool
+	attention      string
+}
+
+func (m *Model) classifyEntry(sessionID string) *sessionClassification {
+	if m == nil || sessionID == "" {
+		return nil
+	}
+	if m.classifyCache == nil {
+		m.classifyCache = make(map[string]*sessionClassification)
+	}
+	entry, ok := m.classifyCache[sessionID]
+	if !ok {
+		entry = &sessionClassification{}
+		m.classifyCache[sessionID] = entry
+	}
+	return entry
+}
+
+// invalidateClassifications drops all memoized group/attention results. Call
+// after any change to m.sessions, m.lifecycleVerdicts, m.artifactOutcomes, or
+// m.stale — the inputs the classifiers read.
+func (m *Model) invalidateClassifications() {
+	if m == nil || len(m.classifyCache) == 0 {
+		return
+	}
+	clear(m.classifyCache)
+}
+
 func cockpitGroupFor(m *Model, session tmux.Session) cockpitGroup {
+	entry := m.classifyEntry(session.ID)
+	if entry != nil && entry.groupKnown {
+		return entry.group
+	}
+	group := computeCockpitGroupFor(m, session)
+	if entry != nil {
+		entry.group = group
+		entry.groupKnown = true
+	}
+	return group
+}
+
+func computeCockpitGroupFor(m *Model, session tmux.Session) cockpitGroup {
 	// 1. OpenClaw runtime snapshot cards route by presentationGroup first.
 	if group, ok := openClawRuntimeGroupFor(session); ok {
 		return group
@@ -120,6 +169,19 @@ func agentLifecycleGroup(session tmux.Session, state string) cockpitGroup {
 }
 
 func sessionAttentionState(m *Model, session tmux.Session) string {
+	entry := m.classifyEntry(session.ID)
+	if entry != nil && entry.attentionKnown {
+		return entry.attention
+	}
+	state := computeSessionAttentionState(m, session)
+	if entry != nil {
+		entry.attention = state
+		entry.attentionKnown = true
+	}
+	return state
+}
+
+func computeSessionAttentionState(m *Model, session tmux.Session) string {
 	best := ""
 	bestRank := 100
 	managedOnly := sessionHasManagedAgent(session)
