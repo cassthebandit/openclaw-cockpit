@@ -498,6 +498,44 @@ func TestActiveAgentCardsUseGroupAccentBorder(t *testing.T) {
 	}
 }
 
+func TestAgentLifecycleCardsPreserveCLIForegroundColors(t *testing.T) {
+	m := accordionModel(t)
+	preview := m.previews["$live-agent"]
+	preview.viewport.SetContent("\x1b[38;5;10mgreen status\x1b[0m\n\x1b[48;5;1mred background\x1b[0m")
+
+	view := m.renderSessionPreviews(0)
+	if !strings.Contains(view, "\x1b[38;5;10m") {
+		t.Fatalf("agent lifecycle card should preserve CLI foreground color, view=%q", view)
+	}
+	if strings.Contains(view, "\x1b[48;5;1m") {
+		t.Fatalf("agent lifecycle card should strip CLI background color, view=%q", view)
+	}
+}
+
+func TestNonAgentCardsStripCLIColors(t *testing.T) {
+	body := "\x1b[38;5;10mgreen status\x1b[0m\n\x1b[48;5;1mred background\x1b[0m"
+	view := renderCardBodyBlock(80, body, false)
+
+	if strings.Contains(view, "\x1b[38;5;10m") || strings.Contains(view, "\x1b[48;5;1m") {
+		t.Fatalf("non-agent body rendering should strip pane ANSI, view=%q", view)
+	}
+}
+
+func TestAgentCLIColorPassthroughGroups(t *testing.T) {
+	t.Parallel()
+
+	for _, group := range []cockpitGroup{groupActiveAgents, groupInactiveAgents, groupFailedAgents} {
+		if !agentCLIColorPassthroughGroup(group.name) {
+			t.Fatalf("%s should preserve agent CLI foreground colors", group.name)
+		}
+	}
+	for _, group := range []cockpitGroup{groupOperationalFailures, groupSubsystemFailures, groupServices} {
+		if agentCLIColorPassthroughGroup(group.name) {
+			t.Fatalf("%s should not preserve raw pane colors", group.name)
+		}
+	}
+}
+
 func TestGroupDividerShowsCaretCountSummary(t *testing.T) {
 	m := accordionModel(t)
 	// route_health runtime cards resolve to a "review" attention state.

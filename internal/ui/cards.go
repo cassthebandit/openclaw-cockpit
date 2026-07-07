@@ -234,7 +234,7 @@ func (m *Model) renderSessionPreviews(offset int) string {
 		if body != "" {
 			body = compactFinishedBody(innerWidth, body, state, bodyBudget)
 			body = compactOverviewBody(innerWidth, body, m.viewMode == viewModeOverview, bodyBudget)
-			body = renderCardBodyBlock(innerWidth, body)
+			body = renderCardBodyBlock(innerWidth, body, agentCLIColorPassthroughGroup(currentGroup))
 		}
 		switch {
 		case state == "failed" || state == "route-fail" || state == "safety-fail":
@@ -786,18 +786,32 @@ func formatHeader(width int, session tmux.Session, window tmux.Window, pane tmux
 	return style.Render(header)
 }
 
-func renderCardBodyBlock(width int, body string) string {
+func renderCardBodyBlock(width int, body string, preserveAgentCLIColors bool) string {
 	if body == "" {
 		return ""
 	}
 	style := lipgloss.NewStyle().
 		Width(width).
 		Foreground(lipgloss.Color("246"))
-	lines := strings.Split(stripANSI(body), "\n")
+	if preserveAgentCLIColors {
+		body = stripANSIBackgrounds(body)
+	} else {
+		body = stripANSI(body)
+	}
+	lines := strings.Split(body, "\n")
 	for i, line := range lines {
 		lines[i] = style.Render(line)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func agentCLIColorPassthroughGroup(groupName string) bool {
+	switch groupName {
+	case groupActiveAgents.name, groupInactiveAgents.name, groupFailedAgents.name:
+		return true
+	default:
+		return false
+	}
 }
 
 func truncateSingleLine(value string, width int) string {
