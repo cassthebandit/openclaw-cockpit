@@ -255,6 +255,8 @@ func (m *Model) renderSessionPreviews(offset int) string {
 			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorExitFail))
 		case pane.Dead:
 			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorExitOK))
+		case currentGroup == groupActiveAgents.name:
+			borderStyle = borderStyle.BorderForeground(lipgloss.Color(groupColorActive))
 		case focused:
 			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorFocus))
 		case cursor:

@@ -487,6 +487,17 @@ func TestPrimaryGroupsRenderWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestActiveAgentCardsUseGroupAccentBorder(t *testing.T) {
+	m := accordionModel(t)
+	view := m.renderSessionPreviews(0)
+	divider := m.renderGroupDivider(groupActiveAgents, 1, false, "")
+	activeANSI := fmt.Sprintf("\x1b[38;5;%sm", groupColorActive)
+
+	if strings.Count(view, activeANSI) <= strings.Count(divider, activeANSI) {
+		t.Fatalf("active card border should use Active Agents accent %q; view=%q", groupColorActive, view)
+	}
+}
+
 func TestGroupDividerShowsCaretCountSummary(t *testing.T) {
 	m := accordionModel(t)
 	// route_health runtime cards resolve to a "review" attention state.
