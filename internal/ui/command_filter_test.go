@@ -3,7 +3,7 @@ package ui
 import (
 	"testing"
 
-	"github.com/steipete/tmuxwatch/internal/tmux"
+	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
 func TestApplyViewFilterCommandNarrowsSessions(t *testing.T) {

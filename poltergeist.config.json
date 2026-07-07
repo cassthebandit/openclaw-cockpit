@@ -3,10 +3,10 @@
   "projectType": "mixed",
   "targets": [
     {
-      "name": "tmuxwatch-cli",
+      "name": "openclaw-cockpit",
       "type": "executable",
-      "buildCommand": "mkdir -p ./dist/dev && go build -o ./dist/dev/tmuxwatch ./cmd/tmuxwatch",
-      "outputPath": "./dist/dev/tmuxwatch",
+      "buildCommand": "mkdir -p ./dist/dev && go build -o ./dist/dev/openclaw-cockpit ./cmd/openclaw-cockpit",
+      "outputPath": "./dist/dev/openclaw-cockpit",
       "watchPaths": [
         "cmd/**/*.go",
         "internal/**/*.go",

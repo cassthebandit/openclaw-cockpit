@@ -1,4 +1,4 @@
-# tmuxwatch Spec
+# OpenClaw Cockpit Spec
 
 Durable product principles and scope boundaries live in [`VISION.md`](../VISION.md). This document keeps the detailed architecture, terminology, migration history, and exploratory roadmap.
 
@@ -11,7 +11,7 @@ Durable product principles and scope boundaries live in [`VISION.md`](../VISION.
 
 ## Vision
 
-Deliver a tmux companion TUI that gives immediate situational awareness across every session, window, and pane. Users should be able to:
+Deliver an OpenClaw operator TUI that gives immediate situational awareness across every tmux session, window, pane, agent lane, runtime source card, and service. Users should be able to:
 
 - See live pane output in real time without manually iterating through `tmux` commands.
 - Triage noisy panes by hiding or reordering them, so attention stays on high-signal streams.
@@ -20,7 +20,7 @@ Deliver a tmux companion TUI that gives immediate situational awareness across e
 
 ## Core User Stories
 
-1. **Live Monitor**: “As a developer, I want to open tmuxwatch and instantly see the latest output of panes across all active sessions so I can detect failures or progress at a glance.”
+1. **Live Monitor**: “As an operator, I want to open OpenClaw Cockpit and instantly see the latest output of panes across all active sessions so I can detect failures or progress at a glance.”
 2. **Focus Control**: “As a developer, I want to skip panes that aren’t relevant right now by hiding or reordering them, so my dashboard stays uncluttered.”
 3. **Navigation**: “As a tmux power user, I want vim-style keyboard navigation between sessions, windows, and panes, to keep muscle memory intact.”
 4. **Debug View**: “As an engineer diagnosing issues, I want a non-interactive mode that prints the current tmux structure as JSON so scripts and humans can inspect state.”
@@ -31,7 +31,7 @@ Deliver a tmux companion TUI that gives immediate situational awareness across e
 - **`internal/tmux`**: Go wrapper around the tmux binary, providing structured snapshots plus capture-pane support.
 - **`internal/ui`**: Bubble Tea model that renders adaptive session preview cards. Cards capture the active window/pane output, auto-scroll with new data, expose session metadata (last activity, exit status), forward keystrokes to panes, pulse briefly when output changes, and provide mouse affordances (focus, scroll, close).
  - **`internal/ui`**: Bubble Tea model that renders adaptive session preview cards. Cards capture the active window/pane output, auto-scroll with new data, expose session metadata (last activity, exit status), forward keystrokes to panes (including double-press ctrl+c quit), pulse briefly when output changes, and provide mouse affordances (focus, scroll, close).
-- **`cmd/tmuxwatch`**: CLI entry point with flags (`--interval`, `--tmux`, `--dump`) and version reporting.
+- **`cmd/openclaw-cockpit`**: CLI entry point with flags (`--interval`, `--tmux`, `--dump`) and version reporting.
 - **Documentation**: README highlights usage, features, and key bindings; changelog tracks notable updates; MIT license governs distribution.
 
 ## Inspiration & Competitive Scan
@@ -42,7 +42,7 @@ Deliver a tmux companion TUI that gives immediate situational awareness across e
   - Inline preview panel using `capture-pane -ep`.
   - Swap workflows (mark source, accept destination) for windows/panes.
   - Themable UI via predefined palettes (e.g., Catppuccin, Dracula, Nord).
-- tmuxwatch should blend best ideas: keep lightweight monitoring focus while adopting discoverable commands (swap, rename, filters) and optional theming.
+- OpenClaw Cockpit should blend the best ideas from tmux dashboards while keeping its monitor-first OpenClaw operator focus.
 
 ## Roadmap
 
@@ -54,13 +54,13 @@ Deliver a tmux companion TUI that gives immediate situational awareness across e
 ### Phase 2 — UX Enhancements *(in progress)*
 - [ ] Add `--capture-lines` flag and config file to control history depth.
 - [x] Implement search/filter across sessions, windows, and panes.
-- [x] Forward focus and keystrokes from tmuxwatch to live panes; add mouse support for focusing, scrolling, and closing cards.
+- [x] Forward focus and keystrokes from OpenClaw Cockpit to live panes; add mouse support for focusing, scrolling, and closing cards.
 - [ ] Surface more status metadata: pane last activity, command exit statuses, alerts.
 - [ ] Introduce optional theme selection aligned with tmux_tui palettes (Dracula, Nord, Catppuccin, etc.).
 - [ ] Provide swap workflows for panes/windows with visual feedback (mark source, confirm target).
 
 ### Phase 3 — Workspace Management *(future)*
-- [ ] Introduce snapshot persistence (store sessions/windows/panes as JSON in `~/.config/tmuxwatch/`).
+- [ ] Introduce snapshot persistence (store sessions/windows/panes as JSON in `~/.config/openclaw-cockpit/`).
 - [ ] Provide commands to instantiate stored sessions, similar to Haskell tmux-tui.
 - [ ] Offer YAML/JSON schema for curated dashboards (e.g., always pin specific panes).
 - [ ] Integrate notifications (desktop or terminal bell) for configurable events (pane command changes, keywords).
@@ -100,7 +100,7 @@ Deliver a tmux companion TUI that gives immediate situational awareness across e
 
 ## Success Metrics
 
-- **Adoption**: number of developers running tmuxwatch alongside tmux daily.
+- **Adoption**: number of OpenClaw operators running OpenClaw Cockpit alongside tmux daily.
 - **Responsiveness**: pane content refresh under target (e.g., <= 500 ms with default interval).
 - **Stability**: zero crashes across long-running sessions (>24 hours).
 - **Feature Parity**: achieve core features of reference tools (e.g., tmux-tui) while maintaining Go simplicity.

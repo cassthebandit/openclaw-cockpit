@@ -8,7 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/steipete/tmuxwatch/internal/tmux"
+	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
 // Update processes Bubble Tea messages and routes them to specialised

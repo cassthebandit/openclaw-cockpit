@@ -1,11 +1,11 @@
 {
-  "name": "tmuxwatch",
+  "name": "openclaw-cockpit",
   "version": "0.0.0",
   "private": true,
   "packageManager": "pnpm@11.9.0",
   "scripts": {
     "start": "./gorunfresh",
-    "build": "go build ./cmd/tmuxwatch",
+    "build": "go build ./cmd/openclaw-cockpit",
     "test": "go test ./...",
     "lint": "golangci-lint run",
     "format": "gofumpt -w ."

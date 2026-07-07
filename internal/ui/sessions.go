@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/steipete/tmuxwatch/internal/tmux"
+	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
 // sessionMatches reports whether a session, its windows, or panes contain the

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/steipete/tmuxwatch/internal/tmux"
+	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
 // updateStaleSessions recalculates which sessions qualify as stale.

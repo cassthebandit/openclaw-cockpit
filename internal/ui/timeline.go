@@ -8,7 +8,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/steipete/tmuxwatch/internal/tmux"
+	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
 const (

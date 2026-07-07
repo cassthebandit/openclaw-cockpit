@@ -1,14 +1,14 @@
 version: 2
 
-project_name: tmuxwatch
+project_name: openclaw-cockpit
 
 changelog:
   disable: true
 
 builds:
-  - id: tmuxwatch
-    main: ./cmd/tmuxwatch
-    binary: tmuxwatch
+  - id: openclaw-cockpit
+    main: ./cmd/openclaw-cockpit
+    binary: openclaw-cockpit
     env:
       - CGO_ENABLED=0
     targets:
@@ -21,7 +21,7 @@ builds:
 
 archives:
   - ids:
-      - tmuxwatch
+      - openclaw-cockpit
     formats:
       - tar.gz
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"

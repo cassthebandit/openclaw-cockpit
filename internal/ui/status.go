@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/steipete/tmuxwatch/internal/tmux"
+	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
 // renderStatus returns the cached status footer, recomputing when necessary.

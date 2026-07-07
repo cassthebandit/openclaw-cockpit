@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"charm.land/bubbles/v2/viewport"
-	"github.com/steipete/tmuxwatch/internal/tmux"
+	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
 // TestEnsureCursor ensures the cursor tracks visible sessions correctly.

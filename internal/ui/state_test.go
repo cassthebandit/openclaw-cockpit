@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/steipete/tmuxwatch/internal/tmux"
+	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
 // TestTabTitles ensures detail tabs appear alongside the overview tab.

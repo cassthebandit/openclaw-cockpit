@@ -7,7 +7,7 @@ import (
 	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
-	"github.com/steipete/tmuxwatch/internal/tmux"
+	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
 func runtimeTimelineSession(id, label string, meta tmux.CockpitMeta) tmux.Session {

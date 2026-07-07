@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/steipete/tmuxwatch/internal/tmux"
+	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
 // TestSessionMatches ensures fuzzy queries detect sessions, windows, and panes.

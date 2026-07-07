@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	zone "github.com/cassthebandit/openclaw-cockpit/internal/zone"
 	"github.com/mattn/go-runewidth"
-	zone "github.com/steipete/tmuxwatch/internal/zone"
 
-	"github.com/steipete/tmuxwatch/internal/tmux"
+	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
 func decorateControl(label string) string {

@@ -10,9 +10,9 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
-	zone "github.com/steipete/tmuxwatch/internal/zone"
+	zone "github.com/cassthebandit/openclaw-cockpit/internal/zone"
 
-	"github.com/steipete/tmuxwatch/internal/tmux"
+	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
 const (
@@ -172,9 +172,9 @@ type Model struct {
 	pageContentHeight int
 	cardTopLine       map[string]int
 	cardLineHeight    map[string]int
-	tabSessionIDs   []string
-	footer          *viewport.Model
-	footerHeight    int
+	tabSessionIDs     []string
+	footer            *viewport.Model
+	footerHeight      int
 
 	debugMsgs   []tea.Msg
 	traceMouse  bool

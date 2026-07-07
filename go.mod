@@ -1,4 +1,4 @@
-module github.com/steipete/tmuxwatch
+module github.com/cassthebandit/openclaw-cockpit
 
 go 1.25.11
 

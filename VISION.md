@@ -1,12 +1,12 @@
-# tmuxwatch Vision
+# OpenClaw Cockpit Vision
 
-tmuxwatch is a fast, dependable companion for understanding a local tmux estate at a glance. It should make active work, failures, and stale sessions obvious without forcing users to step through panes or surrender normal tmux workflows.
+OpenClaw Cockpit is a fast, dependable operator wall for understanding a local tmux estate and the OpenClaw agent/runtime work happening inside it. It should make active work, failures, stale sessions, evidence holds, and service state obvious without forcing users to step through panes or surrender normal tmux workflows.
 
 ## Product principles
 
 - **Monitor first.** Snapshot accuracy, low capture overhead, readable output, and long-running stability outrank feature breadth.
 - **Keyboard first, mouse optional.** Every core navigation and focus workflow must remain efficient from the keyboard; mouse affordances may improve discovery but must not become required.
-- **Observe by default.** Hiding, filtering, collapsing, and reordering are tmuxwatch view state. tmux sessions or processes change only after an explicit, clearly scoped user action; tmuxwatch never performs automatic cleanup.
+- **Observe by default.** Hiding, filtering, collapsing, and reordering are Cockpit view state. tmux sessions or processes change only after an explicit, clearly scoped user action; Cockpit never performs automatic cleanup.
 - **Local and inspectable.** Prefer direct tmux commands, explicit state, and the existing `--dump` automation boundary. Add background services, remote access, network APIs, or plugin execution only for a demonstrated workflow that cannot stay local and simple.
 - **Small configuration surface.** Prefer useful defaults and stable CLI flags. Add persistent configuration only after repeated user demand establishes a durable setting and its ownership.
 - **Conservative persistence.** Saved layouts and history require a versioned, reviewable format, a preview before restore, and clear handling of commands, paths, environment data, and missing resources.

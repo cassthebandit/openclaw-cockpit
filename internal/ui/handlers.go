@@ -9,9 +9,9 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	zone "github.com/steipete/tmuxwatch/internal/zone"
+	zone "github.com/cassthebandit/openclaw-cockpit/internal/zone"
 
-	"github.com/steipete/tmuxwatch/internal/tmux"
+	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
 // handleGlobalKey processes keys that apply regardless of focus.

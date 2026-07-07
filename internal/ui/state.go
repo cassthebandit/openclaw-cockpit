@@ -5,9 +5,9 @@ import (
 	"fmt"
 
 	"charm.land/lipgloss/v2"
-	zone "github.com/steipete/tmuxwatch/internal/zone"
+	zone "github.com/cassthebandit/openclaw-cockpit/internal/zone"
 
-	"github.com/steipete/tmuxwatch/internal/tmux"
+	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
 // tabTitles derives the current tab titles based on overview and detail state.

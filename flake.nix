@@ -1,5 +1,5 @@
 {
-  description = "Lightweight TUI to watch tmux sessions";
+  description = "OpenClaw operator wall for tmux-backed agent work";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -21,38 +21,38 @@
           pkgs = nixpkgs.legacyPackages.${system};
         in
         {
-          tmuxwatch = pkgs.buildGoModule {
-            pname = "tmuxwatch";
-            version = "0.9.4";
+          "openclaw-cockpit" = pkgs.buildGoModule {
+            pname = "openclaw-cockpit";
+            version = "0.9.5";
 
             src = ./.;
 
             vendorHash = "sha256-qozRmgemVX+5ye9h0udTi3zBMHMw05RjvFpxyUgqwzI=";
 
-            subPackages = [ "cmd/tmuxwatch" ];
+            subPackages = [ "cmd/openclaw-cockpit" ];
 
             excludedPackages = [ "tools" ];
 
             meta = with pkgs.lib; {
-              description = "Lightweight TUI to watch tmux sessions";
-              homepage = "https://github.com/steipete/tmuxwatch";
+              description = "OpenClaw operator wall for tmux-backed agent work";
+              homepage = "https://github.com/cassthebandit/openclaw-cockpit";
               license = licenses.mit;
               maintainers = [ ];
-              mainProgram = "tmuxwatch";
+              mainProgram = "openclaw-cockpit";
             };
           };
 
-          default = self.packages.${system}.tmuxwatch;
+          default = self.packages.${system}."openclaw-cockpit";
         }
       );
 
       apps = forAllSystems (system: {
-        tmuxwatch = {
+        "openclaw-cockpit" = {
           type = "app";
-          program = "${self.packages.${system}.tmuxwatch}/bin/tmuxwatch";
+          program = "${self.packages.${system}."openclaw-cockpit"}/bin/openclaw-cockpit";
         };
 
-        default = self.apps.${system}.tmuxwatch;
+        default = self.apps.${system}."openclaw-cockpit";
       });
 
       devShells = forAllSystems (system:

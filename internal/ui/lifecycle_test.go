@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/steipete/tmuxwatch/internal/tmux"
+	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
 // Captured-style pane tails. Each positive ends at an idle prompt after a

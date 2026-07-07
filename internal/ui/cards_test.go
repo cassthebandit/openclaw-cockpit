@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
-	"github.com/steipete/tmuxwatch/internal/tmux"
+	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
 // TestFormatHeaderOmitsHost ensures pane titles that match the host are hidden.

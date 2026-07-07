@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/steipete/tmuxwatch/internal/tmux"
+	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
 const (

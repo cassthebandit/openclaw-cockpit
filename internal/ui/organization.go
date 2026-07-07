@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/steipete/tmuxwatch/internal/tmux"
+	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
 type cockpitGroup struct {

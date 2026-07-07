@@ -12,10 +12,10 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	zone "github.com/steipete/tmuxwatch/internal/zone"
+	zone "github.com/cassthebandit/openclaw-cockpit/internal/zone"
 
-	"github.com/steipete/tmuxwatch/internal/tmux"
-	"github.com/steipete/tmuxwatch/internal/ui"
+	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
+	"github.com/cassthebandit/openclaw-cockpit/internal/ui"
 )
 
 const productName = "OpenClaw Cockpit"

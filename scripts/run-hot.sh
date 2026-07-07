@@ -3,9 +3,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LOG_PATH="${TMUXWATCH_DAEMON_LOG:-/tmp/tmuxwatch-daemon.log}"
+LOG_PATH="${OPENCLAW_COCKPIT_DAEMON_LOG:-${TMUXWATCH_DAEMON_LOG:-/tmp/openclaw-cockpit-daemon.log}}"
 
-export TMUXWATCH_FORCE_TMUX="${TMUXWATCH_FORCE_TMUX:-0}"
+export OPENCLAW_COCKPIT_FORCE_TMUX="${OPENCLAW_COCKPIT_FORCE_TMUX:-${TMUXWATCH_FORCE_TMUX:-0}}"
 
 cd "$ROOT"
 
@@ -31,22 +31,22 @@ fi
 
 if [[ $USING_DIST_POLTER -eq 0 ]]; then
 	if ! "$POLTER_BIN" --help 2>&1 | grep -q -- '--watch'; then
-		echo "[tmuxwatch] This helper requires a polter build with --watch support."
+		echo "[openclaw-cockpit] This helper requires a polter build with --watch support."
 		echo "            Either run 'pnpm build' in ../poltergeist and retry, or install the latest release."
 		exit 1
 	fi
 elif [[ ! -x "$POLTER_BIN" ]]; then
-	echo "[tmuxwatch] Unable to find executable polter binary (expected at $POLTER_BIN)."
+	echo "[openclaw-cockpit] Unable to find executable polter binary (expected at $POLTER_BIN)."
 	exit 1
 fi
 
-if ! "$POLTERGEIST_BIN" status --target tmuxwatch-cli >/dev/null 2>&1; then
-	echo "[tmuxwatch] Starting poltergeist daemon (logs -> $LOG_PATH)..."
-	nohup "$POLTERGEIST_BIN" haunt --target tmuxwatch-cli >/dev/null 2>>"$LOG_PATH" &
+if ! "$POLTERGEIST_BIN" status --target openclaw-cockpit >/dev/null 2>&1; then
+	echo "[openclaw-cockpit] Starting poltergeist daemon (logs -> $LOG_PATH)..."
+	nohup "$POLTERGEIST_BIN" haunt --target openclaw-cockpit >/dev/null 2>>"$LOG_PATH" &
 	sleep 1
 else
-	echo "[tmuxwatch] poltergeist daemon already running."
+	echo "[openclaw-cockpit] poltergeist daemon already running."
 fi
 
-echo "[tmuxwatch] Launching tmuxwatch with hot reload..."
-exec "$POLTER_BIN" tmuxwatch-cli --watch "$@"
+echo "[openclaw-cockpit] Launching OpenClaw Cockpit with hot reload..."
+exec "$POLTER_BIN" openclaw-cockpit --watch "$@"

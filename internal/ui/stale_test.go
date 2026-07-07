@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/steipete/tmuxwatch/internal/tmux"
+	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
 // TestSessionActivityPrefersSessionTimestamp ensures session timestamps win unless newer preview data exists.

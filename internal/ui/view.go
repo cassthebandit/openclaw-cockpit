@@ -7,7 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	zone "github.com/steipete/tmuxwatch/internal/zone"
+	zone "github.com/cassthebandit/openclaw-cockpit/internal/zone"
 )
 
 const (

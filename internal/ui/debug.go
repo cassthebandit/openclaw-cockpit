@@ -6,7 +6,7 @@ import (
 	"os"
 
 	tea "charm.land/bubbletea/v2"
-	zone "github.com/steipete/tmuxwatch/internal/zone"
+	zone "github.com/cassthebandit/openclaw-cockpit/internal/zone"
 )
 
 // logMouseEvent prints mouse hit testing diagnostics when trace mode is on.

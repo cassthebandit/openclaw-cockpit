@@ -118,8 +118,8 @@
 7. **End-to-End test (manual)**
    - In tmux session:
      1. `pnpm build` (ensure poltergeist CLI uses new code).
-     2. `poltergeist haunt --target tmuxwatch-cli` (new config).
-     3. `polter tmuxwatch-cli --watch`.
+     2. `poltergeist haunt --target openclaw-cockpit` (new config).
+     3. `polter openclaw-cockpit --watch`.
      4. Edit Go file → confirm auto rebuild & tmuxwatch restart without manual intervention.
 
 ## Open Questions

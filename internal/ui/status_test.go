@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/steipete/tmuxwatch/internal/tmux"
+	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
 func TestBuildStatusLineShowsPaneParseWarnings(t *testing.T) {

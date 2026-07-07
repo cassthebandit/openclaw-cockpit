@@ -1,8 +1,8 @@
-# tmuxwatch 👀 - Lightweight TUI to watch tmux sessions
+# OpenClaw Cockpit - Operator wall for tmux-backed agent work
 
-`tmuxwatch` is a Charmbracelet-powered dashboard that keeps eyes on every tmux session, window, and pane without ever leaving the terminal.
+`openclaw-cockpit` is a Charmbracelet-powered dashboard for watching tmux sessions, CLI agents, OpenClaw runtime cards, services, and evidence-bearing review/build lanes without leaving the terminal.
 
-Cass/OpenClaw packages this local fork as **OpenClaw Cockpit**. It is derived from Peter Steinberger's `tmuxwatch`, keeps the upstream Go module and many internal names for now, and adds OpenClaw runtime, ACP, TaskFlow, service, and display-only operator cards.
+It began as Peter Steinberger's `tmuxwatch`; this repo keeps that history and MIT attribution while turning the tool into an OpenClaw-specific cockpit with runtime, ACP, TaskFlow, service, lifecycle, and display-only operator cards.
 
 Product principles and scope boundaries live in [`VISION.md`](VISION.md); detailed architecture and roadmap notes live in [`docs/spec.md`](docs/spec.md).
 
@@ -15,24 +15,16 @@ Product principles and scope boundaries live in [`VISION.md`](VISION.md); detail
 
 ## Install & Run
 ```sh
-# Homebrew (recommended)
-brew tap steipete/tap
-brew install tmuxwatch
-tmuxwatch --version  # should print OpenClaw Cockpit 0.9.5
-
-# Updating later
-brew update
-brew upgrade tmuxwatch
-
-# Or install directly with Go tooling
-go install github.com/steipete/tmuxwatch/cmd/tmuxwatch@latest
+# Install directly with Go tooling
+go install github.com/cassthebandit/openclaw-cockpit/cmd/openclaw-cockpit@latest
+openclaw-cockpit --version  # should print OpenClaw Cockpit 0.9.5
 
 # Nix/NixOS
-nix run github:steipete/tmuxwatch
+nix run github:cassthebandit/openclaw-cockpit
 
 # Or add to your flake inputs for system integration
-# inputs.tmuxwatch.url = "github:steipete/tmuxwatch";
-# Then use: inputs.tmuxwatch.packages.${system}.default
+# inputs.openclaw-cockpit.url = "github:cassthebandit/openclaw-cockpit";
+# Then use: inputs.openclaw-cockpit.packages.${system}.default
 
 # best practice: spawn inside tmux so key bindings work as expected
 tmux new-session -d -s watch './gorunfresh --trace-mouse'
@@ -41,9 +33,9 @@ tmux attach -t watch
 # prefer to run outside tmux?
 ./gorunfresh --dump   # runs directly unless TMUXWATCH_FORCE_TMUX=1 is set
 ./gorunfresh --watch  # starts poltergeist + polter --watch to auto-restart after successful builds
-./scripts/run-hot.sh  # single command that starts daemon in the background and launches tmuxwatch with hot reload
+./scripts/run-hot.sh  # single command that starts daemon in the background and launches openclaw-cockpit with hot reload
 ```
-Press `q` (or double `ctrl+c`) to exit. Prefer running tmuxwatch in its own tmux session to keep the UI isolated from your workspaces. For local development you can substitute `./gorunfresh --debug-click 30,10 --trace-mouse` inside the session to replay a mouse event while inspecting BubbleZone logs.
+Press `q` (or double `ctrl+c`) to exit. Prefer running OpenClaw Cockpit in its own tmux session to keep the UI isolated from your workspaces. For local development you can substitute `./gorunfresh --debug-click 30,10 --trace-mouse` inside the session to replay a mouse event while inspecting BubbleZone logs.
 
 ## CLI Flags
 - `--interval <duration>`: tmux poll frequency (default `1s`).
@@ -67,7 +59,7 @@ mouse              click `[^]/[v]` to maximise/restore, `[-]/[+]` to collapse/ex
 ```
 
 ## Architecture
-- `cmd/tmuxwatch/`: CLI entry point, flag parsing, Bubble Tea program setup.
+- `cmd/openclaw-cockpit/`: CLI entry point, flag parsing, Bubble Tea program setup.
 - `internal/tmux/`: thin wrapper over the tmux binary (snapshot capture, capture-pane, send-keys, kill-session, option queries).
 - `internal/ui/`: Bubble Tea model split into focused files (`model`, `update`, `handlers`, `cards`, `status`, `palette`, `overlay`, etc.).
 - `docs/`: contributor docs (`AGENTS.md`, `idiomatic-go.md`).
@@ -80,7 +72,7 @@ Use the pnpm scripts to mirror the Go tooling:
 pnpm format  # gofumpt -w .
 pnpm lint    # golangci-lint run
 pnpm test    # go test ./...
-pnpm build   # go build ./cmd/tmuxwatch
+pnpm build   # go build ./cmd/openclaw-cockpit
 pnpm start   # runs ./gorunfresh (prefer inside tmux)
 ```
 
@@ -96,7 +88,7 @@ go test ./...
 # fresh rebuild & run inside tmux (guards against outside usage)
 ./gorunfresh --dump  # validate tmux JSON snapshot; respects TMUXWATCH_FORCE_TMUX
 
-go run ./cmd/tmuxwatch --dump  # (inside tmux) validate tmux JSON snapshot for debugging
+go run ./cmd/openclaw-cockpit --dump  # (inside tmux) validate tmux JSON snapshot for debugging
 ```
 Guidelines live in `docs/idiomatic-go.md`; treat it as required reading. Key points:
 - Always run the app inside tmux; tests that touch tmux spawn/destroy their own sessions.

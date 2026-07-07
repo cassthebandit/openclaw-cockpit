@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/steipete/tmuxwatch/internal/tmux"
+	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
 // TestCaptureLinesFor clamps capture sizes to configured bounds.

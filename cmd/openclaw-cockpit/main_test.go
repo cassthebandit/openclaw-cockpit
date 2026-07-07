@@ -12,11 +12,11 @@ import (
 var testBinPath string
 
 func TestMain(m *testing.M) {
-	tmpDir, err := os.MkdirTemp("", "tmuxwatch-test-")
+	tmpDir, err := os.MkdirTemp("", "openclaw-cockpit-test-")
 	if err != nil {
 		log.Fatalf("failed to create temp dir for test binary: %v", err)
 	}
-	testBinPath = filepath.Join(tmpDir, "tmuxwatch-test")
+	testBinPath = filepath.Join(tmpDir, "openclaw-cockpit-test")
 
 	buildCmd := exec.Command("go", "build", "-o", testBinPath, ".")
 	if output, err := buildCmd.CombinedOutput(); err != nil {
