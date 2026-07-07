@@ -398,7 +398,7 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		if _, wheel := msg.(tea.MouseWheelMsg); wheel {
 			// Scroll the card if it can still scroll down; otherwise (no
 			// overflow or already at the bottom) bubble to the wall.
-			if preview != nil && !preview.viewport.AtBottom() {
+			if m.cardOwnsWheel(card.sessionID) && preview != nil && !preview.viewport.AtBottom() {
 				preview.viewport.ScrollDown(scrollStep)
 				preview.autoFollow = preview.viewport.AtBottom()
 				m.hoveredSession = card.sessionID
@@ -408,7 +408,7 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 	case tea.MouseWheelUp:
 		if _, wheel := msg.(tea.MouseWheelMsg); wheel {
-			if preview != nil && !preview.viewport.AtTop() {
+			if m.cardOwnsWheel(card.sessionID) && preview != nil && !preview.viewport.AtTop() {
 				preview.viewport.ScrollUp(scrollStep)
 				preview.autoFollow = false
 				m.hoveredSession = card.sessionID
@@ -464,6 +464,10 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m *Model) cardOwnsWheel(sessionID string) bool {
+	return sessionID != "" && (m.focusedSession == sessionID || (m.viewMode == viewModeDetail && m.detailSession == sessionID))
 }
 
 // handleTabMouse reacts to mouse input overlapping the tab strip and switches

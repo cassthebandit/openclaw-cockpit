@@ -598,6 +598,7 @@ func TestWheelOverScrollableCardScrollsCardNotWall(t *testing.T) {
 		t.Fatal("expected rendered cards")
 	}
 	card := m.cardLayout[0]
+	m.focusedSession = card.sessionID
 	info := waitForZone(t, card.zoneID)
 	preview := m.previews[card.sessionID]
 	before := m.pageOffset
@@ -608,6 +609,26 @@ func TestWheelOverScrollableCardScrollsCardNotWall(t *testing.T) {
 	}
 	if preview.viewport.AtTop() {
 		t.Fatal("wheel over a scrollable card should scroll the card")
+	}
+}
+
+func TestWheelOverScrollableUnfocusedCardScrollsWall(t *testing.T) {
+	m := renderedScrollModel(t, true)
+	if len(m.cardLayout) == 0 {
+		t.Fatal("expected rendered cards")
+	}
+	card := m.cardLayout[0]
+	info := waitForZone(t, card.zoneID)
+	preview := m.previews[card.sessionID]
+	beforeWall := m.pageOffset
+	beforeCard := preview.viewport.YOffset()
+
+	m.handleMouse(tea.MouseWheelMsg{X: info.StartX, Y: info.StartY, Button: tea.MouseWheelDown})
+	if m.pageOffset <= beforeWall {
+		t.Fatalf("wheel over an unfocused scrollable card should scroll the wall, offset %d -> %d", beforeWall, m.pageOffset)
+	}
+	if got := preview.viewport.YOffset(); got != beforeCard {
+		t.Fatalf("unfocused card should not consume wheel, card offset %d -> %d", beforeCard, got)
 	}
 }
 
