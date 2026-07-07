@@ -20,6 +20,26 @@ func decorateControl(label string) string {
 		Render(label)
 }
 
+func resizePreviewViewport(preview *sessionPreview, width, height int) {
+	if preview == nil || preview.viewport == nil {
+		return
+	}
+	shouldFollow := preview.autoFollow || preview.viewport.AtBottom()
+	changed := false
+	if width > 0 && preview.viewport.Width() != width {
+		preview.viewport.SetWidth(width)
+		changed = true
+	}
+	if height >= 0 && preview.viewport.Height() != height {
+		preview.viewport.SetHeight(height)
+		changed = true
+	}
+	if changed && shouldFollow {
+		preview.viewport.GotoBottom()
+		preview.autoFollow = true
+	}
+}
+
 // renderSessionPreviews lays out each visible session card with consistent
 // sizing and mouse hit-test metadata.
 func (m *Model) renderSessionPreviews(offset int) string {
@@ -156,9 +176,7 @@ func (m *Model) renderSessionPreviews(offset int) string {
 			continue
 		}
 
-		if preview.viewport.Width() != innerWidth {
-			preview.viewport.SetWidth(innerWidth)
-		}
+		resizePreviewViewport(preview, innerWidth, preview.viewport.Height())
 
 		pulsing := now.Sub(preview.lastChanged) < pulseDuration
 		stale := m.isStale(session.ID)
@@ -226,9 +244,7 @@ func (m *Model) renderSessionPreviews(offset int) string {
 		if viewportHeight < 0 {
 			viewportHeight = 0
 		}
-		if preview.viewport.Height() != viewportHeight {
-			preview.viewport.SetHeight(viewportHeight)
-		}
+		resizePreviewViewport(preview, innerWidth, viewportHeight)
 
 		header := lipgloss.NewStyle().Render(formatHeader(innerWidth, session, window, pane, focused, pulsing, stale, cursor, sessionState, controls, m.hostname))
 		body := preview.viewport.View()

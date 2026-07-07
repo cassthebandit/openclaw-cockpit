@@ -569,6 +569,41 @@ func TestGroupDividerShowsCaretCountSummary(t *testing.T) {
 	}
 }
 
+func TestRenderSessionPreviewsKeepsAutoFollowAnchoredAfterViewportShrink(t *testing.T) {
+	t.Parallel()
+
+	m := NewModel(nil, time.Second, 4, nil, false, true)
+	m.width = 100
+	m.height = 30
+	m.cardCols = 1
+	m.cardInnerWidth = 80
+	m.cardInnerHeight = 4
+	session := tmux.Session{
+		ID:   "$live",
+		Name: "live",
+		Windows: []tmux.Window{{
+			Active: true,
+			Panes:  []tmux.Pane{{ID: "%live", Active: true, LastActivity: time.Now()}},
+		}},
+	}
+	m.sessions = []tmux.Session{session}
+
+	vp := viewportFor(innerDimension{width: 80, height: 12})
+	vp.SetContent(numberedLines(40))
+	vp.GotoBottom()
+	m.previews[session.ID] = &sessionPreview{
+		viewport:   &vp,
+		paneID:     "%live",
+		autoFollow: true,
+	}
+
+	m.renderSessionPreviews(0)
+
+	if !m.previews[session.ID].viewport.AtBottom() {
+		t.Fatalf("auto-follow viewport should stay bottom-anchored after render-time height shrink")
+	}
+}
+
 func TestCockpitAttentionLineSurfacesHiddenPaneState(t *testing.T) {
 	t.Parallel()
 
