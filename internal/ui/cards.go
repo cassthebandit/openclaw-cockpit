@@ -650,6 +650,12 @@ func groupAccentColor(group cockpitGroup) string {
 		return groupColorInactive
 	case groupFailedAgents.name:
 		return groupColorFailed
+	case groupOperationalFailures.name:
+		return groupColorOperational
+	case groupSubsystemFailures.name:
+		return groupColorSubsystem
+	case groupServices.name:
+		return groupColorServices
 	default:
 		return "250"
 	}
