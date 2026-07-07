@@ -104,6 +104,9 @@ func agentLifecycleGroup(session tmux.Session, state string) cockpitGroup {
 	if stateIsCompletedInfo(state) || state == "idle-finished" || state == "held" {
 		return groupDoneHeld
 	}
+	if state == "awaiting-operator" {
+		return groupYourCall
+	}
 	if stateIsTerminalProblem(state) {
 		return groupSystemProblems
 	}
@@ -120,8 +123,12 @@ func agentLifecycleGroup(session tmux.Session, state string) cockpitGroup {
 func sessionAttentionState(m *Model, session tmux.Session) string {
 	best := ""
 	bestRank := 100
+	managedOnly := sessionHasManagedAgent(session)
 	for _, window := range session.Windows {
 		for _, pane := range window.Panes {
+			if managedOnly && !paneHasAgentIdentity(pane) {
+				continue
+			}
 			state := paneAttentionState(m, session, pane)
 			rank := attentionRank(state)
 			if rank < bestRank {
@@ -134,6 +141,20 @@ func sessionAttentionState(m *Model, session tmux.Session) string {
 }
 
 func paneAttentionState(m *Model, session tmux.Session, pane tmux.Pane) string {
+	if !pane.Dead {
+		var verdict paneLifecycleVerdict
+		if m != nil {
+			verdict = m.cachedLifecycleVerdict(pane, session)
+		} else {
+			verdict = paneLifecycleVerdictFor(pane, sessionHasManagedAgent(session) || containsAny(sessionChromeText(session), agentNameTokens...))
+		}
+		switch verdict.state {
+		case "live-working":
+			return "running"
+		case "awaiting-operator", "delivered-idle", "failed", "terminal-done", "terminal-problem", "stale":
+			return verdict.state
+		}
+	}
 	if m != nil {
 		if outcome := m.semanticPaneOutcome(pane); outcome.state != "" {
 			return outcome.state
@@ -183,9 +204,6 @@ func paneAttentionState(m *Model, session tmux.Session, pane tmux.Pane) string {
 		// A live managed agent TUI that has finished its work but idles at a
 		// prompt is reclassified (read-only, presentation-only) as idle-finished
 		// so it renders under Completed instead of appearing to still run.
-		if !pane.Dead && stateIsLiveAgentState(state) && paneIdleFinished(pane) {
-			return "idle-finished"
-		}
 		switch state {
 		case "failed", "route-fail", "safety-fail", "review", "blocked", "waiting", "running", "starting", "done", "pass", "signal", "directional", "null-safe", "held", "stale":
 			return state
@@ -210,11 +228,13 @@ func attentionRank(state string) int {
 	switch state {
 	case "failed", "route-fail", "safety-fail":
 		return 0
-	case "blocked", "waiting", "review":
+	case "terminal-problem":
+		return 0
+	case "awaiting-operator", "blocked", "waiting", "review":
 		return 1
 	case "running", "starting":
 		return 2
-	case "done", "held", "stale", "pass", "signal", "directional", "null-safe", "idle-finished":
+	case "done", "held", "stale", "pass", "signal", "directional", "null-safe", "idle-finished", "delivered-idle", "terminal-done":
 		return 3
 	default:
 		return 4

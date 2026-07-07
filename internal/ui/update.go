@@ -49,6 +49,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateRuntimeTimeline(msg.snapshot)
 		m.sessions = msg.snapshot.Sessions
 		m.refreshArtifactOutcomes()
+		m.refreshLifecycleVerdicts()
 		m.paneParseWarnings = msg.snapshot.PaneParseWarnings
 		m.pruneHiddenRuntimeSessions()
 		if m.detailSession != "" && !m.sessionExists(m.detailSession) {

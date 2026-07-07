@@ -249,7 +249,7 @@ func normalizeClassification(value string) string {
 
 func stateIsCompletedInfo(state string) bool {
 	switch state {
-	case "done", "pass", "signal", "directional", "null-safe", "idle-finished":
+	case "done", "pass", "signal", "directional", "null-safe", "idle-finished", "delivered-idle", "terminal-done":
 		return true
 	default:
 		return false
@@ -258,7 +258,7 @@ func stateIsCompletedInfo(state string) bool {
 
 func stateNeedsAttention(state string) bool {
 	switch state {
-	case "failed", "route-fail", "safety-fail", "review", "waiting", "blocked":
+	case "failed", "route-fail", "safety-fail", "terminal-problem", "awaiting-operator", "review", "waiting", "blocked":
 		return true
 	default:
 		return false
@@ -271,7 +271,7 @@ func stateNeedsAttention(state string) bool {
 // pushed into System Problems.
 func stateIsLiveAgentState(state string) bool {
 	switch state {
-	case "starting", "running", "waiting", "blocked", "review":
+	case "starting", "running", "waiting", "blocked", "review", "live-working":
 		return true
 	default:
 		return false
@@ -282,7 +282,7 @@ func stateIsLiveAgentState(state string) bool {
 // agent to System Problems (never a live blocked/waiting agent).
 func stateIsTerminalProblem(state string) bool {
 	switch state {
-	case "failed", "route-fail", "safety-fail", "stale":
+	case "failed", "route-fail", "safety-fail", "stale", "terminal-problem":
 		return true
 	default:
 		return false

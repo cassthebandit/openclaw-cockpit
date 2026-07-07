@@ -339,6 +339,89 @@ func TestModelAttentionStateUsesCachedArtifactOutcome(t *testing.T) {
 	}
 }
 
+func TestActiveScreenVetoesCachedArtifactPass(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	session := sessionForGroup("reused-agent-pane", "run.sh", root, "spark")
+	pane := &session.Windows[0].Panes[0]
+	pane.Cockpit = &tmux.CockpitMeta{
+		Kind:         "batch-worker",
+		Agent:        "codex",
+		State:        "done",
+		RunRoot:      root,
+		EvidencePath: "results/old/RESULT.md",
+	}
+	pane.PreviewText = "still running\nEsc to interrupt\n› "
+
+	m := &Model{artifactOutcomes: map[string]string{artifactOutcomeCacheKey(*pane): "pass"}}
+	if got := paneAttentionState(m, session, *pane); got != "running" {
+		t.Fatalf("paneAttentionState() = %q, want running", got)
+	}
+}
+
+func TestLifecycleUsesCapturedPreviewWhenPanePreviewTextIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	session := agentSessionForGroup("captured-preview-agent", "running")
+	pane := &session.Windows[0].Panes[0]
+	pane.PreviewText = ""
+	m := NewModel(nil, time.Second, 4, nil, false, true)
+	m.sessions = []tmux.Session{session}
+	m.previews[session.ID] = &sessionPreview{paneID: pane.ID, lastContent: fableIdleFinished}
+	m.refreshLifecycleVerdicts()
+
+	if got := paneAttentionState(m, session, *pane); got != "delivered-idle" {
+		t.Fatalf("paneAttentionState() = %q, want delivered-idle", got)
+	}
+}
+
+func TestMetadataOnlyWaitingStaysInteractive(t *testing.T) {
+	t.Parallel()
+
+	session := agentSessionForGroup("metadata-waiting", "waiting")
+	if got := sessionAttentionState(nil, session); got != "waiting" {
+		t.Fatalf("sessionAttentionState() = %q, want waiting", got)
+	}
+	if got := cockpitGroupFor(nil, session).name; got != groupInteractiveAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupInteractiveAgents.name)
+	}
+}
+
+func TestManagedDeliveredIdleIgnoresSiblingShellPane(t *testing.T) {
+	t.Parallel()
+
+	session := agentSessionForGroup("agent-with-helper-shell", "running")
+	session.Windows[0].Panes[0].PreviewText = fableIdleFinished
+	session.Windows[0].Panes = append(session.Windows[0].Panes, tmux.Pane{
+		ID:          "%helper",
+		CurrentCmd:  "zsh",
+		CurrentPath: "/workspace",
+		PreviewText: "helper shell\n❯ ",
+	})
+
+	if got := sessionAttentionState(nil, session); got != "delivered-idle" {
+		t.Fatalf("sessionAttentionState() = %q, want delivered-idle", got)
+	}
+	if got := cockpitGroupFor(nil, session).name; got != groupDoneHeld.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupDoneHeld.name)
+	}
+}
+
+func TestUnmanagedAgentLikeDoneInShellDoesNotComplete(t *testing.T) {
+	t.Parallel()
+
+	session := sessionForGroup("codex-docs", "zsh", "/workspace", "")
+	session.Windows[0].Panes[0].PreviewText = "Done in 2.34s\n❯ "
+
+	if got := sessionAttentionState(nil, session); got != "running" {
+		t.Fatalf("sessionAttentionState() = %q, want running", got)
+	}
+	if got := cockpitGroupFor(nil, session).name; got != groupInteractiveAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupInteractiveAgents.name)
+	}
+}
+
 func TestClassificationStateRequiresExactToken(t *testing.T) {
 	t.Parallel()
 

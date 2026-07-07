@@ -190,8 +190,8 @@ func TestIdleFinishedAgentRoutesToCompleted(t *testing.T) {
 	pane.Cockpit.Agent = "fable"
 	pane.PreviewText = fableIdleFinished
 
-	if got := sessionAttentionState(nil, session); got != "idle-finished" {
-		t.Fatalf("sessionAttentionState() = %q, want idle-finished", got)
+	if got := sessionAttentionState(nil, session); got != "delivered-idle" {
+		t.Fatalf("sessionAttentionState() = %q, want delivered-idle", got)
 	}
 	if got := cockpitGroupFor(nil, session).name; got != groupDoneHeld.name {
 		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupDoneHeld.name)
@@ -212,6 +212,57 @@ func TestLiveAgentWithoutFinishedScreenStaysInteractive(t *testing.T) {
 	}
 	if got := cockpitGroupFor(nil, session).name; got != groupInteractiveAgents.name {
 		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupInteractiveAgents.name)
+	}
+}
+
+func TestLifecycleOperatorPromptBeatsCompletion(t *testing.T) {
+	t.Parallel()
+
+	session := agentSessionForGroup("fable-ready-to-code", "running")
+	pane := &session.Windows[0].Panes[0]
+	pane.Cockpit.Kind = "visible-agent"
+	pane.Cockpit.Agent = "fable"
+	pane.PreviewText = fableIdleFinished + "\nReady to code?\nWould you like to proceed?\n"
+
+	if got := sessionAttentionState(nil, session); got != "awaiting-operator" {
+		t.Fatalf("sessionAttentionState() = %q, want awaiting-operator", got)
+	}
+	if got := cockpitGroupFor(nil, session).name; got != groupYourCall.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupYourCall.name)
+	}
+}
+
+func TestLifecycleAvoidsLoosePlanAndFailedMarkers(t *testing.T) {
+	t.Parallel()
+
+	for name, text := range map[string]string{
+		"planning":  "planning the refactor\n› ",
+		"explained": "as explained above\n› ",
+		"tests":     "12 passed, 0 failed\n› ",
+	} {
+		name, text := name, text
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			session := agentSessionForGroup("loose-marker-"+name, "running")
+			session.Windows[0].Panes[0].PreviewText = text
+			if got := sessionAttentionState(nil, session); got != "running" {
+				t.Fatalf("sessionAttentionState() = %q, want running", got)
+			}
+		})
+	}
+}
+
+func TestLifecyclePermissionDeniedIsFailure(t *testing.T) {
+	t.Parallel()
+
+	session := agentSessionForGroup("permission-denied", "running")
+	session.Windows[0].Panes[0].PreviewText = "error: permission denied\n› "
+
+	if got := sessionAttentionState(nil, session); got != "failed" {
+		t.Fatalf("sessionAttentionState() = %q, want failed", got)
+	}
+	if got := cockpitGroupFor(nil, session).name; got != groupSystemProblems.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupSystemProblems.name)
 	}
 }
 
