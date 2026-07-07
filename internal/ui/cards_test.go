@@ -464,6 +464,29 @@ func TestCollapsedGroupRendersDividerOnly(t *testing.T) {
 	}
 }
 
+func TestPrimaryGroupsRenderWhenEmpty(t *testing.T) {
+	t.Parallel()
+
+	m := NewModel(nil, time.Second, 4, nil, false, true)
+	m.SetOrganized(true)
+	m.width = 180
+	m.height = 40
+	m.cardInnerWidth = 40
+	m.cardInnerHeight = 6
+
+	view := m.renderSessionPreviews(0)
+	for _, group := range primaryCockpitGroups() {
+		caret := groupCaretExpanded
+		if m.isGroupCollapsed(group.name) {
+			caret = groupCaretCollapsed
+		}
+		want := caret + " " + group.name + "  0"
+		if !strings.Contains(view, want) {
+			t.Fatalf("empty primary group %q missing from view:\n%s", want, view)
+		}
+	}
+}
+
 func TestGroupDividerShowsCaretCountSummary(t *testing.T) {
 	m := accordionModel(t)
 	// route_health runtime cards resolve to a "review" attention state.

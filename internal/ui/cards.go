@@ -28,13 +28,16 @@ func (m *Model) renderSessionPreviews(offset int) string {
 	m.groupZones = m.groupZones[:0]
 	m.cardTopLine = make(map[string]int)
 	m.cardLineHeight = make(map[string]int)
-	if len(sessions) == 0 {
+	organizedOverview := m.organized && m.viewMode == viewModeOverview
+	if len(sessions) == 0 && !organizedOverview {
 		m.cursorSession = ""
 		return ""
 	}
 
-	if m.organized && m.viewMode == viewModeOverview {
-		m.seedGroupCollapse(orderedCockpitGroups(m, sessions))
+	groups := []cockpitGroup(nil)
+	if organizedOverview {
+		groups = orderedCockpitGroups(m, sessions)
+		m.seedGroupCollapse(groups)
 	}
 
 	cols := max(1, m.cardCols)
@@ -88,6 +91,22 @@ func (m *Model) renderSessionPreviews(offset int) string {
 		currentRowIDs = currentRowIDs[:0]
 	}
 
+	groupIndex := 0
+	renderDividerForGroup := func(group cockpitGroup) {
+		flushRow()
+		currentCols, currentInnerWidth = m.cardLayoutForGroup(group, max(1, groupCounts[group.name]))
+		currentCellWidth = currentInnerWidth + cardPadding*2 + 2
+		currentGroupCollapsed = m.isGroupCollapsed(group.name)
+		summary := ""
+		if currentGroupCollapsed {
+			summary = m.groupCollapsedSummary(group, sessions)
+		}
+		divider := m.renderGroupDivider(group, groupCounts[group.name], currentGroupCollapsed, summary)
+		rendered = append(rendered, divider)
+		lineCursor += countLines(divider)
+		currentGroup = group.name
+	}
+
 	for _, session := range sessions {
 		window, ok := activeWindow(session)
 		if !ok {
@@ -98,22 +117,20 @@ func (m *Model) renderSessionPreviews(offset int) string {
 			continue
 		}
 		innerWidth := currentInnerWidth
-		if m.organized && m.viewMode == viewModeOverview {
+		if organizedOverview {
 			group := cockpitGroupFor(m, session)
 			if group.name != currentGroup {
-				flushRow()
-				currentCols, currentInnerWidth = m.cardLayoutForGroup(group, groupCounts[group.name])
-				currentCellWidth = currentInnerWidth + cardPadding*2 + 2
-				innerWidth = currentInnerWidth
-				currentGroupCollapsed = m.isGroupCollapsed(group.name)
-				summary := ""
-				if currentGroupCollapsed {
-					summary = m.groupCollapsedSummary(group, sessions)
+				for groupIndex < len(groups) && groups[groupIndex].name != group.name {
+					renderDividerForGroup(groups[groupIndex])
+					groupIndex++
 				}
-				divider := m.renderGroupDivider(group, groupCounts[group.name], currentGroupCollapsed, summary)
-				rendered = append(rendered, divider)
-				lineCursor += countLines(divider)
-				currentGroup = group.name
+				if groupIndex < len(groups) {
+					renderDividerForGroup(groups[groupIndex])
+					groupIndex++
+				} else {
+					renderDividerForGroup(group)
+				}
+				innerWidth = currentInnerWidth
 			}
 			if currentGroupCollapsed {
 				// Collapsed group: render the divider only, skip its cards.
@@ -268,6 +285,12 @@ func (m *Model) renderSessionPreviews(offset int) string {
 	}
 
 	flushRow()
+	if organizedOverview {
+		for groupIndex < len(groups) {
+			renderDividerForGroup(groups[groupIndex])
+			groupIndex++
+		}
+	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, rendered...)
 }
@@ -600,9 +623,7 @@ func (m *Model) renderGroupDivider(group cockpitGroup, count int, collapsed bool
 		caret = groupCaretCollapsed
 	}
 	text := fmt.Sprintf("%s %s", caret, group.name)
-	if count > 0 {
-		text += fmt.Sprintf("  %d", count)
-	}
+	text += fmt.Sprintf("  %d", count)
 	if collapsed && summary != "" {
 		text += " · " + summary
 	}

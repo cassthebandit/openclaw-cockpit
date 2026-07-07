@@ -477,6 +477,9 @@ func orderedCockpitGroups(m *Model, sessions []tmux.Session) []cockpitGroup {
 		return nil
 	}
 	seen := make(map[string]cockpitGroup)
+	for _, group := range primaryCockpitGroups() {
+		seen[group.name] = group
+	}
 	for _, session := range sessions {
 		group := cockpitGroupFor(m, session)
 		seen[group.name] = group
@@ -492,4 +495,15 @@ func orderedCockpitGroups(m *Model, sessions []tmux.Session) []cockpitGroup {
 		return groups[i].name < groups[j].name
 	})
 	return groups
+}
+
+func primaryCockpitGroups() []cockpitGroup {
+	return []cockpitGroup{
+		groupActiveAgents,
+		groupInactiveAgents,
+		groupFailedAgents,
+		groupOperationalFailures,
+		groupSubsystemFailures,
+		groupServices,
+	}
 }
