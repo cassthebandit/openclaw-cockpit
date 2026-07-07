@@ -13,30 +13,34 @@ type cockpitGroup struct {
 }
 
 var (
-	// Rank 0 — live, interactive agent TUIs: managed agents in a live sub-state
-	// (starting/running/waiting/blocked/review), plus review/committee panes that
-	// older builds scattered into Dashboards. Agents are never split by sub-state.
-	groupInteractiveAgents = cockpitGroup{name: "Interactive Agents", rank: 0}
+	// Rank 0 — live/resumable agent TUIs: managed agents in a live sub-state
+	// (starting/running/waiting/blocked/review), plus prompt/approval screens
+	// that can continue when answered.
+	groupActiveAgents = cockpitGroup{name: "Active Agents", rank: 0}
 	// Rank 1 — genuine operator decisions (runtime needs_decision + decision-gate
-	// pane states). Kept small.
+	// runtime cards). Agent prompts stay in Active Agents.
 	groupYourCall = cockpitGroup{name: "Your Call", rank: 1}
-	// Rank 2 — informational terminal failures / stale; the system recovering.
-	groupSystemProblems = cockpitGroup{name: "System Problems", rank: 2}
-	// Rank 3 — consolidated runtime-snapshot cards (current_work / route_health /
+	// Rank 2 — failed/problem agent panes.
+	groupFailedAgents = cockpitGroup{name: "Failed Agents", rank: 2}
+	// Rank 3 — informational runtime/system failures; the system recovering.
+	groupSystemProblems = cockpitGroup{name: "System Problems", rank: 3}
+	// Rank 4 — consolidated runtime-snapshot cards (current_work / route_health /
 	// delivery_handoff / source_unknown).
-	groupRuntime = cockpitGroup{name: "Runtime · ACP / Route / Delivery", rank: 3}
-	// Rank 4 — completed, idle-finished, and dead/held agents; completed runtime cards.
-	groupDoneHeld = cockpitGroup{name: "Completed Agent Runs", rank: 4}
-	// Rank 5 — runtime placeholders (rare).
-	groupExpectedControls = cockpitGroup{name: "Expected Controls", rank: 5}
-	groupSkeletons        = cockpitGroup{name: "Skeletons", rank: 5}
-	// Rank 6 — non-agent fallback work.
-	groupWork = cockpitGroup{name: "Active Work", rank: 6}
-	// Rank 7+ — genuine self-monitoring UIs and shells.
-	groupDashboard = cockpitGroup{name: "Dashboards", rank: 7}
-	groupViewers   = cockpitGroup{name: "Viewers", rank: 8}
-	groupIdle      = cockpitGroup{name: "Idle / Unowned", rank: 9}
-	groupServices  = cockpitGroup{name: "Services", rank: 10}
+	groupRuntime = cockpitGroup{name: "Runtime · ACP / Route / Delivery", rank: 4}
+	// Rank 5 — alive or held agent panes that are no longer doing work.
+	groupInactiveAgents = cockpitGroup{name: "Inactive Agents", rank: 5}
+	// Rank 6 — completed runtime cards and non-agent held/done panes.
+	groupDoneHeld = cockpitGroup{name: "Completed Agent Runs", rank: 6}
+	// Rank 7 — runtime placeholders (rare).
+	groupExpectedControls = cockpitGroup{name: "Expected Controls", rank: 7}
+	groupSkeletons        = cockpitGroup{name: "Skeletons", rank: 7}
+	// Rank 8 — non-agent fallback work.
+	groupWork = cockpitGroup{name: "Active Work", rank: 8}
+	// Rank 9+ — genuine self-monitoring UIs and shells.
+	groupDashboard = cockpitGroup{name: "Dashboards", rank: 9}
+	groupViewers   = cockpitGroup{name: "Viewers", rank: 10}
+	groupIdle      = cockpitGroup{name: "Idle / Unowned", rank: 11}
+	groupServices  = cockpitGroup{name: "Services", rank: 12}
 )
 
 // agentNameTokens identify an agent/review session by its chrome (name, window,
@@ -95,29 +99,31 @@ func cockpitGroupFor(m *Model, session tmux.Session) cockpitGroup {
 	return groupWork
 }
 
-// agentLifecycleGroup places an agent session by its lifecycle only: live agents
-// (including live waiting/blocked/review and live+held) lead in Interactive
-// Agents, terminal failures/stale drop to System Problems, and
-// completed/idle-finished/dead land in Completed.
+// agentLifecycleGroup places an agent session by its lifecycle only: live and
+// resumable agents lead in Active Agents, failed agents route to Failed Agents,
+// and completed/held/dead-clean agents remain visible as Inactive cleanup debt.
 func agentLifecycleGroup(session tmux.Session, state string) cockpitGroup {
 	// Explicit completed/terminal states win regardless of process liveness.
 	if stateIsCompletedInfo(state) || state == "idle-finished" || state == "held" {
-		return groupDoneHeld
+		return groupInactiveAgents
 	}
 	if state == "awaiting-operator" {
-		return groupYourCall
+		return groupActiveAgents
 	}
 	if stateIsTerminalProblem(state) {
-		return groupSystemProblems
+		return groupFailedAgents
 	}
 	// A dead agent with no completed/terminal signal is finished, not live —
-	// this keeps a dead-but-"review" pane out of the interactive band.
+	// this keeps a dead-but-"review" pane out of the active band.
 	if sessionAllPanesDead(session) {
-		return groupDoneHeld
+		return groupInactiveAgents
 	}
-	// Live managed agent: waiting/blocked/review (via stateIsLiveAgentState) and
-	// any unknown/quiet sub-state stay in the live band, never scattered.
-	return groupInteractiveAgents
+	if state == "stale" || state == "quiet" {
+		return groupInactiveAgents
+	}
+	// Live managed agent: waiting/blocked/review and any unknown sub-state stay
+	// in the active band, never scattered.
+	return groupActiveAgents
 }
 
 func sessionAttentionState(m *Model, session tmux.Session) string {
@@ -259,9 +265,9 @@ func sessionHasCockpitAgent(session tmux.Session) bool {
 
 // sessionHasManagedAgent reports whether a session carries a managed *agent*
 // lifecycle — unlike sessionHasCockpitAgent it excludes service/runtime kinds,
-// which can carry an @oc_agent label without being interactive agent runs. This
+// which can carry an @oc_agent label without being active agent runs. This
 // is the identity signal used for cockpit grouping so services are never pulled
-// into the Interactive Agents band.
+// into the Active Agents band.
 func sessionHasManagedAgent(session tmux.Session) bool {
 	for _, window := range session.Windows {
 		for _, pane := range window.Panes {

@@ -193,8 +193,8 @@ func TestIdleFinishedAgentRoutesToCompleted(t *testing.T) {
 	if got := sessionAttentionState(nil, session); got != "delivered-idle" {
 		t.Fatalf("sessionAttentionState() = %q, want delivered-idle", got)
 	}
-	if got := cockpitGroupFor(nil, session).name; got != groupDoneHeld.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupDoneHeld.name)
+	if got := cockpitGroupFor(nil, session).name; got != groupInactiveAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupInactiveAgents.name)
 	}
 }
 
@@ -210,8 +210,8 @@ func TestLiveAgentWithoutFinishedScreenStaysInteractive(t *testing.T) {
 	if got := sessionAttentionState(nil, session); got != "running" {
 		t.Fatalf("sessionAttentionState() = %q, want running (active marker vetoes idle-finished)", got)
 	}
-	if got := cockpitGroupFor(nil, session).name; got != groupInteractiveAgents.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupInteractiveAgents.name)
+	if got := cockpitGroupFor(nil, session).name; got != groupActiveAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupActiveAgents.name)
 	}
 }
 
@@ -227,8 +227,8 @@ func TestLifecycleOperatorPromptBeatsCompletion(t *testing.T) {
 	if got := sessionAttentionState(nil, session); got != "awaiting-operator" {
 		t.Fatalf("sessionAttentionState() = %q, want awaiting-operator", got)
 	}
-	if got := cockpitGroupFor(nil, session).name; got != groupYourCall.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupYourCall.name)
+	if got := cockpitGroupFor(nil, session).name; got != groupActiveAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupActiveAgents.name)
 	}
 }
 
@@ -261,8 +261,8 @@ func TestLifecyclePermissionDeniedIsFailure(t *testing.T) {
 	if got := sessionAttentionState(nil, session); got != "failed" {
 		t.Fatalf("sessionAttentionState() = %q, want failed", got)
 	}
-	if got := cockpitGroupFor(nil, session).name; got != groupSystemProblems.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupSystemProblems.name)
+	if got := cockpitGroupFor(nil, session).name; got != groupFailedAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupFailedAgents.name)
 	}
 }
 
@@ -277,7 +277,7 @@ func TestDeadHeldAgentRoutesToCompleted(t *testing.T) {
 	if got := sessionAttentionState(nil, session); got != "held" {
 		t.Fatalf("sessionAttentionState() = %q, want held", got)
 	}
-	if got := cockpitGroupFor(nil, session).name; got != groupDoneHeld.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupDoneHeld.name)
+	if got := cockpitGroupFor(nil, session).name; got != groupInactiveAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupInactiveAgents.name)
 	}
 }

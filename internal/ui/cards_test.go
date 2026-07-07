@@ -437,9 +437,9 @@ func TestCollapsedGroupRendersDividerOnly(t *testing.T) {
 
 	view := m.renderSessionPreviews(0)
 
-	// Interactive Agents is expanded: caret ▾ + its card is laid out.
-	if !strings.Contains(view, groupCaretExpanded+" "+groupInteractiveAgents.name) {
-		t.Fatalf("expected expanded Interactive Agents divider in view:\n%s", view)
+	// Active Agents is expanded: caret ▾ + its card is laid out.
+	if !strings.Contains(view, groupCaretExpanded+" "+groupActiveAgents.name) {
+		t.Fatalf("expected expanded Active Agents divider in view:\n%s", view)
 	}
 	// Runtime is collapsed: caret ▸ + name + count + summary; no cards.
 	if !strings.Contains(view, groupCaretCollapsed+" "+groupRuntime.name) {
@@ -456,7 +456,7 @@ func TestCollapsedGroupRendersDividerOnly(t *testing.T) {
 		}
 	}
 	if !foundAgentCard {
-		t.Fatal("expanded Interactive Agents card should be laid out")
+		t.Fatal("expanded Active Agents card should be laid out")
 	}
 	if foundRuntimeCard {
 		t.Fatal("collapsed Runtime cards must not be laid out (divider only)")
@@ -476,7 +476,7 @@ func TestGroupDividerShowsCaretCountSummary(t *testing.T) {
 			t.Fatalf("collapsed divider missing %q in %q", want, divider)
 		}
 	}
-	expanded := m.renderGroupDivider(groupInteractiveAgents, 2, false, "")
+	expanded := m.renderGroupDivider(groupActiveAgents, 2, false, "")
 	if !strings.Contains(expanded, groupCaretExpanded) {
 		t.Fatalf("expanded divider should show ▾ caret, got %q", expanded)
 	}

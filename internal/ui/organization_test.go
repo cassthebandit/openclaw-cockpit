@@ -20,10 +20,10 @@ func TestCockpitGroupForCurrentFleetShapes(t *testing.T) {
 		want    string
 	}{
 		{
-			name: "fable session is a live interactive agent",
+			name: "fable session is a live active agent",
 			session: sessionForGroup("clean-draft-fable-extract", "claude.exe",
 				"/Users/cass/projects/clean-draft", "Implement V1 extract job artifacts"),
-			want: groupInteractiveAgents.name,
+			want: groupActiveAgents.name,
 		},
 		{
 			name: "camera service stays service",
@@ -125,8 +125,8 @@ func TestCockpitGroupUsesSessionAttentionRollup(t *testing.T) {
 	if got := sessionAttentionState(nil, session); got != "failed" {
 		t.Fatalf("sessionAttentionState() = %q, want failed", got)
 	}
-	if got := cockpitGroupFor(nil, session).name; got != groupSystemProblems.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupSystemProblems.name)
+	if got := cockpitGroupFor(nil, session).name; got != groupFailedAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupFailedAgents.name)
 	}
 }
 
@@ -145,8 +145,8 @@ func TestCockpitGroupTreatsHoldReasonAsAnnotation(t *testing.T) {
 	if got := sessionAttentionState(nil, session); got != "running" {
 		t.Fatalf("sessionAttentionState() = %q, want running", got)
 	}
-	if got := cockpitGroupFor(nil, session).name; got != groupInteractiveAgents.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupInteractiveAgents.name)
+	if got := cockpitGroupFor(nil, session).name; got != groupActiveAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupActiveAgents.name)
 	}
 }
 
@@ -166,8 +166,8 @@ func TestDisplayOnlyMetadataDoesNotOverrideDeadPane(t *testing.T) {
 	if got := sessionAttentionState(nil, session); got != "done" {
 		t.Fatalf("sessionAttentionState() = %q, want done", got)
 	}
-	if got := cockpitGroupFor(nil, session).name; got != groupDoneHeld.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupDoneHeld.name)
+	if got := cockpitGroupFor(nil, session).name; got != groupInactiveAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupInactiveAgents.name)
 	}
 }
 
@@ -224,8 +224,8 @@ func TestCleanNullArtifactDoesNotDowngradeDeadNonzeroPane(t *testing.T) {
 	if got := sessionAttentionState(nil, session); got != "failed" {
 		t.Fatalf("sessionAttentionState() = %q, want failed", got)
 	}
-	if got := cockpitGroupFor(nil, session).name; got != groupSystemProblems.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupSystemProblems.name)
+	if got := cockpitGroupFor(nil, session).name; got != groupFailedAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupFailedAgents.name)
 	}
 }
 
@@ -308,9 +308,9 @@ func TestMissingDeclaredEvidencePathNeedsReview(t *testing.T) {
 		t.Fatalf("sessionAttentionState() = %q, want review", got)
 	}
 	// A live (non-dead) managed agent in a review sub-state stays in the live
-	// Interactive Agents band per the committee taxonomy (§9.2).
-	if got := cockpitGroupFor(nil, session).name; got != groupInteractiveAgents.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupInteractiveAgents.name)
+	// Active Agents band per the committee taxonomy (§9.2).
+	if got := cockpitGroupFor(nil, session).name; got != groupActiveAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupActiveAgents.name)
 	}
 }
 
@@ -383,8 +383,8 @@ func TestMetadataOnlyWaitingStaysInteractive(t *testing.T) {
 	if got := sessionAttentionState(nil, session); got != "waiting" {
 		t.Fatalf("sessionAttentionState() = %q, want waiting", got)
 	}
-	if got := cockpitGroupFor(nil, session).name; got != groupInteractiveAgents.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupInteractiveAgents.name)
+	if got := cockpitGroupFor(nil, session).name; got != groupActiveAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupActiveAgents.name)
 	}
 }
 
@@ -403,8 +403,8 @@ func TestManagedDeliveredIdleIgnoresSiblingShellPane(t *testing.T) {
 	if got := sessionAttentionState(nil, session); got != "delivered-idle" {
 		t.Fatalf("sessionAttentionState() = %q, want delivered-idle", got)
 	}
-	if got := cockpitGroupFor(nil, session).name; got != groupDoneHeld.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupDoneHeld.name)
+	if got := cockpitGroupFor(nil, session).name; got != groupInactiveAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupInactiveAgents.name)
 	}
 }
 
@@ -417,8 +417,8 @@ func TestUnmanagedAgentLikeDoneInShellDoesNotComplete(t *testing.T) {
 	if got := sessionAttentionState(nil, session); got != "running" {
 		t.Fatalf("sessionAttentionState() = %q, want running", got)
 	}
-	if got := cockpitGroupFor(nil, session).name; got != groupInteractiveAgents.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupInteractiveAgents.name)
+	if got := cockpitGroupFor(nil, session).name; got != groupActiveAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupActiveAgents.name)
 	}
 }
 
@@ -467,8 +467,8 @@ func TestRawDeadNonzeroManagedPaneRemainsAttention(t *testing.T) {
 	if got := sessionAttentionState(nil, session); got != "failed" {
 		t.Fatalf("sessionAttentionState() = %q, want failed", got)
 	}
-	if got := cockpitGroupFor(nil, session).name; got != groupSystemProblems.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupSystemProblems.name)
+	if got := cockpitGroupFor(nil, session).name; got != groupFailedAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupFailedAgents.name)
 	}
 }
 
@@ -775,18 +775,18 @@ func TestOrganizedCardBodyHeightsUseVerticalSpace(t *testing.T) {
 	m.sessions[4].Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{Kind: "agent", Agent: "claude", State: "done"}
 
 	heights := m.cardBodyHeightsByGroup(m.sessions)
-	running := heights[groupInteractiveAgents.name]
+	running := heights[groupActiveAgents.name]
 	services := heights[groupServices.name]
-	done := heights[groupDoneHeld.name]
+	done := heights[groupInactiveAgents.name]
 
 	if running <= maxOverviewBodyLines {
-		t.Fatalf("interactive agent height = %d, want more than old fixed cap %d", running, maxOverviewBodyLines)
+		t.Fatalf("active agent height = %d, want more than old fixed cap %d", running, maxOverviewBodyLines)
 	}
 	if services <= 0 || services > 8 {
 		t.Fatalf("service height = %d, want compact service budget", services)
 	}
-	if done <= 0 || done > 7 {
-		t.Fatalf("done height = %d, want compact completed budget", done)
+	if done <= 7 {
+		t.Fatalf("inactive agent height = %d, want inspectable inactive budget", done)
 	}
 }
 
@@ -887,9 +887,9 @@ func TestCockpitGroupRoutesWaitingBlockedAndDone(t *testing.T) {
 		state string
 		want  string
 	}{
-		{state: "waiting", want: groupInteractiveAgents.name},
-		{state: "blocked", want: groupInteractiveAgents.name},
-		{state: "done", want: groupDoneHeld.name},
+		{state: "waiting", want: groupActiveAgents.name},
+		{state: "blocked", want: groupActiveAgents.name},
+		{state: "done", want: groupInactiveAgents.name},
 	}
 	for _, tt := range tests {
 		tt := tt
@@ -925,7 +925,7 @@ func TestRenderSessionPreviewsAddsOrganizedDividers(t *testing.T) {
 	}
 
 	got := m.renderSessionPreviews(0)
-	for _, want := range []string{groupInteractiveAgents.name, groupServices.name} {
+	for _, want := range []string{groupActiveAgents.name, groupServices.name} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("renderSessionPreviews missing divider %q in %q", want, got)
 		}
@@ -957,8 +957,8 @@ func TestAgentIdentityBeatsDashboardAndViewerTheft(t *testing.T) {
 		t.Parallel()
 		session := agentSessionForGroup("clean-draft-extract-job", "running")
 		session.Windows[0].Panes[0].Cockpit.Goal = thief
-		if got := cockpitGroupFor(nil, session).name; got != groupInteractiveAgents.name {
-			t.Fatalf("goal theft: cockpitGroupFor() = %q, want %q", got, groupInteractiveAgents.name)
+		if got := cockpitGroupFor(nil, session).name; got != groupActiveAgents.name {
+			t.Fatalf("goal theft: cockpitGroupFor() = %q, want %q", got, groupActiveAgents.name)
 		}
 	})
 
@@ -966,8 +966,8 @@ func TestAgentIdentityBeatsDashboardAndViewerTheft(t *testing.T) {
 		t.Parallel()
 		session := agentSessionForGroup("clean-draft-extract-job", "waiting")
 		session.Windows[0].Panes[0].PreviewText = "opening " + thief
-		if got := cockpitGroupFor(nil, session).name; got != groupInteractiveAgents.name {
-			t.Fatalf("preview theft: cockpitGroupFor() = %q, want %q", got, groupInteractiveAgents.name)
+		if got := cockpitGroupFor(nil, session).name; got != groupActiveAgents.name {
+			t.Fatalf("preview theft: cockpitGroupFor() = %q, want %q", got, groupActiveAgents.name)
 		}
 	})
 }
@@ -980,8 +980,8 @@ func TestLiveAgentSubStatesStayInteractive(t *testing.T) {
 		t.Run(state, func(t *testing.T) {
 			t.Parallel()
 			session := agentSessionForGroup("live-agent-"+state, state)
-			if got := cockpitGroupFor(nil, session).name; got != groupInteractiveAgents.name {
-				t.Fatalf("state %q: cockpitGroupFor() = %q, want %q", state, got, groupInteractiveAgents.name)
+			if got := cockpitGroupFor(nil, session).name; got != groupActiveAgents.name {
+				t.Fatalf("state %q: cockpitGroupFor() = %q, want %q", state, got, groupActiveAgents.name)
 			}
 		})
 	}
@@ -991,8 +991,8 @@ func TestLiveAgentSubStatesStayInteractive(t *testing.T) {
 		// A hold means "don't reap", not "finished": a live held agent stays live.
 		session := agentSessionForGroup("held-live-agent", "running")
 		session.Windows[0].Panes[0].Cockpit.HoldReason = "awaiting evidence capture"
-		if got := cockpitGroupFor(nil, session).name; got != groupInteractiveAgents.name {
-			t.Fatalf("live+held: cockpitGroupFor() = %q, want %q", got, groupInteractiveAgents.name)
+		if got := cockpitGroupFor(nil, session).name; got != groupActiveAgents.name {
+			t.Fatalf("live+held: cockpitGroupFor() = %q, want %q", got, groupActiveAgents.name)
 		}
 	})
 }
@@ -1000,33 +1000,64 @@ func TestLiveAgentSubStatesStayInteractive(t *testing.T) {
 func TestTerminalAgentStatesRouteToSystemProblems(t *testing.T) {
 	t.Parallel()
 
-	for _, state := range []string{"failed", "route-fail", "safety-fail", "stale"} {
+	for _, state := range []string{"failed", "route-fail", "safety-fail"} {
 		state := state
 		t.Run(state, func(t *testing.T) {
 			t.Parallel()
 			session := agentSessionForGroup("terminal-agent-"+state, state)
-			if got := cockpitGroupFor(nil, session).name; got != groupSystemProblems.name {
-				t.Fatalf("state %q: cockpitGroupFor() = %q, want %q", state, got, groupSystemProblems.name)
+			if got := cockpitGroupFor(nil, session).name; got != groupFailedAgents.name {
+				t.Fatalf("state %q: cockpitGroupFor() = %q, want %q", state, got, groupFailedAgents.name)
 			}
 		})
 	}
+
+	t.Run("stale", func(t *testing.T) {
+		t.Parallel()
+		session := agentSessionForGroup("terminal-agent-stale", "stale")
+		if got := cockpitGroupFor(nil, session).name; got != groupInactiveAgents.name {
+			t.Fatalf("stale: cockpitGroupFor() = %q, want %q", got, groupInactiveAgents.name)
+		}
+	})
 
 	t.Run("dead-nonzero", func(t *testing.T) {
 		t.Parallel()
 		session := agentSessionForGroup("dead-fail-agent", "running")
 		session.Windows[0].Panes[0].Dead = true
 		session.Windows[0].Panes[0].DeadStatus = 1
-		if got := cockpitGroupFor(nil, session).name; got != groupSystemProblems.name {
-			t.Fatalf("dead-nonzero: cockpitGroupFor() = %q, want %q", got, groupSystemProblems.name)
+		if got := cockpitGroupFor(nil, session).name; got != groupFailedAgents.name {
+			t.Fatalf("dead-nonzero: cockpitGroupFor() = %q, want %q", got, groupFailedAgents.name)
 		}
 	})
+}
+
+func TestStaleAgentRoutesInactiveWithAndWithoutPreview(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		preview string
+	}{
+		{name: "no-preview"},
+		{name: "with-preview", preview: "waiting for capture\n› "},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			session := agentSessionForGroup("stale-agent-"+tt.name, "stale")
+			session.Windows[0].Panes[0].PreviewText = tt.preview
+			if got := cockpitGroupFor(nil, session).name; got != groupInactiveAgents.name {
+				t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupInactiveAgents.name)
+			}
+		})
+	}
 }
 
 func TestServiceWithAgentLabelStaysService(t *testing.T) {
 	t.Parallel()
 
 	// A service card can carry an @oc_agent label; it must not be pulled into
-	// Interactive Agents by the managed-agent identity check.
+	// Active Agents by the managed-agent identity check.
 	session := sessionForGroup("smonitor", "service", "/workspace/config/smonitor", "smonitor")
 	session.Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{
 		ContractVersion: "service-card.v1",

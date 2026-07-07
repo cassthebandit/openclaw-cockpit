@@ -89,18 +89,19 @@ func TestToggleCollapsed(t *testing.T) {
 	}
 }
 
-// TestGroupCollapseDefaults verifies the seeded accordion defaults: Interactive
-// Agents, Your Call, and System Problems expanded; everything else collapsed.
+// TestGroupCollapseDefaults verifies the seeded accordion defaults: the agent
+// bands plus operator/runtime problem bands start expanded; everything else
+// starts collapsed.
 func TestGroupCollapseDefaults(t *testing.T) {
 	t.Parallel()
 
 	m := &Model{collapsedGroups: map[string]struct{}{}, seededGroups: map[string]struct{}{}}
 	m.seedGroupCollapse([]cockpitGroup{
-		groupInteractiveAgents, groupYourCall, groupSystemProblems,
+		groupActiveAgents, groupYourCall, groupFailedAgents, groupSystemProblems, groupInactiveAgents,
 		groupRuntime, groupDoneHeld, groupServices,
 	})
 
-	for _, g := range []cockpitGroup{groupInteractiveAgents, groupYourCall, groupSystemProblems} {
+	for _, g := range []cockpitGroup{groupActiveAgents, groupYourCall, groupFailedAgents, groupSystemProblems, groupInactiveAgents} {
 		if m.isGroupCollapsed(g.name) {
 			t.Fatalf("group %q should default expanded", g.name)
 		}
@@ -118,17 +119,17 @@ func TestGroupCollapseTogglePersistsAcrossSeeding(t *testing.T) {
 	t.Parallel()
 
 	m := &Model{collapsedGroups: map[string]struct{}{}, seededGroups: map[string]struct{}{}}
-	groups := []cockpitGroup{groupInteractiveAgents, groupRuntime}
+	groups := []cockpitGroup{groupActiveAgents, groupRuntime}
 	m.seedGroupCollapse(groups)
 
-	m.toggleGroupCollapsed(groupInteractiveAgents.name) // expanded -> collapsed
-	m.toggleGroupCollapsed(groupRuntime.name)           // collapsed -> expanded
+	m.toggleGroupCollapsed(groupActiveAgents.name) // expanded -> collapsed
+	m.toggleGroupCollapsed(groupRuntime.name)      // collapsed -> expanded
 
 	// A later render re-seeds; user choices must persist.
 	m.seedGroupCollapse(groups)
 
-	if !m.isGroupCollapsed(groupInteractiveAgents.name) {
-		t.Fatal("user-collapsed Interactive Agents should stay collapsed after re-seed")
+	if !m.isGroupCollapsed(groupActiveAgents.name) {
+		t.Fatal("user-collapsed Active Agents should stay collapsed after re-seed")
 	}
 	if m.isGroupCollapsed(groupRuntime.name) {
 		t.Fatal("user-expanded Runtime should stay expanded after re-seed")
@@ -140,7 +141,7 @@ func TestSetAllGroupsCollapsedToggle(t *testing.T) {
 	t.Parallel()
 
 	m := &Model{collapsedGroups: map[string]struct{}{}, seededGroups: map[string]struct{}{}}
-	groups := []cockpitGroup{groupInteractiveAgents, groupYourCall, groupRuntime}
+	groups := []cockpitGroup{groupActiveAgents, groupYourCall, groupRuntime}
 
 	m.setAllGroupsCollapsed(groups, true)
 	if m.anyGroupExpanded(groups) {

@@ -205,3 +205,17 @@ func TestRenderTitleBarShowsRuntimeGroupSummary(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderTitleBarCountsFailedAgentProblems(t *testing.T) {
+	t.Parallel()
+
+	session := agentSessionForGroup("failed-agent", "failed")
+	m := &Model{sessions: []tmux.Session{session}}
+
+	got := renderTitleBar(m, 180)
+	for _, want := range []string{"1 items", "attention 1", "problems 1"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("title summary missing %q in %q", want, got)
+		}
+	}
+}

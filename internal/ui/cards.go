@@ -225,6 +225,8 @@ func (m *Model) renderSessionPreviews(offset int) string {
 			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorBlocked))
 		case state == "waiting":
 			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorWaiting))
+		case currentGroup == groupInactiveAgents.name && (state == "done" || state == "pass" || state == "signal" || state == "idle-finished" || state == "terminal-done" || state == "delivered-idle"):
+			borderStyle = borderStyle.BorderForeground(lipgloss.Color(groupColorInactive))
 		case state == "done" || state == "pass" || state == "signal":
 			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorExitOK))
 		case state == "idle-finished":
@@ -315,7 +317,9 @@ func isDenseRuntimeGroup(group cockpitGroup) bool {
 
 func isSpaciousWorkGroup(group cockpitGroup) bool {
 	switch group.name {
-	case groupInteractiveAgents.name,
+	case groupActiveAgents.name,
+		groupInactiveAgents.name,
+		groupFailedAgents.name,
 		groupYourCall.name,
 		groupWork.name:
 		return true
@@ -485,8 +489,12 @@ func (m *Model) previewAvailableHeight() int {
 
 func bodyHeightConstraintForGroup(group cockpitGroup) bodyHeightConstraint {
 	switch group.name {
-	case groupInteractiveAgents.name:
+	case groupActiveAgents.name:
 		return bodyHeightConstraint{min: 12, max: 64, weight: 8}
+	case groupInactiveAgents.name:
+		return bodyHeightConstraint{min: 8, max: 32, weight: 5}
+	case groupFailedAgents.name:
+		return bodyHeightConstraint{min: 8, max: 32, weight: 6}
 	case groupYourCall.name:
 		return bodyHeightConstraint{min: 12, max: 48, weight: 7}
 	case groupSystemProblems.name:
@@ -546,6 +554,14 @@ func summaryStateLabel(state string) string {
 		return "failed"
 	case "idle-finished":
 		return "finished"
+	case "awaiting-operator":
+		return "prompt"
+	case "delivered-idle":
+		return "delivered"
+	case "terminal-done":
+		return "done"
+	case "terminal-problem":
+		return "failed"
 	default:
 		return state
 	}
@@ -565,7 +581,7 @@ func (m *Model) groupCollapsedSummary(group cockpitGroup, sessions []tmux.Sessio
 		}
 		counts[label]++
 	}
-	order := []string{"failed", "blocked", "waiting", "review", "running", "starting", "finished", "done", "pass", "held", "stale", "quiet"}
+	order := []string{"failed", "prompt", "blocked", "waiting", "review", "running", "starting", "delivered", "finished", "done", "pass", "held", "stale", "quiet"}
 	parts := make([]string, 0, 2)
 	for _, label := range order {
 		if n := counts[label]; n > 0 {
@@ -596,7 +612,7 @@ func (m *Model) renderGroupDivider(group cockpitGroup, count int, collapsed bool
 	}
 	bar := lipgloss.NewStyle().
 		Width(width).
-		Foreground(lipgloss.Color("250")).
+		Foreground(lipgloss.Color(groupAccentColor(group))).
 		Background(lipgloss.Color("236")).
 		Bold(true).
 		Padding(0, 1).
@@ -607,6 +623,19 @@ func (m *Model) renderGroupDivider(group cockpitGroup, count int, collapsed bool
 		bar = zone.Mark(zoneID, bar)
 	}
 	return bar
+}
+
+func groupAccentColor(group cockpitGroup) string {
+	switch group.name {
+	case groupActiveAgents.name:
+		return groupColorActive
+	case groupInactiveAgents.name:
+		return groupColorInactive
+	case groupFailedAgents.name:
+		return groupColorFailed
+	default:
+		return "250"
+	}
 }
 
 // formatHeader builds the label line for a session card, colouring it based on

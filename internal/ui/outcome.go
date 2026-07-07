@@ -266,7 +266,7 @@ func stateNeedsAttention(state string) bool {
 }
 
 // stateIsLiveAgentState reports the sub-states that keep a managed agent in the
-// Interactive Agents band. It is deliberately broader than stateIsActiveRun so
+// Active Agents band. It is deliberately broader than stateIsActiveRun so
 // waiting/blocked/review agents are not inherited from stateNeedsAttention and
 // pushed into System Problems.
 func stateIsLiveAgentState(state string) bool {
@@ -278,11 +278,12 @@ func stateIsLiveAgentState(state string) bool {
 	}
 }
 
-// stateIsTerminalProblem reports the terminal/stale states that move a managed
-// agent to System Problems (never a live blocked/waiting agent).
+// stateIsTerminalProblem reports the failed terminal states that move a managed
+// agent to Failed Agents. Stale readable panes are inactive cleanup debt unless
+// stronger failure evidence exists.
 func stateIsTerminalProblem(state string) bool {
 	switch state {
-	case "failed", "route-fail", "safety-fail", "stale", "terminal-problem":
+	case "failed", "route-fail", "safety-fail", "terminal-problem":
 		return true
 	default:
 		return false

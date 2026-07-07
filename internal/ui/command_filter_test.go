@@ -13,9 +13,11 @@ func TestApplyViewFilterCommandNarrowsSessions(t *testing.T) {
 	route.Windows[0].Panes[0].Cockpit = testRuntimeMeta("route_health")
 	decision := sessionForGroup("runtime-decision", "openclaw-runtime", "OpenClaw Runtime", "decision")
 	decision.Windows[0].Panes[0].Cockpit = testRuntimeMeta("needs_decision")
+	promptAgent := agentSessionForGroup("agent-prompt", "running")
+	promptAgent.Windows[0].Panes[0].PreviewText = "Ready to code?\nWould you like to proceed?\n"
 	service := sessionForGroup("smonitor", "go2rtc", "/workspace/config/smonitor", "smonitor")
 
-	m := &Model{sessions: []tmux.Session{route, decision, service}}
+	m := &Model{sessions: []tmux.Session{route, decision, promptAgent, service}}
 	if !m.applyViewFilterCommand("route") {
 		t.Fatalf("route command rejected")
 	}
@@ -30,6 +32,21 @@ func TestApplyViewFilterCommandNarrowsSessions(t *testing.T) {
 	got = m.filteredSessionsFull()
 	if len(got) != 1 || got[0].ID != service.ID {
 		t.Fatalf(":services filtered sessions = %#v, want only service", got)
+	}
+
+	if !m.applyViewFilterCommand("decision") {
+		t.Fatalf("decision command rejected")
+	}
+	got = m.filteredSessionsFull()
+	if len(got) != 2 {
+		t.Fatalf(":decision filtered sessions = %#v, want runtime decision and prompt agent", got)
+	}
+	seen := map[string]bool{}
+	for _, session := range got {
+		seen[session.ID] = true
+	}
+	if !seen[decision.ID] || !seen[promptAgent.ID] {
+		t.Fatalf(":decision filtered sessions = %#v, want runtime decision %q and prompt agent %q", got, decision.ID, promptAgent.ID)
 	}
 
 	m.searchQuery = "decision"

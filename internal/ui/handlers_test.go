@@ -451,11 +451,11 @@ func TestGroupCollapseKeyTogglesCursorGroup(t *testing.T) {
 	if !handled {
 		t.Fatal("c should be handled in organized overview")
 	}
-	if !m.isGroupCollapsed(groupInteractiveAgents.name) {
+	if !m.isGroupCollapsed(groupActiveAgents.name) {
 		t.Fatal("c should collapse the cursor's group")
 	}
 	m.handleGlobalKey(tea.KeyPressMsg{Text: "c", Code: 'c'})
-	if m.isGroupCollapsed(groupInteractiveAgents.name) {
+	if m.isGroupCollapsed(groupActiveAgents.name) {
 		t.Fatal("c should expand the cursor's group on the second press")
 	}
 }
@@ -471,7 +471,7 @@ func TestGroupCollapseKeyDefersToFocusedPane(t *testing.T) {
 	if handled {
 		t.Fatal("c should defer to the focused pane, not toggle a group")
 	}
-	if m.isGroupCollapsed(groupInteractiveAgents.name) {
+	if m.isGroupCollapsed(groupActiveAgents.name) {
 		t.Fatal("focused c must not collapse a group")
 	}
 }

@@ -230,8 +230,10 @@ func paneLifecycleVerdictFor(pane tmux.Pane, agentLike bool) paneLifecycleVerdic
 		switch strings.ToLower(strings.TrimSpace(pane.Cockpit.State)) {
 		case "done", "pass", "signal", "directional", "null-safe", "held":
 			return paneLifecycleVerdict{state: "terminal-done", confidence: 80, reasons: []string{"metadata-terminal"}}
-		case "failed", "route-fail", "safety-fail", "stale":
+		case "failed", "route-fail", "safety-fail":
 			return paneLifecycleVerdict{state: "terminal-problem", confidence: 80, reasons: []string{"metadata-problem"}}
+		case "stale":
+			return paneLifecycleVerdict{state: "stale", confidence: 80, reasons: []string{"metadata-stale"}}
 		case "starting", "running", "waiting", "blocked", "review":
 			return paneLifecycleVerdict{state: "live-working", confidence: 25, reasons: []string{"metadata-live"}}
 		}
