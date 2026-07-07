@@ -45,7 +45,6 @@ func (m *Model) renderSessionPreviews(offset int) string {
 	baseStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(borderColorBase)).
-		Background(lipgloss.Color(cardColorSurface)).
 		Padding(0, cardPadding)
 
 	innerHeight := m.cardInnerHeight
@@ -235,6 +234,7 @@ func (m *Model) renderSessionPreviews(offset int) string {
 		if body != "" {
 			body = compactFinishedBody(innerWidth, body, state, bodyBudget)
 			body = compactOverviewBody(innerWidth, body, m.viewMode == viewModeOverview, bodyBudget)
+			body = renderCardBodyBlock(innerWidth, body)
 		}
 		switch {
 		case state == "failed" || state == "route-fail" || state == "safety-fail":
@@ -640,7 +640,6 @@ func (m *Model) renderGroupDivider(group cockpitGroup, count int, collapsed bool
 	}
 	bar := lipgloss.NewStyle().
 		Width(width).
-		Background(lipgloss.Color("236")).
 		Padding(0, 1).
 		Render(text)
 	if m.zonePrefix != "" {
@@ -749,7 +748,22 @@ func formatHeader(width int, session tmux.Session, window tmux.Window, pane tmux
 	default:
 		style = style.Foreground(lipgloss.Color(headerColorBase))
 	}
+	style = style.Width(width)
 	return style.Render(header)
+}
+
+func renderCardBodyBlock(width int, body string) string {
+	if body == "" {
+		return ""
+	}
+	style := lipgloss.NewStyle().
+		Width(width).
+		Foreground(lipgloss.Color("246"))
+	lines := strings.Split(stripANSI(body), "\n")
+	for i, line := range lines {
+		lines[i] = style.Render(line)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func truncateSingleLine(value string, width int) string {

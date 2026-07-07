@@ -36,7 +36,6 @@ const (
 	minCaptureLines       = 80
 	maxCaptureLines       = 600
 	captureSlackLines     = 40
-	cardColorSurface      = "234"
 	borderColorBase       = "240"
 	borderColorFocus      = "252"
 	borderColorPulse      = "250"
