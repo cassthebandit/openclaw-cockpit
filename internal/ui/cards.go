@@ -45,6 +45,7 @@ func (m *Model) renderSessionPreviews(offset int) string {
 	baseStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(borderColorBase)).
+		Background(lipgloss.Color(cardColorSurface)).
 		Padding(0, cardPadding)
 
 	innerHeight := m.cardInnerHeight
@@ -622,16 +623,24 @@ func (m *Model) renderGroupDivider(group cockpitGroup, count int, collapsed bool
 	if collapsed {
 		caret = groupCaretCollapsed
 	}
-	text := fmt.Sprintf("%s %s", caret, group.name)
-	text += fmt.Sprintf("  %d", count)
+	accentStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(groupAccentColor(group))).
+		Bold(true)
+	labelStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(headerColorBase)).
+		Bold(true)
+	mutedStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("244"))
+
+	text := accentStyle.Render(caret)
+	text += " " + labelStyle.Render(group.name)
+	text += accentStyle.Render(fmt.Sprintf("  %d", count))
 	if collapsed && summary != "" {
-		text += " · " + summary
+		text += mutedStyle.Render(" · " + summary)
 	}
 	bar := lipgloss.NewStyle().
 		Width(width).
-		Foreground(lipgloss.Color(groupAccentColor(group))).
 		Background(lipgloss.Color("236")).
-		Bold(true).
 		Padding(0, 1).
 		Render(text)
 	if m.zonePrefix != "" {

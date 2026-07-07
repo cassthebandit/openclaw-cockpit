@@ -436,7 +436,7 @@ func TestCollapsedGroupRendersDividerOnly(t *testing.T) {
 	m := accordionModel(t)
 	m.toggleGroupCollapsed(groupSubsystemFailures.name)
 
-	view := m.renderSessionPreviews(0)
+	view := stripANSI(m.renderSessionPreviews(0))
 
 	// Active Agents is expanded: caret ▾ + its card is laid out.
 	if !strings.Contains(view, groupCaretExpanded+" "+groupActiveAgents.name) {
@@ -474,7 +474,7 @@ func TestPrimaryGroupsRenderWhenEmpty(t *testing.T) {
 	m.cardInnerWidth = 40
 	m.cardInnerHeight = 6
 
-	view := m.renderSessionPreviews(0)
+	view := stripANSI(m.renderSessionPreviews(0))
 	for _, group := range primaryCockpitGroups() {
 		caret := groupCaretExpanded
 		if m.isGroupCollapsed(group.name) {
@@ -494,13 +494,13 @@ func TestGroupDividerShowsCaretCountSummary(t *testing.T) {
 	if !strings.Contains(summary, "review") {
 		t.Fatalf("collapsed Sub-System summary should mention member states, got %q", summary)
 	}
-	divider := m.renderGroupDivider(groupSubsystemFailures, 3, true, summary)
+	divider := stripANSI(m.renderGroupDivider(groupSubsystemFailures, 3, true, summary))
 	for _, want := range []string{groupCaretCollapsed, groupSubsystemFailures.name, "3", "review"} {
 		if !strings.Contains(divider, want) {
 			t.Fatalf("collapsed divider missing %q in %q", want, divider)
 		}
 	}
-	expanded := m.renderGroupDivider(groupActiveAgents, 2, false, "")
+	expanded := stripANSI(m.renderGroupDivider(groupActiveAgents, 2, false, ""))
 	if !strings.Contains(expanded, groupCaretExpanded) {
 		t.Fatalf("expanded divider should show ▾ caret, got %q", expanded)
 	}
