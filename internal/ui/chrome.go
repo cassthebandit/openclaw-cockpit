@@ -125,17 +125,29 @@ func (m *Model) titleSummary() string {
 	if attention > 0 {
 		parts = append(parts, fmt.Sprintf("attention %d", attention))
 	}
-	if n := groupCounts[groupNeedsDecision.name]; n > 0 {
+	// Runtime filter hints are counted by presentation group, since the
+	// route/handoff/source-unknown bands now render inside one Runtime section
+	// but the :route / :handoff view filters still key on presentation group.
+	runtimeCounts := map[string]int{}
+	for _, session := range m.sessions {
+		if pg := sessionRuntimePresentationGroup(session); pg != "" {
+			runtimeCounts[pg]++
+		}
+	}
+	if n := runtimeCounts["needs_decision"]; n > 0 {
 		parts = append(parts, fmt.Sprintf("decision %d", n))
 	}
-	if n := groupCounts[groupRouteHealth.name]; n > 0 {
+	if n := runtimeCounts["route_health"]; n > 0 {
 		parts = append(parts, fmt.Sprintf("route %d", n))
 	}
-	if n := groupCounts[groupDelivery.name]; n > 0 {
+	if n := runtimeCounts["delivery_handoff"]; n > 0 {
 		parts = append(parts, fmt.Sprintf("handoff %d", n))
 	}
-	if n := groupCounts[groupSourceUnknown.name]; n > 0 {
+	if n := runtimeCounts["source_unknown"]; n > 0 {
 		parts = append(parts, fmt.Sprintf("unknown %d", n))
+	}
+	if n := groupCounts[groupSystemProblems.name]; n > 0 {
+		parts = append(parts, fmt.Sprintf("problems %d", n))
 	}
 	if services > 0 {
 		parts = append(parts, fmt.Sprintf("services %d", services))

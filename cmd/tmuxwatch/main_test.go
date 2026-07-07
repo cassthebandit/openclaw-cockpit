@@ -121,6 +121,9 @@ func TestHelpFlag(t *testing.T) {
 	if !strings.Contains(outputStr, "Usage of") && !strings.Contains(outputStr, "interval") {
 		t.Errorf("expected help output to contain usage information, got: %s", outputStr)
 	}
+	if strings.Contains(outputStr, "session kills") {
+		t.Errorf("--control help should not advertise session kills, got: %s", outputStr)
+	}
 }
 
 func TestParseSessionList(t *testing.T) {

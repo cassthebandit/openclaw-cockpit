@@ -189,7 +189,7 @@ func normalizeClassification(value string) string {
 
 func stateIsCompletedInfo(state string) bool {
 	switch state {
-	case "done", "pass", "signal", "directional", "null-safe":
+	case "done", "pass", "signal", "directional", "null-safe", "idle-finished":
 		return true
 	default:
 		return false
@@ -199,6 +199,30 @@ func stateIsCompletedInfo(state string) bool {
 func stateNeedsAttention(state string) bool {
 	switch state {
 	case "failed", "route-fail", "safety-fail", "review", "waiting", "blocked":
+		return true
+	default:
+		return false
+	}
+}
+
+// stateIsLiveAgentState reports the sub-states that keep a managed agent in the
+// Interactive Agents band. It is deliberately broader than stateIsActiveRun so
+// waiting/blocked/review agents are not inherited from stateNeedsAttention and
+// pushed into System Problems.
+func stateIsLiveAgentState(state string) bool {
+	switch state {
+	case "starting", "running", "waiting", "blocked", "review":
+		return true
+	default:
+		return false
+	}
+}
+
+// stateIsTerminalProblem reports the terminal/stale states that move a managed
+// agent to System Problems (never a live blocked/waiting agent).
+func stateIsTerminalProblem(state string) bool {
+	switch state {
+	case "failed", "route-fail", "safety-fail", "stale":
 		return true
 	default:
 		return false

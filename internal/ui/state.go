@@ -247,3 +247,85 @@ func (m *Model) toggleCollapsed(id string) {
 func (m *Model) clearCollapsed() {
 	m.collapsed = make(map[string]struct{})
 }
+
+// defaultExpandedGroups are the accordion sections that start expanded. Every
+// other group defaults collapsed. System Problems only appears when non-empty,
+// so "expanded when non-empty" falls out of a plain expanded default.
+var defaultExpandedGroups = map[string]struct{}{
+	groupInteractiveAgents.name: {},
+	groupYourCall.name:          {},
+	groupSystemProblems.name:    {},
+}
+
+// isGroupCollapsed reports whether an accordion group is collapsed.
+func (m *Model) isGroupCollapsed(name string) bool {
+	_, ok := m.collapsedGroups[name]
+	return ok
+}
+
+// toggleGroupCollapsed flips the collapse state for a group divider.
+func (m *Model) toggleGroupCollapsed(name string) {
+	if name == "" {
+		return
+	}
+	if m.seededGroups == nil {
+		m.seededGroups = make(map[string]struct{})
+	}
+	m.seededGroups[name] = struct{}{}
+	if m.isGroupCollapsed(name) {
+		delete(m.collapsedGroups, name)
+		return
+	}
+	m.collapsedGroups[name] = struct{}{}
+}
+
+// seedGroupCollapse applies the default collapse state to each group exactly
+// once (tracked in seededGroups), so defaults land the first time a group
+// appears while user toggles persist across ticks. New groups appearing later
+// (e.g. a fresh System Problems) get their default when first seen.
+func (m *Model) seedGroupCollapse(groups []cockpitGroup) {
+	if m.collapsedGroups == nil {
+		m.collapsedGroups = make(map[string]struct{})
+	}
+	if m.seededGroups == nil {
+		m.seededGroups = make(map[string]struct{})
+	}
+	for _, group := range groups {
+		if _, done := m.seededGroups[group.name]; done {
+			continue
+		}
+		m.seededGroups[group.name] = struct{}{}
+		if _, expanded := defaultExpandedGroups[group.name]; !expanded {
+			m.collapsedGroups[group.name] = struct{}{}
+		}
+	}
+}
+
+// setAllGroupsCollapsed collapses or expands every currently visible group and
+// marks them seeded so the choice persists.
+func (m *Model) setAllGroupsCollapsed(groups []cockpitGroup, collapsed bool) {
+	if m.collapsedGroups == nil {
+		m.collapsedGroups = make(map[string]struct{})
+	}
+	if m.seededGroups == nil {
+		m.seededGroups = make(map[string]struct{})
+	}
+	for _, group := range groups {
+		m.seededGroups[group.name] = struct{}{}
+		if collapsed {
+			m.collapsedGroups[group.name] = struct{}{}
+		} else {
+			delete(m.collapsedGroups, group.name)
+		}
+	}
+}
+
+// anyGroupExpanded reports whether at least one of the given groups is expanded.
+func (m *Model) anyGroupExpanded(groups []cockpitGroup) bool {
+	for _, group := range groups {
+		if !m.isGroupCollapsed(group.name) {
+			return true
+		}
+	}
+	return false
+}

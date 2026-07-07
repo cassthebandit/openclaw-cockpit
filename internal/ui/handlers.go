@@ -64,17 +64,29 @@ func (m *Model) handleGlobalKey(msg tea.KeyMsg) (bool, tea.Cmd) {
 		if m.focusedSession != "" {
 			return false, nil
 		}
-		if m.moveCursorUp() {
-			return true, nil
-		}
+		m.moveCursorUp()
+		m.scrollCursorIntoView()
 		return true, nil
 	case "down":
 		if m.focusedSession != "" {
 			return false, nil
 		}
-		if m.moveCursorDown() {
-			return true, nil
+		m.moveCursorDown()
+		m.scrollCursorIntoView()
+		return true, nil
+	case "pgup":
+		// Focused: the card owns the key (handled by handleFocusedKey).
+		// Unfocused: page the whole wall.
+		if m.focusedSession != "" {
+			return false, nil
 		}
+		m.pageScrollBy(-m.pageStep())
+		return true, nil
+	case "pgdown":
+		if m.focusedSession != "" {
+			return false, nil
+		}
+		m.pageScrollBy(m.pageStep())
 		return true, nil
 	case "enter":
 		if m.cursorSession == "" {
@@ -83,6 +95,7 @@ func (m *Model) handleGlobalKey(msg tea.KeyMsg) (bool, tea.Cmd) {
 		if m.focusedSession != m.cursorSession {
 			m.focusedSession = m.cursorSession
 			m.resetCtrlC()
+			m.scrollCursorIntoView() // reveal a card focused from below the fold
 			if preview, ok := m.previews[m.focusedSession]; ok {
 				preview.viewport.GotoBottom()
 				preview.autoFollow = true
@@ -153,6 +166,28 @@ func (m *Model) handleGlobalKey(msg tea.KeyMsg) (bool, tea.Cmd) {
 			m.hidden = make(map[string]struct{})
 			m.updatePreviewDimensions(m.filteredSessionCount())
 		}
+		return true, nil
+	case "c":
+		// Toggle the accordion group under the cursor. When a card is focused
+		// the key belongs to the pane (focus wins), so defer to the focused
+		// handler instead of collapsing.
+		if m.focusedSession != "" || !m.organized || m.viewMode != viewModeOverview {
+			return false, nil
+		}
+		if name := m.cursorGroupName(); name != "" {
+			m.resetCtrlC()
+			m.toggleGroupCollapsed(name)
+			m.updatePreviewDimensions(m.filteredSessionCount())
+		}
+		return true, nil
+	case "C":
+		if m.focusedSession != "" || !m.organized || m.viewMode != viewModeOverview {
+			return false, nil
+		}
+		m.resetCtrlC()
+		groups := orderedCockpitGroups(m, m.filteredSessions())
+		m.setAllGroupsCollapsed(groups, m.anyGroupExpanded(groups))
+		m.updatePreviewDimensions(m.filteredSessionCount())
 		return true, nil
 	case "ctrl+x":
 		m.resetCtrlC()
@@ -323,11 +358,20 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if handled, cmd := m.handleTabMouse(msg); handled {
 		return m, cmd
 	}
+	// An accordion divider click toggles that group. Checked before the card
+	// layout guard so it still works when every group is collapsed.
+	if name, ok := m.groupDividerClick(msg); ok {
+		m.toggleGroupCollapsed(name)
+		m.updatePreviewDimensions(m.filteredSessionCount())
+		return m, nil
+	}
 	if len(m.cardLayout) == 0 {
 		if _, motion := msg.(tea.MouseMotionMsg); motion {
 			m.hoveredSession = ""
 			m.hoveredControl = ""
+			return m, nil
 		}
+		m.wheelScrollWall(msg)
 		return m, nil
 	}
 	card, ok := m.cardAt(msg)
@@ -336,7 +380,10 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		if _, motion := msg.(tea.MouseMotionMsg); motion {
 			m.hoveredSession = ""
 			m.hoveredControl = ""
+			return m, nil
 		}
+		// Wheel over a divider/gutter/empty area scrolls the whole wall.
+		m.wheelScrollWall(msg)
 		return m, nil
 	}
 	if _, motion := msg.(tea.MouseMotionMsg); motion {
@@ -348,16 +395,26 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	mouse := msg.Mouse()
 	switch mouse.Button {
 	case tea.MouseWheelDown:
-		if _, wheel := msg.(tea.MouseWheelMsg); wheel && preview != nil {
-			preview.viewport.ScrollDown(scrollStep)
-			preview.autoFollow = preview.viewport.AtBottom()
-			m.hoveredSession = card.sessionID
+		if _, wheel := msg.(tea.MouseWheelMsg); wheel {
+			// Scroll the card if it can still scroll down; otherwise (no
+			// overflow or already at the bottom) bubble to the wall.
+			if preview != nil && !preview.viewport.AtBottom() {
+				preview.viewport.ScrollDown(scrollStep)
+				preview.autoFollow = preview.viewport.AtBottom()
+				m.hoveredSession = card.sessionID
+			} else {
+				m.pageScrollBy(scrollStep)
+			}
 		}
 	case tea.MouseWheelUp:
-		if _, wheel := msg.(tea.MouseWheelMsg); wheel && preview != nil {
-			preview.viewport.ScrollUp(scrollStep)
-			preview.autoFollow = false
-			m.hoveredSession = card.sessionID
+		if _, wheel := msg.(tea.MouseWheelMsg); wheel {
+			if preview != nil && !preview.viewport.AtTop() {
+				preview.viewport.ScrollUp(scrollStep)
+				preview.autoFollow = false
+				m.hoveredSession = card.sessionID
+			} else {
+				m.pageScrollBy(-scrollStep)
+			}
 		}
 	case tea.MouseLeft:
 		if _, click := msg.(tea.MouseClickMsg); click {
@@ -390,12 +447,13 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 				delete(m.previews, card.sessionID)
 				m.resetCtrlC()
 				m.updatePreviewDimensions(m.filteredSessionCount())
-				return m, showStatusMessage(fmt.Sprintf("Closed session %s", sessionLabel(card.sessionID)))
+				return m, showStatusMessage(fmt.Sprintf("Hidden in Cockpit: %s", sessionLabel(card.sessionID)))
 			}
 			m.focusedSession = card.sessionID
 			m.cursorSession = card.sessionID
 			m.hoveredSession = card.sessionID
 			m.resetCtrlC()
+			m.scrollCursorIntoView()
 			if preview != nil {
 				preview.viewport.GotoBottom()
 				preview.autoFollow = true
@@ -462,6 +520,31 @@ func tabIndexFromZoneIDs(ids []string) (int, bool) {
 		return tabIndex, true
 	}
 	return 0, false
+}
+
+// wheelScrollWall applies a mouse-wheel event to the whole-wall page offset.
+func (m *Model) wheelScrollWall(msg tea.MouseMsg) {
+	if _, wheel := msg.(tea.MouseWheelMsg); !wheel {
+		return
+	}
+	switch msg.Mouse().Button {
+	case tea.MouseWheelDown:
+		m.pageScrollBy(scrollStep)
+	case tea.MouseWheelUp:
+		m.pageScrollBy(-scrollStep)
+	}
+}
+
+// groupDividerClick reports whether the event is a left-click on an accordion
+// divider, returning the group name to toggle.
+func (m *Model) groupDividerClick(msg tea.MouseMsg) (string, bool) {
+	if _, click := msg.(tea.MouseClickMsg); !click {
+		return "", false
+	}
+	if msg.Mouse().Button != tea.MouseLeft {
+		return "", false
+	}
+	return m.groupAt(msg)
 }
 
 func controlUnderPointer(card cardBounds, msg tea.MouseMsg) string {

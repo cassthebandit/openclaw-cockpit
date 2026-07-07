@@ -143,6 +143,62 @@ func (m *Model) updatePreviewDimensions(count int) {
 	}
 }
 
+// pageScrollBy moves the whole-wall offset by delta lines, clamped to the
+// engaged range. It no-ops (returns false) when page scroll is not engaged.
+func (m *Model) pageScrollBy(delta int) bool {
+	if !m.pageScrollEngaged {
+		return false
+	}
+	before := m.pageOffset
+	m.pageOffset += delta
+	if m.pageOffset < 0 {
+		m.pageOffset = 0
+	}
+	if m.pageOffset > m.pageMaxOffset {
+		m.pageOffset = m.pageMaxOffset
+	}
+	return m.pageOffset != before
+}
+
+// pageStep is the line delta for a PgUp/PgDn on the wall.
+func (m *Model) pageStep() int {
+	if m.pageContentHeight > 1 {
+		return m.pageContentHeight - 1
+	}
+	return 1
+}
+
+// scrollCursorIntoView nudges the whole-wall offset so the cursor's card is
+// visible. It uses the previous render's line map (one-frame approximation) and
+// only acts while page scroll is engaged.
+func (m *Model) scrollCursorIntoView() {
+	if !m.pageScrollEngaged {
+		return
+	}
+	top, ok := m.cardTopLine[m.cursorSession]
+	if !ok {
+		return
+	}
+	height := m.cardLineHeight[m.cursorSession]
+	if height < 1 {
+		height = 1
+	}
+	if m.pageContentHeight < 1 {
+		return
+	}
+	if top < m.pageOffset {
+		m.pageOffset = top
+	} else if top+height > m.pageOffset+m.pageContentHeight {
+		m.pageOffset = top + height - m.pageContentHeight
+	}
+	if m.pageOffset < 0 {
+		m.pageOffset = 0
+	}
+	if m.pageOffset > m.pageMaxOffset {
+		m.pageOffset = m.pageMaxOffset
+	}
+}
+
 // cardAt resolves the card located at the given mouse coordinates.
 func (m *Model) cardAt(msg tea.MouseMsg) (cardBounds, bool) {
 	for _, card := range m.cardLayout {
@@ -151,6 +207,30 @@ func (m *Model) cardAt(msg tea.MouseMsg) (cardBounds, bool) {
 		}
 	}
 	return cardBounds{}, false
+}
+
+// groupAt resolves the accordion group divider located at the given mouse
+// coordinates, if any.
+func (m *Model) groupAt(msg tea.MouseMsg) (string, bool) {
+	for _, gz := range m.groupZones {
+		if info := zone.Get(gz.zoneID); info != nil && info.InBounds(msg) {
+			return gz.name, true
+		}
+	}
+	return "", false
+}
+
+// cursorGroupName returns the accordion group name of the session under the
+// grid cursor, or "" when there is no cursor.
+func (m *Model) cursorGroupName() string {
+	if m.cursorSession == "" {
+		return ""
+	}
+	session, ok := m.sessionByID(m.cursorSession)
+	if !ok {
+		return ""
+	}
+	return cockpitGroupFor(m, session).name
 }
 
 // ensureCursor keeps the cursor pointing at a visible session entry.
@@ -195,7 +275,7 @@ func (m *Model) moveCursorDown() bool {
 
 // moveCursorByDelta advances the cursor by the provided delta if permitted.
 func (m *Model) moveCursorByDelta(delta int, enforceRow bool) bool {
-	sessions := m.filteredSessions()
+	sessions := m.gridSessions()
 	if len(sessions) == 0 {
 		m.cursorSession = ""
 		return false

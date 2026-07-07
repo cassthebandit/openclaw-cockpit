@@ -432,6 +432,56 @@ func TestCockpitCleanupLineBoundsEvidencePath(t *testing.T) {
 	}
 }
 
+func TestCollapsedGroupRendersDividerOnly(t *testing.T) {
+	m := accordionModel(t)
+
+	view := m.renderSessionPreviews(0)
+
+	// Interactive Agents is expanded: caret ▾ + its card is laid out.
+	if !strings.Contains(view, groupCaretExpanded+" "+groupInteractiveAgents.name) {
+		t.Fatalf("expected expanded Interactive Agents divider in view:\n%s", view)
+	}
+	// Runtime is collapsed: caret ▸ + name + count + summary; no cards.
+	if !strings.Contains(view, groupCaretCollapsed+" "+groupRuntime.name) {
+		t.Fatalf("expected collapsed Runtime divider (caret ▸) in view:\n%s", view)
+	}
+
+	foundAgentCard, foundRuntimeCard := false, false
+	for _, card := range m.cardLayout {
+		if card.sessionID == "$live-agent" {
+			foundAgentCard = true
+		}
+		if strings.HasPrefix(card.sessionID, "$runtime-route") {
+			foundRuntimeCard = true
+		}
+	}
+	if !foundAgentCard {
+		t.Fatal("expanded Interactive Agents card should be laid out")
+	}
+	if foundRuntimeCard {
+		t.Fatal("collapsed Runtime cards must not be laid out (divider only)")
+	}
+}
+
+func TestGroupDividerShowsCaretCountSummary(t *testing.T) {
+	m := accordionModel(t)
+	// route_health runtime cards resolve to a "review" attention state.
+	summary := m.groupCollapsedSummary(groupRuntime, m.filteredSessions())
+	if !strings.Contains(summary, "review") {
+		t.Fatalf("collapsed Runtime summary should mention member states, got %q", summary)
+	}
+	divider := m.renderGroupDivider(groupRuntime, 3, true, summary)
+	for _, want := range []string{groupCaretCollapsed, groupRuntime.name, "3", "review"} {
+		if !strings.Contains(divider, want) {
+			t.Fatalf("collapsed divider missing %q in %q", want, divider)
+		}
+	}
+	expanded := m.renderGroupDivider(groupInteractiveAgents, 2, false, "")
+	if !strings.Contains(expanded, groupCaretExpanded) {
+		t.Fatalf("expanded divider should show ▾ caret, got %q", expanded)
+	}
+}
+
 func TestCockpitAttentionLineSurfacesHiddenPaneState(t *testing.T) {
 	t.Parallel()
 

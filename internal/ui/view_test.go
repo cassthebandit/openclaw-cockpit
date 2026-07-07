@@ -2,11 +2,92 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/steipete/tmuxwatch/internal/tmux"
 )
+
+func numberedLines(n int) string {
+	lines := make([]string, n)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("row-%02d", i)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func TestWindowGridFitsPinsOffsetZero(t *testing.T) {
+	t.Parallel()
+
+	m := &Model{width: 40, pageOffset: 5}
+	content := numberedLines(6)
+	out := m.windowGrid(content, 10)
+	if m.pageScrollEngaged {
+		t.Fatal("page scroll should not engage when content fits")
+	}
+	if m.pageOffset != 0 {
+		t.Fatalf("offset should pin to 0 when content fits, got %d", m.pageOffset)
+	}
+	if out != content {
+		t.Fatalf("fitting content should pass through unchanged, got %q", out)
+	}
+}
+
+func TestWindowGridEngagesOnOverflow(t *testing.T) {
+	t.Parallel()
+
+	m := &Model{width: 40}
+	out := m.windowGrid(numberedLines(30), 10)
+	if !m.pageScrollEngaged {
+		t.Fatal("page scroll should engage when the current layout overflows")
+	}
+	if got := countLines(out); got != 10 {
+		t.Fatalf("windowed height = %d, want exactly 10", got)
+	}
+	if m.pageMaxOffset != 22 { // 30 total - (10 - 2 indicator lines)
+		t.Fatalf("pageMaxOffset = %d, want 22", m.pageMaxOffset)
+	}
+	// At the top, only a bottom "more" indicator shows.
+	if !strings.Contains(out, "▼") || !strings.Contains(out, "more") {
+		t.Fatalf("expected a bottom more-indicator at the top of the wall: %q", out)
+	}
+}
+
+func TestWindowGridClampsOffsetToBottom(t *testing.T) {
+	t.Parallel()
+
+	m := &Model{width: 40, pageOffset: 999}
+	out := m.windowGrid(numberedLines(30), 10)
+	if m.pageOffset != 22 {
+		t.Fatalf("offset should clamp to max 22, got %d", m.pageOffset)
+	}
+	if !strings.Contains(out, "▲ 22 more") {
+		t.Fatalf("expected a top more-indicator at the bottom of the wall: %q", out)
+	}
+}
+
+func TestWindowGridReengagesWhenContentGrows(t *testing.T) {
+	t.Parallel()
+
+	m := &Model{width: 40}
+	// Collapsed layout fits: no scroll.
+	m.windowGrid(numberedLines(5), 10)
+	if m.pageScrollEngaged {
+		t.Fatal("small content should not engage page scroll")
+	}
+	// Expanding a group overflows the CURRENT layout: scroll engages.
+	m.windowGrid(numberedLines(40), 10)
+	if !m.pageScrollEngaged {
+		t.Fatal("grown content should engage page scroll on the current layout")
+	}
+	m.pageOffset = 20
+	// Shrinking back to a fitting layout disengages and pins the offset to 0.
+	m.windowGrid(numberedLines(4), 10)
+	if m.pageScrollEngaged || m.pageOffset != 0 {
+		t.Fatalf("shrunk content should disengage and pin offset 0, got engaged=%v offset=%d", m.pageScrollEngaged, m.pageOffset)
+	}
+}
 
 func TestClampHeight(t *testing.T) {
 	t.Parallel()

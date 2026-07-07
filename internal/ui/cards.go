@@ -25,13 +25,20 @@ func decorateControl(label string) string {
 func (m *Model) renderSessionPreviews(offset int) string {
 	sessions := m.filteredSessions()
 	m.cardLayout = m.cardLayout[:0]
+	m.groupZones = m.groupZones[:0]
+	m.cardTopLine = make(map[string]int)
+	m.cardLineHeight = make(map[string]int)
 	if len(sessions) == 0 {
 		m.cursorSession = ""
 		return ""
 	}
 
+	if m.organized && m.viewMode == viewModeOverview {
+		m.seedGroupCollapse(orderedCockpitGroups(m, sessions))
+	}
+
 	cols := max(1, m.cardCols)
-	m.ensureCursor(sessions)
+	m.ensureCursor(m.gridSessions())
 	baseStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(borderColorBase)).
@@ -44,10 +51,13 @@ func (m *Model) renderSessionPreviews(offset int) string {
 
 	rendered := make([]string, 0)
 	currentRow := make([]string, 0, cols)
+	currentRowIDs := make([]string, 0, cols)
+	lineCursor := 0
 	now := time.Now()
 	groupCounts := sessionGroupCounts(m, sessions)
 	groupHeights := m.cardBodyHeightsByGroup(sessions)
 	currentGroup := ""
+	currentGroupCollapsed := false
 	currentCols := cols
 	currentInnerWidth := m.cardInnerWidth
 	if currentInnerWidth < 1 {
@@ -66,8 +76,16 @@ func (m *Model) renderSessionPreviews(offset int) string {
 				padded = append(padded, strings.Repeat(" ", cardColumnGap))
 			}
 		}
-		rendered = append(rendered, lipgloss.JoinHorizontal(lipgloss.Left, padded...))
+		rowStr := lipgloss.JoinHorizontal(lipgloss.Left, padded...)
+		rowLines := countLines(rowStr)
+		for _, id := range currentRowIDs {
+			m.cardTopLine[id] = lineCursor
+			m.cardLineHeight[id] = rowLines
+		}
+		rendered = append(rendered, rowStr)
+		lineCursor += rowLines
 		currentRow = currentRow[:0]
+		currentRowIDs = currentRowIDs[:0]
 	}
 
 	for _, session := range sessions {
@@ -84,11 +102,22 @@ func (m *Model) renderSessionPreviews(offset int) string {
 			group := cockpitGroupFor(m, session)
 			if group.name != currentGroup {
 				flushRow()
-				currentCols, currentInnerWidth = m.cardLayoutForCount(groupCounts[group.name])
+				currentCols, currentInnerWidth = m.cardLayoutForGroup(group, groupCounts[group.name])
 				currentCellWidth = currentInnerWidth + cardPadding*2 + 2
 				innerWidth = currentInnerWidth
-				rendered = append(rendered, renderGroupDivider(m.width, group.name, groupCounts[group.name]))
+				currentGroupCollapsed = m.isGroupCollapsed(group.name)
+				summary := ""
+				if currentGroupCollapsed {
+					summary = m.groupCollapsedSummary(group, sessions)
+				}
+				divider := m.renderGroupDivider(group, groupCounts[group.name], currentGroupCollapsed, summary)
+				rendered = append(rendered, divider)
+				lineCursor += countLines(divider)
 				currentGroup = group.name
+			}
+			if currentGroupCollapsed {
+				// Collapsed group: render the divider only, skip its cards.
+				continue
 			}
 		}
 
@@ -198,6 +227,8 @@ func (m *Model) renderSessionPreviews(offset int) string {
 			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorWaiting))
 		case state == "done" || state == "pass" || state == "signal":
 			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorExitOK))
+		case state == "idle-finished":
+			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorCursor))
 		case state == "directional" || state == "null-safe":
 			borderStyle = borderStyle.BorderForeground(lipgloss.Color(headerColorCursor))
 		case pane.Dead && pane.DeadStatus != 0:
@@ -220,6 +251,7 @@ func (m *Model) renderSessionPreviews(offset int) string {
 		cardContent = zone.Mark(cardID, cardContent)
 
 		currentRow = append(currentRow, cardContent)
+		currentRowIDs = append(currentRowIDs, session.ID)
 		if len(currentRow) >= currentCols {
 			flushRow()
 		}
@@ -239,19 +271,75 @@ func (m *Model) renderSessionPreviews(offset int) string {
 }
 
 func (m *Model) cardLayoutForCount(count int) (int, int) {
+	return m.cardLayoutForCountWithPolicy(count, m.preferredCols, 20)
+}
+
+func (m *Model) cardLayoutForGroup(group cockpitGroup, count int) (int, int) {
+	preferredCols := m.preferredCols
+	minInnerWidth := 20
+
+	switch {
+	case isDenseRuntimeGroup(group):
+		preferredCols = 5
+		minInnerWidth = 30
+	case isSpaciousWorkGroup(group):
+		preferredCols = cappedPreferredColumns(m.preferredCols, 3)
+		minInnerWidth = 30
+	case group.name == groupServices.name:
+		preferredCols = cappedPreferredColumns(m.preferredCols, 3)
+	}
+
+	return m.cardLayoutForCountWithPolicy(count, preferredCols, minInnerWidth)
+}
+
+func cappedPreferredColumns(global int, cap int) int {
+	if cap < 1 {
+		return global
+	}
+	if global > 0 && global < cap {
+		return global
+	}
+	return cap
+}
+
+func isDenseRuntimeGroup(group cockpitGroup) bool {
+	switch group.name {
+	case groupRuntime.name,
+		groupExpectedControls.name,
+		groupSkeletons.name:
+		return true
+	default:
+		return false
+	}
+}
+
+func isSpaciousWorkGroup(group cockpitGroup) bool {
+	switch group.name {
+	case groupInteractiveAgents.name,
+		groupYourCall.name,
+		groupWork.name:
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *Model) cardLayoutForCountWithPolicy(count int, preferredCols int, minInnerWidth int) (int, int) {
 	const (
-		minInnerWidth   = 20
-		columnOverhead  = cardPadding*2 + 2
-		minColumnStride = minInnerWidth + columnOverhead
+		columnOverhead = cardPadding*2 + 2
 	)
+	if minInnerWidth < 1 {
+		minInnerWidth = 20
+	}
+	minColumnStride := minInnerWidth + columnOverhead
 	if count < 1 {
 		count = 1
 	}
 	cols := 1
 	if count > 1 {
 		cols = min(count, max(1, (m.width+cardColumnGap)/(minColumnStride+cardColumnGap)))
-		if m.preferredCols > 0 {
-			cols = min(cols, m.preferredCols)
+		if preferredCols > 0 {
+			cols = min(cols, preferredCols)
 		}
 	}
 	innerWidth := m.cardInnerWidth
@@ -300,7 +388,7 @@ func (m *Model) cardBodyHeightsByGroup(sessions []tmux.Session) map[string]int {
 		if count <= 0 {
 			continue
 		}
-		cols, _ := m.cardLayoutForCount(count)
+		cols, _ := m.cardLayoutForGroup(group, count)
 		rows := (count + cols - 1) / cols
 		if rows < 1 {
 			rows = 1
@@ -397,10 +485,16 @@ func (m *Model) previewAvailableHeight() int {
 
 func bodyHeightConstraintForGroup(group cockpitGroup) bodyHeightConstraint {
 	switch group.name {
-	case groupNeedsInput.name, groupFailed.name:
+	case groupInteractiveAgents.name:
+		return bodyHeightConstraint{min: 12, max: 64, weight: 8}
+	case groupYourCall.name:
 		return bodyHeightConstraint{min: 12, max: 48, weight: 7}
-	case groupRunningAgents.name, groupWork.name:
+	case groupSystemProblems.name:
+		return bodyHeightConstraint{min: 8, max: 32, weight: 5}
+	case groupWork.name:
 		return bodyHeightConstraint{min: 12, max: 64, weight: 6}
+	case groupRuntime.name:
+		return bodyHeightConstraint{min: minPreviewHeight, max: 24, weight: 3}
 	case groupDoneHeld.name:
 		return bodyHeightConstraint{min: 3, max: 7, weight: 1}
 	case groupServices.name:
@@ -423,21 +517,96 @@ func sessionGroupCounts(m *Model, sessions []tmux.Session) map[string]int {
 	return counts
 }
 
-func renderGroupDivider(width int, label string, count int) string {
+// gridSessions returns the filtered sessions that are actually laid out as cards
+// — i.e. filtered sessions minus any that live in a collapsed accordion group.
+// Card rendering and cursor navigation both use this so a collapsed group's
+// cards are neither drawn nor selectable, while its divider still shows.
+func (m *Model) gridSessions() []tmux.Session {
+	sessions := m.filteredSessions()
+	if !m.organized || m.viewMode != viewModeOverview {
+		return sessions
+	}
+	out := make([]tmux.Session, 0, len(sessions))
+	for _, session := range sessions {
+		if m.isGroupCollapsed(cockpitGroupFor(m, session).name) {
+			continue
+		}
+		out = append(out, session)
+	}
+	return out
+}
+
+// summaryStateLabel folds a raw attention state into a short label for a
+// collapsed-group summary chip.
+func summaryStateLabel(state string) string {
+	switch state {
+	case "":
+		return ""
+	case "route-fail", "safety-fail":
+		return "failed"
+	case "idle-finished":
+		return "finished"
+	default:
+		return state
+	}
+}
+
+// groupCollapsedSummary builds a compact "N failed · N done"-style summary of
+// the notable member states for a collapsed group divider.
+func (m *Model) groupCollapsedSummary(group cockpitGroup, sessions []tmux.Session) string {
+	counts := map[string]int{}
+	for _, session := range sessions {
+		if cockpitGroupFor(m, session).name != group.name {
+			continue
+		}
+		label := summaryStateLabel(sessionAttentionState(m, session))
+		if label == "" {
+			continue
+		}
+		counts[label]++
+	}
+	order := []string{"failed", "blocked", "waiting", "review", "running", "starting", "finished", "done", "pass", "held", "stale", "quiet"}
+	parts := make([]string, 0, 2)
+	for _, label := range order {
+		if n := counts[label]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n, label))
+			if len(parts) == 2 {
+				break
+			}
+		}
+	}
+	return strings.Join(parts, " · ")
+}
+
+func (m *Model) renderGroupDivider(group cockpitGroup, count int, collapsed bool, summary string) string {
+	width := m.width
 	if width < 1 {
 		width = 1
 	}
-	text := label
-	if count > 0 {
-		text = fmt.Sprintf("%s  %d", label, count)
+	caret := groupCaretExpanded
+	if collapsed {
+		caret = groupCaretCollapsed
 	}
-	return lipgloss.NewStyle().
+	text := fmt.Sprintf("%s %s", caret, group.name)
+	if count > 0 {
+		text += fmt.Sprintf("  %d", count)
+	}
+	if collapsed && summary != "" {
+		text += " · " + summary
+	}
+	bar := lipgloss.NewStyle().
 		Width(width).
 		Foreground(lipgloss.Color("250")).
 		Background(lipgloss.Color("236")).
 		Bold(true).
 		Padding(0, 1).
 		Render(text)
+	if m.zonePrefix != "" {
+		zoneID := fmt.Sprintf("%sgroup:%s", m.zonePrefix, group.name)
+		m.groupZones = append(m.groupZones, groupZone{name: group.name, zoneID: zoneID})
+		bar = zone.Mark(zoneID, bar)
+	}
+	return bar
 }
 
 // formatHeader builds the label line for a session card, colouring it based on
@@ -465,7 +634,7 @@ func formatHeader(width int, session tmux.Session, window tmux.Window, pane tmux
 	}
 	runtimeHeader := isOpenClawRuntimePane(pane)
 	if state != "" && state != "running" && state != "starting" && state != "quiet" && !(state == "done" && hasDoneTiming) && !runtimeHeader {
-		meta = append(meta, state)
+		meta = append(meta, attentionStateLabel(state))
 	}
 	titleParts := cockpitTitleParts(session, window, pane, host)
 	if badge := cockpitGroupBadge(pane.Cockpit); badge != "" {
@@ -500,6 +669,8 @@ func formatHeader(width int, session tmux.Session, window tmux.Window, pane tmux
 		style = style.Foreground(lipgloss.Color(headerColorWaiting))
 	case state == "done" || state == "pass" || state == "signal":
 		style = style.Foreground(lipgloss.Color(headerColorExitOK))
+	case state == "idle-finished":
+		style = style.Foreground(lipgloss.Color(headerColorCursor))
 	case state == "directional" || state == "null-safe":
 		style = style.Foreground(lipgloss.Color(headerColorCursor))
 	case pane.Dead && pane.DeadStatus != 0:
@@ -693,9 +864,19 @@ func cockpitSubtleLine(width int, line string) string {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Render(line)
 }
 
+// attentionStateLabel maps an internal attention state to the chip shown in the
+// card header. idle-finished carries the "finished · awaiting review" wording so
+// a reclassified TUI pane reads as done-and-awaiting-review, not still running.
+func attentionStateLabel(state string) string {
+	if state == "idle-finished" {
+		return "finished · awaiting review"
+	}
+	return state
+}
+
 func compactFinishedBody(width int, body string, state string, maxLines int) string {
 	switch state {
-	case "done", "held", "stale", "failed", "route-fail", "safety-fail", "review", "pass", "signal", "directional", "null-safe":
+	case "done", "held", "stale", "failed", "route-fail", "safety-fail", "review", "pass", "signal", "directional", "null-safe", "idle-finished":
 	default:
 		return body
 	}

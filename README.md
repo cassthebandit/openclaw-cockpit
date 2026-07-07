@@ -9,8 +9,8 @@ Product principles and scope boundaries live in [`VISION.md`](VISION.md); detail
 ## Highlights
 - **Live tmux snapshot**: Polls `list-sessions`, `list-windows`, and `list-panes`, stitches the hierarchy together, and shows the latest capture-pane output per session.
 - **Tab-aware layout**: The strip lists the grid plus every visible tmux session; click or `shift+left/right` to jump tabs, `ctrl+m` toggles full-screen, and `esc` returns to the grid.
-- **Keyboard & mouse aware**: `/` to search, arrow/PageUp/PageDown to scroll, collapse cards with `z`/`Z`, maximise via `ctrl+m` or the `[^]` control, `X` to kill a focused stale session, `ctrl+X` to clean *all* stale sessions, and mouse clicks/scrolls to focus, collapse, close cards, or switch tabs.
-- **Command palette (`ctrl+P`)**: Run actions (refresh, show hidden, clean stale) from a centered overlay.
+- **Keyboard & mouse aware**: `/` to search, arrow/PageUp/PageDown to scroll, collapse cards with `z`/`Z`, maximise via `ctrl+m` or the `[^]` control, and mouse clicks/scrolls to focus, collapse, hide cards, or switch tabs.
+- **Command palette (`ctrl+P`)**: Run view actions such as refresh and show hidden from a centered overlay. Stale cleanup entries are disabled and route operators to `session_hygiene.py` / `safe_kill.py`.
 - **Automation friendly**: `--dump` prints the current tmux topology as JSON for scripts or debugging.
 
 ## Install & Run
@@ -18,7 +18,7 @@ Product principles and scope boundaries live in [`VISION.md`](VISION.md); detail
 # Homebrew (recommended)
 brew tap steipete/tap
 brew install tmuxwatch
-tmuxwatch --version  # should print tmuxwatch 0.9.3
+tmuxwatch --version  # should print OpenClaw Cockpit 0.9.5
 
 # Updating later
 brew update
@@ -57,13 +57,13 @@ Press `q` (or double `ctrl+c`) to exit. Prefer running tmuxwatch in its own tmux
 esc                clear search, close palette, or leave detail view
 shift+left/right   switch tabs
 H                  show hidden sessions
-X                  kill the focused stale session
-ctrl+X             kill every stale session
+X                  cleanup disabled; use session_hygiene.py or safe_kill.py
+ctrl+X             cleanup disabled; use session_hygiene.py or safe_kill.py
 ctrl+P             open/close the command palette
 ctrl+m             maximise/restore the focused session
 z / Z              collapse focused session / expand all sessions
 q / ctrl+c         quit (double ctrl+c quits even if pane is alive)
-mouse              click `[^]/[v]` to maximise/restore, `[-]/[+]` to collapse/expand, `[x]` to hide; scroll to browse logs
+mouse              click `[^]/[v]` to maximise/restore, `[-]/[+]` to collapse/expand, `[x]` to hide locally; scroll to browse logs
 ```
 
 ## Architecture

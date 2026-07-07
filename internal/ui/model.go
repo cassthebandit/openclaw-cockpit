@@ -27,6 +27,8 @@ const (
 	restoreLabel         = "[v]"
 	collapseLabel        = "[-]"
 	expandLabel          = "[+]"
+	groupCaretExpanded   = "▾"
+	groupCaretCollapsed  = "▸"
 	scrollStep           = 3
 	pulseDuration        = 1500 * time.Millisecond
 	quitChordWindow      = 600 * time.Millisecond
@@ -99,6 +101,13 @@ type cardBounds struct {
 	collapseZoneID string
 }
 
+// groupZone records the clickable hit-test region for an accordion group
+// divider so a mouse click on the divider can toggle that group's collapse.
+type groupZone struct {
+	name   string
+	zoneID string
+}
+
 type commandItem struct {
 	label   string
 	enabled bool
@@ -119,10 +128,13 @@ type Model struct {
 
 	captureOffset int
 
-	previews  map[string]*sessionPreview
-	hidden    map[string]struct{}
-	stale     map[string]struct{}
-	collapsed map[string]struct{}
+	previews        map[string]*sessionPreview
+	hidden          map[string]struct{}
+	stale           map[string]struct{}
+	collapsed       map[string]struct{}
+	collapsedGroups map[string]struct{}
+	seededGroups    map[string]struct{}
+	groupZones      []groupZone
 
 	paletteOpen     bool
 	paletteIndex    int
@@ -150,6 +162,16 @@ type Model struct {
 	cardInnerWidth  int
 	cardInnerHeight int
 	previewOffset   int
+
+	// Whole-wall (page) scroll state. pageOffset is the top line of the composed
+	// grid currently shown; the rest are recomputed each render (windowGrid) and
+	// read by input handlers on the following frame.
+	pageOffset        int
+	pageScrollEngaged bool
+	pageMaxOffset     int
+	pageContentHeight int
+	cardTopLine       map[string]int
+	cardLineHeight    map[string]int
 	tabSessionIDs   []string
 	footer          *viewport.Model
 	footerHeight    int
@@ -248,6 +270,10 @@ func NewModel(client *tmux.Client, poll time.Duration, captureBudget int, debugM
 		hidden:          make(map[string]struct{}),
 		stale:           make(map[string]struct{}),
 		collapsed:       make(map[string]struct{}),
+		collapsedGroups: make(map[string]struct{}),
+		seededGroups:    make(map[string]struct{}),
+		cardTopLine:     make(map[string]int),
+		cardLineHeight:  make(map[string]int),
 		searchInput:     ti,
 		commandInput:    ci,
 		cardLayout:      make([]cardBounds, 0),

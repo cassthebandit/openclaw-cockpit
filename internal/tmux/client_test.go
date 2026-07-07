@@ -183,6 +183,26 @@ func TestSnapshotExcludesNamedSessions(t *testing.T) {
 	}
 }
 
+func TestListSessionsPreservesUnderscoreHeavyNames(t *testing.T) {
+	t.Parallel()
+
+	line := strings.Join([]string{"$179", "AI-Alerts_with_under_score", "0", "1783018270", "1783018270"}, tmuxFieldSep) + "\n"
+	c := &Client{bin: "tmux", run: func(context.Context, string, ...string) ([]byte, error) {
+		return []byte(line), nil
+	}}
+
+	sessions, err := c.listSessions(context.Background())
+	if err != nil {
+		t.Fatalf("listSessions returned error: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected one session, got %d", len(sessions))
+	}
+	if sessions[0].Name != "AI-Alerts_with_under_score" {
+		t.Fatalf("Name = %q", sessions[0].Name)
+	}
+}
+
 func TestListPanesSkipsMalformedRows(t *testing.T) {
 	t.Parallel()
 

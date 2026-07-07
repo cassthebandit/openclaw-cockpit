@@ -13,59 +13,108 @@ type cockpitGroup struct {
 }
 
 var (
-	groupNeedsInput       = cockpitGroup{name: "Needs Attention", rank: 0}
-	groupFailed           = cockpitGroup{name: "Needs Attention", rank: 0}
-	groupRunningAgents    = cockpitGroup{name: "Active Agent Runs", rank: 1}
-	groupRuntimeCurrent   = cockpitGroup{name: "Current Work", rank: 1}
-	groupNeedsDecision    = cockpitGroup{name: "Needs Decision", rank: 2}
-	groupRouteHealth      = cockpitGroup{name: "Route Health", rank: 3}
-	groupDelivery         = cockpitGroup{name: "Delivery / Handoff", rank: 4}
-	groupSourceUnknown    = cockpitGroup{name: "Source Unknown", rank: 5}
-	groupExpectedControls = cockpitGroup{name: "Expected Controls", rank: 6}
-	groupSkeletons        = cockpitGroup{name: "Skeletons", rank: 7}
-	groupWork             = cockpitGroup{name: "Active Work", rank: 8}
-	groupDoneHeld         = cockpitGroup{name: "Completed Agent Runs", rank: 9}
-	groupDashboard        = cockpitGroup{name: "Dashboards", rank: 10}
-	groupViewers          = cockpitGroup{name: "Viewers", rank: 11}
-	groupIdle             = cockpitGroup{name: "Idle / Unowned", rank: 12}
-	groupServices         = cockpitGroup{name: "Services", rank: 13}
+	// Rank 0 — live, interactive agent TUIs: managed agents in a live sub-state
+	// (starting/running/waiting/blocked/review), plus review/committee panes that
+	// older builds scattered into Dashboards. Agents are never split by sub-state.
+	groupInteractiveAgents = cockpitGroup{name: "Interactive Agents", rank: 0}
+	// Rank 1 — genuine operator decisions (runtime needs_decision + decision-gate
+	// pane states). Kept small.
+	groupYourCall = cockpitGroup{name: "Your Call", rank: 1}
+	// Rank 2 — informational terminal failures / stale; the system recovering.
+	groupSystemProblems = cockpitGroup{name: "System Problems", rank: 2}
+	// Rank 3 — consolidated runtime-snapshot cards (current_work / route_health /
+	// delivery_handoff / source_unknown).
+	groupRuntime = cockpitGroup{name: "Runtime · ACP / Route / Delivery", rank: 3}
+	// Rank 4 — completed, idle-finished, and dead/held agents; completed runtime cards.
+	groupDoneHeld = cockpitGroup{name: "Completed Agent Runs", rank: 4}
+	// Rank 5 — runtime placeholders (rare).
+	groupExpectedControls = cockpitGroup{name: "Expected Controls", rank: 5}
+	groupSkeletons        = cockpitGroup{name: "Skeletons", rank: 5}
+	// Rank 6 — non-agent fallback work.
+	groupWork = cockpitGroup{name: "Active Work", rank: 6}
+	// Rank 7+ — genuine self-monitoring UIs and shells.
+	groupDashboard = cockpitGroup{name: "Dashboards", rank: 7}
+	groupViewers   = cockpitGroup{name: "Viewers", rank: 8}
+	groupIdle      = cockpitGroup{name: "Idle / Unowned", rank: 9}
+	groupServices  = cockpitGroup{name: "Services", rank: 10}
 )
 
+// agentNameTokens identify an agent/review session by its chrome (name, window,
+// title, command) when it carries no managed cockpit metadata.
+var agentNameTokens = []string{
+	"committee", "fable", "codex", "claude", "gemini",
+	"agy", "antigravity", "opencode", "aider",
+}
+
 func cockpitGroupFor(m *Model, session tmux.Session) cockpitGroup {
+	// 1. OpenClaw runtime snapshot cards route by presentationGroup first.
 	if group, ok := openClawRuntimeGroupFor(session); ok {
 		return group
 	}
+
 	state := sessionAttentionState(m, session)
-	if stateNeedsAttention(state) {
-		return groupNeedsInput
+
+	// 2. Managed agent identity is classified BEFORE the attention override and
+	//    before dashboard/viewer/service keyword heuristics, so a live agent is
+	//    never scattered by sub-state nor stolen into Dashboards by its goal or
+	//    preview text. Managed agents split only by lifecycle. Service/runtime
+	//    kinds are not agents even when they carry an @oc_agent label.
+	if sessionHasManagedAgent(session) {
+		return agentLifecycleGroup(session, state)
 	}
 
-	text := sessionSearchText(session)
-	if containsAny(text, "tmuxwatch", "cass-agents", "dashboard", " mux ") {
-		return groupDashboard
-	}
-	if containsAny(text, "-html", "localhost", "http://", "vite", "library-matrix", "daniel-brief") {
-		return groupViewers
-	}
-	if isServiceSession(session) {
+	// 3. Non-agent sessions: genuine services, dashboards, and viewers match on
+	//    chrome text (name/window/title/command) only — never goal or preview.
+	if sessionIsService(session) {
 		return groupServices
 	}
+	chrome := sessionChromeText(session)
+	if containsAny(chrome, "tmuxwatch", "cass-agents", "dashboard", " mux ") {
+		return groupDashboard
+	}
+	if containsAny(chrome, "-html", "localhost", "http://", "vite", "library-matrix", "daniel-brief") {
+		return groupViewers
+	}
+
+	// 4. Sessions that look like agent runs by name but carry no managed metadata
+	//    (e.g. a raw committee/codex shell) still route by lifecycle.
+	if containsAny(chrome, agentNameTokens...) {
+		return agentLifecycleGroup(session, state)
+	}
+
+	// 5. Remaining non-agent work.
 	if stateIsCompletedInfo(state) || state == "held" || state == "stale" || sessionAllPanesDead(session) {
 		return groupDoneHeld
 	}
-	if stateIsActiveRun(state) && (sessionHasCockpitAgent(session) || containsAny(text, "committee", "fable", "codex", "claude", "gemini", "agy", "antigravity", "opencode", "aider")) {
-		return groupRunningAgents
-	}
-	if sessionHasCockpitAgent(session) || containsAny(text, "committee", "fable", "codex", "claude", "gemini", "agy", "antigravity", "opencode", "aider") {
-		return groupDoneHeld
-	}
-	if m != nil && m.isStale(session.ID) && isShellOnly(session) {
-		return groupIdle
+	if stateNeedsAttention(state) {
+		return groupSystemProblems
 	}
 	if isShellOnly(session) {
 		return groupIdle
 	}
 	return groupWork
+}
+
+// agentLifecycleGroup places an agent session by its lifecycle only: live agents
+// (including live waiting/blocked/review and live+held) lead in Interactive
+// Agents, terminal failures/stale drop to System Problems, and
+// completed/idle-finished/dead land in Completed.
+func agentLifecycleGroup(session tmux.Session, state string) cockpitGroup {
+	// Explicit completed/terminal states win regardless of process liveness.
+	if stateIsCompletedInfo(state) || state == "idle-finished" || state == "held" {
+		return groupDoneHeld
+	}
+	if stateIsTerminalProblem(state) {
+		return groupSystemProblems
+	}
+	// A dead agent with no completed/terminal signal is finished, not live —
+	// this keeps a dead-but-"review" pane out of the interactive band.
+	if sessionAllPanesDead(session) {
+		return groupDoneHeld
+	}
+	// Live managed agent: waiting/blocked/review (via stateIsLiveAgentState) and
+	// any unknown/quiet sub-state stay in the live band, never scattered.
+	return groupInteractiveAgents
 }
 
 func sessionAttentionState(m *Model, session tmux.Session) string {
@@ -103,6 +152,11 @@ func paneAttentionState(m *Model, session tmux.Session, pane tmux.Pane) string {
 		return "failed"
 	}
 	if pane.Dead && pane.Cockpit != nil && !pane.Cockpit.DisplayOnly() {
+		// A dead agent that was still held belongs in Completed, not System
+		// Problems: the hold means "don't reap", and it has finished.
+		if strings.TrimSpace(pane.Cockpit.HoldReason) != "" {
+			return "held"
+		}
 		state := strings.ToLower(strings.TrimSpace(pane.Cockpit.State))
 		switch state {
 		case "", "starting", "running", "waiting", "blocked", "unknown":
@@ -122,6 +176,12 @@ func paneAttentionState(m *Model, session tmux.Session, pane tmux.Pane) string {
 			}
 		}
 		state := strings.ToLower(strings.TrimSpace(pane.Cockpit.State))
+		// A live managed agent TUI that has finished its work but idles at a
+		// prompt is reclassified (read-only, presentation-only) as idle-finished
+		// so it renders under Completed instead of appearing to still run.
+		if !pane.Dead && stateIsLiveAgentState(state) && paneIdleFinished(pane) {
+			return "idle-finished"
+		}
 		switch state {
 		case "failed", "route-fail", "safety-fail", "review", "blocked", "waiting", "running", "starting", "done", "pass", "signal", "directional", "null-safe", "held", "stale":
 			return state
@@ -150,7 +210,7 @@ func attentionRank(state string) int {
 		return 1
 	case "running", "starting":
 		return 2
-	case "done", "held", "stale", "pass", "signal", "directional", "null-safe":
+	case "done", "held", "stale", "pass", "signal", "directional", "null-safe", "idle-finished":
 		return 3
 	default:
 		return 4
@@ -173,8 +233,57 @@ func sessionHasCockpitAgent(session tmux.Session) bool {
 	return false
 }
 
-func sessionDetails(session tmux.Session) string {
+// sessionHasManagedAgent reports whether a session carries a managed *agent*
+// lifecycle — unlike sessionHasCockpitAgent it excludes service/runtime kinds,
+// which can carry an @oc_agent label without being interactive agent runs. This
+// is the identity signal used for cockpit grouping so services are never pulled
+// into the Interactive Agents band.
+func sessionHasManagedAgent(session tmux.Session) bool {
+	for _, window := range session.Windows {
+		for _, pane := range window.Panes {
+			if pane.Cockpit == nil {
+				continue
+			}
+			kind := strings.ToLower(strings.TrimSpace(pane.Cockpit.Kind))
+			if kind == "service" || kind == "runtime" {
+				continue
+			}
+			agent := strings.TrimSpace(pane.Cockpit.Agent)
+			if agent != "" || kind == "agent" || kind == "batch-worker" || kind == "smoke" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// sessionIsService reports a genuine service session: matched either by chrome
+// keywords (name/window/title/command) or by an explicit service-kind pane.
+func sessionIsService(session tmux.Session) bool {
+	if isServiceSession(session) {
+		return true
+	}
+	for _, window := range session.Windows {
+		for _, pane := range window.Panes {
+			if pane.Cockpit != nil && strings.EqualFold(strings.TrimSpace(pane.Cockpit.Kind), "service") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// sessionChromeText returns the low-noise identifying text for a session: its
+// name, window names, pane titles, and running commands. It deliberately
+// EXCLUDES cockpit goal/presentation fields and pane preview text so keyword
+// matching can never steal an agent by its goal or transcript contents (the
+// v0.9.4 theft vector). This is the only text used for non-agent
+// dashboard/viewer/service and agent-by-name keyword matching.
+func sessionChromeText(session tmux.Session) string {
 	var b strings.Builder
+	b.WriteString(session.Name)
+	b.WriteByte(' ')
+	b.WriteString(session.Name)
 	for _, window := range session.Windows {
 		b.WriteByte(' ')
 		b.WriteString(window.Name)
@@ -182,54 +291,29 @@ func sessionDetails(session tmux.Session) string {
 			b.WriteByte(' ')
 			b.WriteString(pane.CurrentCmd)
 			b.WriteByte(' ')
-			b.WriteString(pane.CurrentPath)
-			b.WriteByte(' ')
 			b.WriteString(pane.Title)
-			b.WriteByte(' ')
-			b.WriteString(pane.PreviewText)
-			if pane.Cockpit != nil {
-				b.WriteByte(' ')
-				b.WriteString(pane.Cockpit.Kind)
-				b.WriteByte(' ')
-				b.WriteString(pane.Cockpit.Agent)
-				b.WriteByte(' ')
-				b.WriteString(pane.Cockpit.Project)
-				b.WriteByte(' ')
-				b.WriteString(pane.Cockpit.Goal)
-				b.WriteByte(' ')
-				b.WriteString(pane.Cockpit.State)
-				b.WriteByte(' ')
-				b.WriteString(pane.Cockpit.DisplayStatus)
-				b.WriteByte(' ')
-				b.WriteString(pane.Cockpit.DisplayGroup)
-				b.WriteByte(' ')
-				b.WriteString(pane.Cockpit.PresentationGroup)
-				b.WriteByte(' ')
-				b.WriteString(pane.Cockpit.PresentationLabel)
-				b.WriteByte(' ')
-				b.WriteString(pane.Cockpit.Reason)
-				b.WriteByte(' ')
-				b.WriteString(pane.Cockpit.NextAction)
-				b.WriteByte(' ')
-				b.WriteString(pane.Cockpit.WhyVisible)
-				b.WriteByte(' ')
-				b.WriteString(pane.Cockpit.SuggestedAction)
-				b.WriteByte(' ')
-				b.WriteString(pane.Cockpit.SourceKinds)
-				b.WriteByte(' ')
-				b.WriteString(pane.Cockpit.SourceCount)
-			}
 		}
 	}
-	return b.String()
-}
-
-func sessionSearchText(session tmux.Session) string {
-	return strings.ToLower(session.Name + " " + session.Name + " " + sessionDetails(session))
+	return strings.ToLower(b.String())
 }
 
 func isServiceSession(session tmux.Session) bool {
-	return containsAny(sessionSearchText(session), "go2rtc", "frigate", "camera", "pantry", "detector", "alerts", "notification-watcher", "smonitor")
+	return containsAny(sessionChromeText(session), "go2rtc", "frigate", "camera", "pantry", "detector", "alerts", "notification-watcher", "smonitor")
+}
+
+// sessionRuntimePresentationGroup returns the presentationGroup of a session's
+// first OpenClaw runtime pane, or "" when the session has no runtime pane. Used
+// by view filters that must still distinguish route/handoff cards after the
+// runtime display bands were consolidated into one group.
+func sessionRuntimePresentationGroup(session tmux.Session) string {
+	for _, window := range session.Windows {
+		for _, pane := range window.Panes {
+			if isOpenClawRuntimePane(pane) {
+				return strings.ToLower(strings.TrimSpace(pane.Cockpit.PresentationGroup))
+			}
+		}
+	}
+	return ""
 }
 
 func isQuietLiveServiceSession(session tmux.Session) bool {
@@ -271,17 +355,14 @@ func openClawRuntimeGroupFor(session tmux.Session) (cockpitGroup, bool) {
 			if !isOpenClawRuntimePane(pane) {
 				continue
 			}
+			// Presentation group is the authoritative routing signal. The four
+			// working bands consolidate into one Runtime section; needs_decision
+			// becomes Your Call; completed goes to Completed.
 			switch strings.ToLower(strings.TrimSpace(pane.Cockpit.PresentationGroup)) {
-			case "current_work":
-				return groupRuntimeCurrent, true
 			case "needs_decision":
-				return groupNeedsDecision, true
-			case "route_health":
-				return groupRouteHealth, true
-			case "delivery_handoff":
-				return groupDelivery, true
-			case "source_unknown":
-				return groupSourceUnknown, true
+				return groupYourCall, true
+			case "current_work", "route_health", "delivery_handoff", "source_unknown":
+				return groupRuntime, true
 			case "expected_controls":
 				return groupExpectedControls, true
 			case "skeletons":
@@ -289,28 +370,55 @@ func openClawRuntimeGroupFor(session tmux.Session) (cockpitGroup, bool) {
 			case "completed":
 				return groupDoneHeld, true
 			}
+			// Fallback: no presentationGroup mapping hit. Route the raw
+			// displayGroup; a needs_attention card goes to Your Call when it is
+			// decision-like, otherwise System Problems.
 			switch strings.ToLower(strings.TrimSpace(pane.Cockpit.DisplayGroup)) {
 			case "needs_attention":
-				return groupNeedsInput, true
+				return runtimeNeedsAttentionFallback(pane), true
 			case "active":
-				return groupRunningAgents, true
-			case "completed":
-				return groupDoneHeld, true
-			case "unknown":
+				return groupRuntime, true
+			case "completed", "unknown":
 				return groupDoneHeld, true
 			default:
 				state := strings.ToLower(strings.TrimSpace(pane.Cockpit.State))
 				if stateNeedsAttention(state) {
-					return groupNeedsInput, true
+					return runtimeNeedsAttentionFallback(pane), true
 				}
-				if stateIsActiveRun(state) {
-					return groupRunningAgents, true
+				if stateIsLiveAgentState(state) {
+					return groupRuntime, true
 				}
 				return groupDoneHeld, true
 			}
 		}
 	}
 	return cockpitGroup{}, false
+}
+
+// runtimeNeedsAttentionFallback routes a raw displayGroup=needs_attention
+// runtime card that had no presentationGroup mapping: Your Call when it looks
+// like an operator decision, otherwise System Problems.
+func runtimeNeedsAttentionFallback(pane tmux.Pane) cockpitGroup {
+	if runtimeCardIsDecisionLike(pane) {
+		return groupYourCall
+	}
+	return groupSystemProblems
+}
+
+func runtimeCardIsDecisionLike(pane tmux.Pane) bool {
+	if pane.Cockpit == nil {
+		return false
+	}
+	meta := pane.Cockpit
+	if strings.EqualFold(strings.TrimSpace(meta.Actionability), "operator_action") {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(meta.State)) {
+	case "review", "waiting", "blocked":
+		return true
+	}
+	// A card that names a next/suggested action for the operator is a decision.
+	return strings.TrimSpace(meta.NextAction) != "" || strings.TrimSpace(meta.SuggestedAction) != ""
 }
 
 func containsAny(text string, needles ...string) bool {

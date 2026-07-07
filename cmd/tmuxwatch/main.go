@@ -21,7 +21,7 @@ import (
 const productName = "OpenClaw Cockpit"
 const defaultOpenClawRuntimeLimit = 80
 
-var version = "0.9.3"
+var version = "0.9.5"
 
 // main configures the tmux client, handles flag modes, and launches Bubble Tea.
 func main() {
@@ -35,7 +35,7 @@ func main() {
 		showVer        = flag.Bool("version", false, "print version and exit")
 		dump           = flag.Bool("dump", false, "print current tmux snapshot as JSON and exit")
 		monitor        = flag.Bool("monitor-only", true, "compatibility flag; monitor-only is always enabled unless --control is set")
-		control        = flag.Bool("control", false, "enable interactive control actions such as key forwarding and session kills")
+		control        = flag.Bool("control", false, "enable interactive control actions such as key forwarding")
 		organize       = flag.Bool("organize", false, "organize overview cards into cockpit groups")
 		openclaw       = flag.Bool("openclaw-runtime", false, "include read-only OpenClaw runtime cards")
 		openclawScript = flag.String("openclaw-runtime-script", "", "path to OpenClaw runtime snapshot script")

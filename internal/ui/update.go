@@ -283,11 +283,11 @@ func (m *Model) sessionMatchesViewFilter(session tmux.Session) bool {
 	case "":
 		return true
 	case "decision":
-		return cockpitGroupFor(m, session).name == groupNeedsDecision.name
+		return cockpitGroupFor(m, session).name == groupYourCall.name
 	case "route":
-		return cockpitGroupFor(m, session).name == groupRouteHealth.name
+		return sessionRuntimePresentationGroup(session) == "route_health"
 	case "handoff":
-		return cockpitGroupFor(m, session).name == groupDelivery.name
+		return sessionRuntimePresentationGroup(session) == "delivery_handoff"
 	case "services":
 		return cockpitGroupFor(m, session).name == groupServices.name
 	default:

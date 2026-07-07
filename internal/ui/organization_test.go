@@ -20,10 +20,10 @@ func TestCockpitGroupForCurrentFleetShapes(t *testing.T) {
 		want    string
 	}{
 		{
-			name: "fable session is agent review work",
+			name: "fable session is a live interactive agent",
 			session: sessionForGroup("clean-draft-fable-extract", "claude.exe",
 				"/Users/cass/projects/clean-draft", "Implement V1 extract job artifacts"),
-			want: groupRunningAgents.name,
+			want: groupInteractiveAgents.name,
 		},
 		{
 			name: "camera service stays service",
@@ -125,8 +125,8 @@ func TestCockpitGroupUsesSessionAttentionRollup(t *testing.T) {
 	if got := sessionAttentionState(nil, session); got != "failed" {
 		t.Fatalf("sessionAttentionState() = %q, want failed", got)
 	}
-	if got := cockpitGroupFor(nil, session).name; got != groupFailed.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupFailed.name)
+	if got := cockpitGroupFor(nil, session).name; got != groupSystemProblems.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupSystemProblems.name)
 	}
 }
 
@@ -145,8 +145,8 @@ func TestCockpitGroupTreatsHoldReasonAsAnnotation(t *testing.T) {
 	if got := sessionAttentionState(nil, session); got != "running" {
 		t.Fatalf("sessionAttentionState() = %q, want running", got)
 	}
-	if got := cockpitGroupFor(nil, session).name; got != groupRunningAgents.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupRunningAgents.name)
+	if got := cockpitGroupFor(nil, session).name; got != groupInteractiveAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupInteractiveAgents.name)
 	}
 }
 
@@ -224,8 +224,8 @@ func TestCleanNullArtifactDoesNotDowngradeDeadNonzeroPane(t *testing.T) {
 	if got := sessionAttentionState(nil, session); got != "failed" {
 		t.Fatalf("sessionAttentionState() = %q, want failed", got)
 	}
-	if got := cockpitGroupFor(nil, session).name; got != groupNeedsInput.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupNeedsInput.name)
+	if got := cockpitGroupFor(nil, session).name; got != groupSystemProblems.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupSystemProblems.name)
 	}
 }
 
@@ -307,8 +307,10 @@ func TestMissingDeclaredEvidencePathNeedsReview(t *testing.T) {
 	if got := sessionAttentionState(nil, session); got != "review" {
 		t.Fatalf("sessionAttentionState() = %q, want review", got)
 	}
-	if got := cockpitGroupFor(nil, session).name; got != groupNeedsInput.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupNeedsInput.name)
+	// A live (non-dead) managed agent in a review sub-state stays in the live
+	// Interactive Agents band per the committee taxonomy (§9.2).
+	if got := cockpitGroupFor(nil, session).name; got != groupInteractiveAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupInteractiveAgents.name)
 	}
 }
 
@@ -357,8 +359,8 @@ func TestRawDeadNonzeroManagedPaneRemainsAttention(t *testing.T) {
 	if got := sessionAttentionState(nil, session); got != "failed" {
 		t.Fatalf("sessionAttentionState() = %q, want failed", got)
 	}
-	if got := cockpitGroupFor(nil, session).name; got != groupNeedsInput.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupNeedsInput.name)
+	if got := cockpitGroupFor(nil, session).name; got != groupSystemProblems.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupSystemProblems.name)
 	}
 }
 
@@ -400,8 +402,10 @@ func TestOpenClawRuntimeDisplayGroupRoutesNeedsAttentionEvenWhenStale(t *testing
 	if got := sessionAttentionState(m, session); got != "blocked" {
 		t.Fatalf("sessionAttentionState() = %q, want blocked", got)
 	}
-	if got := cockpitGroupFor(m, session).name; got != groupNeedsInput.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupNeedsInput.name)
+	// needs_attention with no presentationGroup + a decision-like (blocked)
+	// state falls back to Your Call.
+	if got := cockpitGroupFor(m, session).name; got != groupYourCall.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupYourCall.name)
 	}
 }
 
@@ -419,8 +423,8 @@ func TestOpenClawRuntimeActiveGroupUsesDisplayGroup(t *testing.T) {
 		DisplayGroup:    "active",
 	}
 
-	if got := cockpitGroupFor(nil, session).name; got != groupRunningAgents.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupRunningAgents.name)
+	if got := cockpitGroupFor(nil, session).name; got != groupRuntime.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupRuntime.name)
 	}
 }
 
@@ -432,11 +436,11 @@ func TestOpenClawRuntimePresentationGroupRoutesRuntimeCards(t *testing.T) {
 		presentationGroup string
 		want              string
 	}{
-		{name: "current work", presentationGroup: "current_work", want: groupRuntimeCurrent.name},
-		{name: "needs decision", presentationGroup: "needs_decision", want: groupNeedsDecision.name},
-		{name: "route health", presentationGroup: "route_health", want: groupRouteHealth.name},
-		{name: "delivery handoff", presentationGroup: "delivery_handoff", want: groupDelivery.name},
-		{name: "source unknown", presentationGroup: "source_unknown", want: groupSourceUnknown.name},
+		{name: "current work", presentationGroup: "current_work", want: groupRuntime.name},
+		{name: "needs decision", presentationGroup: "needs_decision", want: groupYourCall.name},
+		{name: "route health", presentationGroup: "route_health", want: groupRuntime.name},
+		{name: "delivery handoff", presentationGroup: "delivery_handoff", want: groupRuntime.name},
+		{name: "source unknown", presentationGroup: "source_unknown", want: groupRuntime.name},
 		{name: "expected controls", presentationGroup: "expected_controls", want: groupExpectedControls.name},
 		{name: "skeletons", presentationGroup: "skeletons", want: groupSkeletons.name},
 	}
@@ -518,6 +522,129 @@ func TestCardLayoutForCountReservesColumnGutters(t *testing.T) {
 	}
 }
 
+func TestRuntimeGroupLayoutCanOverrideLiveColsCap(t *testing.T) {
+	t.Parallel()
+
+	m := NewModel(nil, time.Second, 4, nil, false, true)
+	m.SetOrganized(true)
+	m.width = 363
+	m.height = 90
+	m.preferredCols = 4
+
+	globalCols, _ := m.cardLayoutForCount(10)
+	if globalCols != 4 {
+		t.Fatalf("global cols = %d, want live --cols cap of 4", globalCols)
+	}
+
+	runtimeCols, runtimeInner := m.cardLayoutForGroup(groupRuntime, 10)
+	if runtimeCols != 5 {
+		t.Fatalf("runtime cols = %d, want 5 despite live --cols cap", runtimeCols)
+	}
+	if runtimeInner < 30 {
+		t.Fatalf("runtime inner width = %d, want readable 5-across width", runtimeInner)
+	}
+
+	decisionCols, _ := m.cardLayoutForGroup(groupYourCall, 10)
+	if decisionCols != 3 {
+		t.Fatalf("Your Call cols = %d, want spacious 3-column cap", decisionCols)
+	}
+}
+
+func TestRuntimeGroupLayoutRejectsCrampedFiveAcross(t *testing.T) {
+	t.Parallel()
+
+	m := NewModel(nil, time.Second, 4, nil, false, true)
+	m.SetOrganized(true)
+	m.width = 150
+	m.height = 50
+	m.preferredCols = 4
+
+	cols, inner := m.cardLayoutForGroup(groupRuntime, 10)
+	if cols >= 5 {
+		t.Fatalf("runtime cols = %d, want fewer than 5 on mid-width terminal", cols)
+	}
+	if inner < 30 && cols > 1 {
+		t.Fatalf("inner width = %d, want readable runtime width", inner)
+	}
+}
+
+func TestRuntimeGroupHeightBudgetUsesGroupLayout(t *testing.T) {
+	t.Parallel()
+
+	m := NewModel(nil, time.Second, 4, nil, false, true)
+	m.SetOrganized(true)
+	m.width = 363
+	m.height = 90
+	m.previewOffset = 4
+	m.footerHeight = 4
+	m.preferredCols = 4
+	for i := 0; i < 10; i++ {
+		session := sessionForGroup(fmt.Sprintf("route-health-%02d", i), "openclaw-runtime", "OpenClaw Runtime", "route")
+		session.Windows[0].Panes[0].Cockpit = testRuntimeMeta("route_health")
+		m.sessions = append(m.sessions, session)
+	}
+
+	cols, _ := m.cardLayoutForGroup(groupRuntime, len(m.sessions))
+	if cols != 5 {
+		t.Fatalf("runtime render cols = %d, want 5", cols)
+	}
+	rows := (len(m.sessions) + cols - 1) / cols
+	if rows != 2 {
+		t.Fatalf("runtime rows = %d, want 2 rows for 10 cards at 5-across", rows)
+	}
+	heights := m.cardBodyHeightsByGroup(m.sessions)
+	if heights[groupRuntime.name] <= 0 {
+		t.Fatalf("missing runtime body budget: %#v", heights)
+	}
+}
+
+func TestRuntimeGroupCursorMovementStaysOnVisibleCard(t *testing.T) {
+	t.Parallel()
+
+	m := NewModel(nil, time.Second, 4, nil, false, true)
+	m.SetOrganized(true)
+	m.width = 363
+	m.height = 90
+	m.preferredCols = 4
+	m.cardCols = 4
+	for i := 0; i < 5; i++ {
+		session := sessionForGroup(fmt.Sprintf("route-health-%02d", i), "openclaw-runtime", "OpenClaw Runtime", "route")
+		session.Windows[0].Panes[0].Cockpit = testRuntimeMeta("route_health")
+		m.sessions = append(m.sessions, session)
+	}
+	for i := 0; i < 3; i++ {
+		session := sessionForGroup(fmt.Sprintf("current-work-%02d", i), "openclaw-runtime", "OpenClaw Runtime", "work")
+		session.Windows[0].Panes[0].Cockpit = testRuntimeMeta("current_work")
+		m.sessions = append(m.sessions, session)
+	}
+
+	visible := func() map[string]struct{} {
+		sessions := m.filteredSessions()
+		ids := make(map[string]struct{}, len(sessions))
+		for _, session := range sessions {
+			ids[session.ID] = struct{}{}
+		}
+		return ids
+	}
+	assertVisible := func(action string) {
+		if _, ok := visible()[m.cursorSession]; !ok {
+			t.Fatalf("cursor after %s = %q, want visible session", action, m.cursorSession)
+		}
+	}
+
+	m.cursorSession = m.filteredSessions()[0].ID
+	for i := 0; i < 12; i++ {
+		m.moveCursorRight()
+		assertVisible("right")
+		m.moveCursorDown()
+		assertVisible("down")
+		m.moveCursorLeft()
+		assertVisible("left")
+		m.moveCursorUp()
+		assertVisible("up")
+	}
+}
+
 func TestOrganizedCardBodyHeightsUseVerticalSpace(t *testing.T) {
 	t.Parallel()
 
@@ -540,12 +667,12 @@ func TestOrganizedCardBodyHeightsUseVerticalSpace(t *testing.T) {
 	m.sessions[4].Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{Kind: "agent", Agent: "claude", State: "done"}
 
 	heights := m.cardBodyHeightsByGroup(m.sessions)
-	running := heights[groupRunningAgents.name]
+	running := heights[groupInteractiveAgents.name]
 	services := heights[groupServices.name]
 	done := heights[groupDoneHeld.name]
 
 	if running <= maxOverviewBodyLines {
-		t.Fatalf("running agent height = %d, want more than old fixed cap %d", running, maxOverviewBodyLines)
+		t.Fatalf("interactive agent height = %d, want more than old fixed cap %d", running, maxOverviewBodyLines)
 	}
 	if services <= 0 || services > 8 {
 		t.Fatalf("service height = %d, want compact service budget", services)
@@ -652,8 +779,8 @@ func TestCockpitGroupRoutesWaitingBlockedAndDone(t *testing.T) {
 		state string
 		want  string
 	}{
-		{state: "waiting", want: groupNeedsInput.name},
-		{state: "blocked", want: groupNeedsInput.name},
+		{state: "waiting", want: groupInteractiveAgents.name},
+		{state: "blocked", want: groupInteractiveAgents.name},
 		{state: "done", want: groupDoneHeld.name},
 	}
 	for _, tt := range tests {
@@ -690,10 +817,118 @@ func TestRenderSessionPreviewsAddsOrganizedDividers(t *testing.T) {
 	}
 
 	got := m.renderSessionPreviews(0)
-	for _, want := range []string{groupRunningAgents.name, groupServices.name} {
+	for _, want := range []string{groupInteractiveAgents.name, groupServices.name} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("renderSessionPreviews missing divider %q in %q", want, got)
 		}
+	}
+}
+
+// agentSessionForGroup builds a managed agent session (kind=agent, via
+// agent_wall) with the given @oc_state and a neutral name/command.
+func agentSessionForGroup(name, state string) tmux.Session {
+	session := sessionForGroup(name, "claude", "/Users/cass/projects/"+name, "")
+	session.Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{
+		ContractVersion: "1",
+		ManagedBy:       "agent_wall",
+		Kind:            "agent",
+		Agent:           "codex",
+		State:           state,
+	}
+	return session
+}
+
+func TestAgentIdentityBeatsDashboardAndViewerTheft(t *testing.T) {
+	t.Parallel()
+
+	// v0.9.4 stole agents whose Cockpit.Goal or pane PreviewText merely mentioned
+	// dashboard/cass-agents/tmuxwatch/localhost/vite. Agent identity now wins.
+	thief := "build the dashboard for cass-agents / tmuxwatch on http://localhost:5173 with vite"
+
+	t.Run("goal", func(t *testing.T) {
+		t.Parallel()
+		session := agentSessionForGroup("clean-draft-extract-job", "running")
+		session.Windows[0].Panes[0].Cockpit.Goal = thief
+		if got := cockpitGroupFor(nil, session).name; got != groupInteractiveAgents.name {
+			t.Fatalf("goal theft: cockpitGroupFor() = %q, want %q", got, groupInteractiveAgents.name)
+		}
+	})
+
+	t.Run("preview", func(t *testing.T) {
+		t.Parallel()
+		session := agentSessionForGroup("clean-draft-extract-job", "waiting")
+		session.Windows[0].Panes[0].PreviewText = "opening " + thief
+		if got := cockpitGroupFor(nil, session).name; got != groupInteractiveAgents.name {
+			t.Fatalf("preview theft: cockpitGroupFor() = %q, want %q", got, groupInteractiveAgents.name)
+		}
+	})
+}
+
+func TestLiveAgentSubStatesStayInteractive(t *testing.T) {
+	t.Parallel()
+
+	for _, state := range []string{"starting", "running", "waiting", "blocked", "review"} {
+		state := state
+		t.Run(state, func(t *testing.T) {
+			t.Parallel()
+			session := agentSessionForGroup("live-agent-"+state, state)
+			if got := cockpitGroupFor(nil, session).name; got != groupInteractiveAgents.name {
+				t.Fatalf("state %q: cockpitGroupFor() = %q, want %q", state, got, groupInteractiveAgents.name)
+			}
+		})
+	}
+
+	t.Run("live-held", func(t *testing.T) {
+		t.Parallel()
+		// A hold means "don't reap", not "finished": a live held agent stays live.
+		session := agentSessionForGroup("held-live-agent", "running")
+		session.Windows[0].Panes[0].Cockpit.HoldReason = "awaiting evidence capture"
+		if got := cockpitGroupFor(nil, session).name; got != groupInteractiveAgents.name {
+			t.Fatalf("live+held: cockpitGroupFor() = %q, want %q", got, groupInteractiveAgents.name)
+		}
+	})
+}
+
+func TestTerminalAgentStatesRouteToSystemProblems(t *testing.T) {
+	t.Parallel()
+
+	for _, state := range []string{"failed", "route-fail", "safety-fail", "stale"} {
+		state := state
+		t.Run(state, func(t *testing.T) {
+			t.Parallel()
+			session := agentSessionForGroup("terminal-agent-"+state, state)
+			if got := cockpitGroupFor(nil, session).name; got != groupSystemProblems.name {
+				t.Fatalf("state %q: cockpitGroupFor() = %q, want %q", state, got, groupSystemProblems.name)
+			}
+		})
+	}
+
+	t.Run("dead-nonzero", func(t *testing.T) {
+		t.Parallel()
+		session := agentSessionForGroup("dead-fail-agent", "running")
+		session.Windows[0].Panes[0].Dead = true
+		session.Windows[0].Panes[0].DeadStatus = 1
+		if got := cockpitGroupFor(nil, session).name; got != groupSystemProblems.name {
+			t.Fatalf("dead-nonzero: cockpitGroupFor() = %q, want %q", got, groupSystemProblems.name)
+		}
+	})
+}
+
+func TestServiceWithAgentLabelStaysService(t *testing.T) {
+	t.Parallel()
+
+	// A service card can carry an @oc_agent label; it must not be pulled into
+	// Interactive Agents by the managed-agent identity check.
+	session := sessionForGroup("smonitor", "service", "/workspace/config/smonitor", "smonitor")
+	session.Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{
+		ContractVersion: "service-card.v1",
+		ManagedBy:       "manual_adopt",
+		Kind:            "service",
+		Agent:           "service",
+		State:           "running",
+	}
+	if got := cockpitGroupFor(nil, session).name; got != groupServices.name {
+		t.Fatalf("service with agent label: cockpitGroupFor() = %q, want %q", got, groupServices.name)
 	}
 }
 

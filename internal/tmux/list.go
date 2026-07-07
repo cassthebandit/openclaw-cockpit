@@ -12,7 +12,11 @@ import (
 	"time"
 )
 
-const tmuxFieldSep = "\x1f"
+// Use a printable sentinel instead of an ASCII control separator. When a Go
+// subprocess invokes tmux from inside a tmux-launched process, tmux can rewrite
+// control characters in format strings to underscores, which breaks parsing for
+// real session names like "AI-Alerts".
+const tmuxFieldSep = "::OC_FIELD::"
 
 // listSessions shells out to tmux to enumerate sessions and translate them
 // into typed Session values.

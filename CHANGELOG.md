@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-07-07
+
+### Changed
+- Reorganized the Cockpit wall around live work: a new **Interactive Agents** band leads, followed by **Your Call** (operator decisions), **System Problems** (terminal failures / stale), a consolidated **Runtime** band, and **Completed Agent Runs**. Agent identity is now classified before attention and dashboard/viewer heuristics, so a live agent is never scattered across sections or stolen into Dashboards by its goal or preview text.
+- Consolidated the runtime source-card bands (`current_work` / `route_health` / `delivery_handoff` / `source_unknown`) into one **Runtime** section; `needs_decision` cards route to **Your Call**.
+
+### Added
+- **Lifecycle truth**: finished-but-idle managed agent TUIs (Codex / Fable-Claude / Gemini / AGY) are detected read-only and shown under **Completed Agent Runs** with a "finished · awaiting review" badge instead of appearing to still run. This is presentation-only and writes no tmux metadata.
+- **Accordions**: group dividers collapse/expand with a caret, count, and summary. Interactive Agents and Your Call default expanded; System Problems expands when non-empty; other bands default collapsed.
+- **Gated whole-wall scroll**: the wall scrolls as one when the current rendered layout overflows, without fighting per-card scroll. Wheel over a scrollable card scrolls the card; wheel over a gutter/divider or an unscrollable/at-boundary card scrolls the wall.
+- `agent_wall.py release-hold`: a dedicated, non-destructive command to clear `@oc_hold_reason` and stamp completion metadata after evidence capture, with exact-target enforcement, `--dry-run` JSON, and explicit `--evidence-captured` / `--allow-hygiene-after-release` confirmation. It never kills, archives, hides, detaches, or applies session hygiene.
+
+## [0.9.4] - 2026-07-07
+
+### Changed
+- Let OpenClaw runtime source-card groups render 5 across on wide Cockpit walls while keeping active and urgent work cards spacious.
+- Clarified cleanup controls in README and CLI help: stale cleanup is routed to `session_hygiene.py` / `safe_kill.py`; `--control` restores key forwarding, not session cleanup.
+
+### Fixed
+- Reworded the local `[x]` hide toast so it no longer implies a tmux session was closed.
+
 ## [0.9.3] - 2026-06-11
 
 ### Added
