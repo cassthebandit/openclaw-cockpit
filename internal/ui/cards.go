@@ -402,16 +402,17 @@ func (m *Model) cardBodyHeightsByGroup(sessions []tmux.Session) map[string]int {
 	const frameHeight = 3
 	available := m.previewAvailableHeight()
 	fixedRows := len(groups)
-	totalBodyRows := 0
 	type section struct {
-		group cockpitGroup
-		rows  int
-		c     bodyHeightConstraint
+		group    cockpitGroup
+		rows     int
+		c        bodyHeightConstraint
+		priority int
 	}
 	sections := make([]section, 0, len(groups))
+	openRank := 0
 	for _, group := range groups {
 		count := counts[group.name]
-		if count <= 0 {
+		if count <= 0 || m.isGroupCollapsed(group.name) {
 			continue
 		}
 		cols, _ := m.cardLayoutForGroup(group, count)
@@ -421,13 +422,18 @@ func (m *Model) cardBodyHeightsByGroup(sessions []tmux.Session) map[string]int {
 		}
 		fixedRows += rows * frameHeight
 		c := bodyHeightConstraintForGroup(group)
-		sections = append(sections, section{group: group, rows: rows, c: c})
-		totalBodyRows += rows
+		sections = append(sections, section{
+			group:    group,
+			rows:     rows,
+			c:        c,
+			priority: openGroupBodyPriority(openRank, c.weight),
+		})
+		openRank++
+	}
+	if len(sections) == 0 {
+		return heights
 	}
 	bodyRows := available - fixedRows
-	if bodyRows < totalBodyRows {
-		bodyRows = max(totalBodyRows, bodyRows)
-	}
 	if bodyRows < 1 {
 		bodyRows = 1
 	}
@@ -468,7 +474,7 @@ func (m *Model) cardBodyHeightsByGroup(sessions []tmux.Session) map[string]int {
 	slack := bodyRows - used
 	for slack > 0 {
 		best := -1
-		bestWeight := -1
+		bestPriority := -1
 		for i, section := range sections {
 			height := heights[section.group.name]
 			if section.c.max > 0 && height >= section.c.max {
@@ -478,9 +484,9 @@ func (m *Model) cardBodyHeightsByGroup(sessions []tmux.Session) map[string]int {
 			if cost <= 0 || cost > slack {
 				continue
 			}
-			if section.c.weight > bestWeight {
+			if section.priority > bestPriority {
 				best = i
-				bestWeight = section.c.weight
+				bestPriority = section.priority
 			}
 		}
 		if best < 0 {
@@ -489,6 +495,16 @@ func (m *Model) cardBodyHeightsByGroup(sessions []tmux.Session) map[string]int {
 		section := sections[best]
 		heights[section.group.name]++
 		slack -= section.rows
+	}
+	if slack > 0 && len(sections) > 0 {
+		// If every soft cap is satisfied, spend remaining screen real estate on
+		// the first expanded populated accordion. This matches the operator
+		// workflow: the top open section is the work surface, not a peer panel.
+		top := sections[0]
+		for top.rows > 0 && slack >= top.rows {
+			heights[top.group.name]++
+			slack -= top.rows
+		}
 	}
 	return heights
 }
@@ -507,6 +523,22 @@ func (m *Model) previewAvailableHeight() int {
 		return 1
 	}
 	return available
+}
+
+func openGroupBodyPriority(openRank int, categoryWeight int) int {
+	if categoryWeight < 0 {
+		categoryWeight = 0
+	}
+	switch openRank {
+	case 0:
+		return 1200 + categoryWeight
+	case 1:
+		return 500 + categoryWeight
+	case 2:
+		return 300 + categoryWeight
+	default:
+		return max(100-openRank*10, 10) + categoryWeight
+	}
 }
 
 func bodyHeightConstraintForGroup(group cockpitGroup) bodyHeightConstraint {

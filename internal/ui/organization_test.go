@@ -9,7 +9,13 @@ import (
 	"time"
 
 	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
+	"github.com/cassthebandit/openclaw-cockpit/internal/zone"
 )
+
+func TestMain(m *testing.M) {
+	zone.NewGlobal()
+	os.Exit(m.Run())
+}
 
 func TestCockpitGroupForCurrentFleetShapes(t *testing.T) {
 	t.Parallel()
@@ -786,6 +792,162 @@ func TestOrganizedCardBodyHeightsUseVerticalSpace(t *testing.T) {
 	}
 }
 
+func TestOrganizedCardBodyHeightsRelaxTopOpenGroupCap(t *testing.T) {
+	t.Parallel()
+
+	m := NewModel(nil, time.Second, 4, nil, false, true)
+	m.SetOrganized(true)
+	m.width = 363
+	m.height = 89
+	m.previewOffset = 4
+	m.footerHeight = 4
+	m.preferredCols = 4
+	m.cardInnerWidth = 86
+	m.sessions = []tmux.Session{
+		sessionForGroup("workshop-fable-live", "claude", "/workspace", "Implement dynamic accordion layout"),
+	}
+	vp := viewportFor(innerDimension{width: 86, height: 6})
+	vp.SetContent("live work\nmore work\nreviewing allocator")
+	m.previews[m.sessions[0].ID] = &sessionPreview{viewport: &vp, paneID: m.sessions[0].Windows[0].Panes[0].ID}
+
+	heights := m.cardBodyHeightsByGroup(m.sessions)
+	active := heights[groupActiveAgents.name]
+	if active <= bodyHeightConstraintForGroup(groupActiveAgents).max {
+		t.Fatalf("active height = %d, want top open group to relax past soft cap", active)
+	}
+
+	view := stripANSI(m.renderSessionPreviews(m.previewOffset))
+	available := m.previewAvailableHeight()
+	if got := countLines(view); got < available-1 {
+		t.Fatalf("rendered organized view uses %d lines, want near available %d; view:\n%s", got, available, view)
+	}
+}
+
+func TestOrganizedCardBodyHeightsCollapsedTopPromotesNextOpenGroup(t *testing.T) {
+	t.Parallel()
+
+	m := NewModel(nil, time.Second, 4, nil, false, true)
+	m.SetOrganized(true)
+	m.width = 363
+	m.height = 89
+	m.previewOffset = 4
+	m.footerHeight = 4
+	m.preferredCols = 4
+	m.cardInnerWidth = 86
+	m.sessions = []tmux.Session{
+		sessionForGroup("workshop-fable-live", "claude", "/workspace", "Implement dynamic accordion layout"),
+		sessionForGroup("workshop-codex-done", "codex", "/workspace", "Finished"),
+	}
+	m.sessions[1].Windows[0].Panes[0].Dead = true
+	m.sessions[1].Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{Kind: "agent", Agent: "codex", State: "done"}
+	m.toggleGroupCollapsed(groupActiveAgents.name)
+
+	heights := m.cardBodyHeightsByGroup(m.sessions)
+	if _, ok := heights[groupActiveAgents.name]; ok {
+		t.Fatalf("collapsed active group should not receive body height: %#v", heights)
+	}
+	inactive := heights[groupInactiveAgents.name]
+	if inactive <= bodyHeightConstraintForGroup(groupInactiveAgents).max {
+		t.Fatalf("inactive height = %d, want first expanded non-empty group to relax past soft cap", inactive)
+	}
+}
+
+func TestOrganizedCardBodyHeightsKeepLowerServicesCompact(t *testing.T) {
+	t.Parallel()
+
+	m := NewModel(nil, time.Second, 4, nil, false, true)
+	m.SetOrganized(true)
+	m.width = 363
+	m.height = 89
+	m.previewOffset = 4
+	m.footerHeight = 4
+	m.preferredCols = 4
+	m.cardInnerWidth = 86
+	m.sessions = []tmux.Session{
+		sessionForGroup("workshop-fable-live", "claude", "/workspace", "Implement dynamic accordion layout"),
+		sessionForGroup("smonitor", "go2rtc", "/workspace/config/smonitor", "smonitor"),
+	}
+	m.sessions[1].Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{
+		ContractVersion: "display-only",
+		ManagedBy:       "manual_adopt",
+		Kind:            "service",
+		Agent:           "service",
+		State:           "running",
+	}
+
+	heights := m.cardBodyHeightsByGroup(m.sessions)
+	active := heights[groupActiveAgents.name]
+	services := heights[groupServices.name]
+	if active <= services {
+		t.Fatalf("active height = %d, services height = %d; want top group larger", active, services)
+	}
+	if services <= 0 || services > bodyHeightConstraintForGroup(groupServices).max {
+		t.Fatalf("services height = %d, want compact positive budget no larger than %d", services, bodyHeightConstraintForGroup(groupServices).max)
+	}
+}
+
+func TestOrganizedCardBodyHeightsLiveShapeSpendsCollapsedGroupSpace(t *testing.T) {
+	t.Parallel()
+
+	m := NewModel(nil, time.Second, 4, nil, false, true)
+	m.SetOrganized(true)
+	m.width = 363
+	m.height = 89
+	m.previewOffset = 2
+	m.footerHeight = 3
+	m.preferredCols = 4
+	m.cardInnerWidth = 86
+	m.sessions = []tmux.Session{
+		sessionForGroup("dynamic-fable-review", "claude", "/workspace", "Review layout"),
+		sessionForGroup("other-fable-review", "claude", "/workspace", "Review structure"),
+	}
+	for _, session := range m.sessions {
+		vp := viewportFor(innerDimension{width: 170, height: 20})
+		vp.SetContent(strings.Join([]string{
+			"reviewing allocator",
+			"reading tests",
+			"checking live shape",
+		}, "\n"))
+		m.previews[session.ID] = &sessionPreview{viewport: &vp, paneID: session.Windows[0].Panes[0].ID}
+	}
+	for i := 0; i < 5; i++ {
+		session := sessionForGroup(fmt.Sprintf("route-health-%02d", i), "openclaw-runtime", "/workspace", "route")
+		session.Windows[0].Panes[0].Cockpit = testRuntimeMeta("route_health")
+		vp := viewportFor(innerDimension{width: 68, height: 6})
+		vp.SetContent("route health\nsource unknown")
+		m.previews[session.ID] = &sessionPreview{viewport: &vp, paneID: session.Windows[0].Panes[0].ID}
+		m.sessions = append(m.sessions, session)
+	}
+	for i := 0; i < 3; i++ {
+		session := sessionForGroup(fmt.Sprintf("service-%02d", i), "go2rtc", "/workspace/config/smonitor", "service")
+		session.Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{
+			ContractVersion: "display-only",
+			ManagedBy:       "manual_adopt",
+			Kind:            "service",
+			Agent:           "service",
+			State:           "running",
+		}
+		m.sessions = append(m.sessions, session)
+	}
+	m.toggleGroupCollapsed(groupOperationalFailures.name)
+	m.toggleGroupCollapsed(groupServices.name)
+
+	heights := m.cardBodyHeightsByGroup(m.sessions)
+	active := heights[groupActiveAgents.name]
+	subsystem := heights[groupSubsystemFailures.name]
+	if active < bodyHeightConstraintForGroup(groupActiveAgents).max {
+		t.Fatalf("active height = %d, want live top group to receive soft-cap budget; heights=%#v", active, heights)
+	}
+	if subsystem <= 0 || subsystem > bodyHeightConstraintForGroup(groupSubsystemFailures).max {
+		t.Fatalf("sub-system height = %d, want compact positive budget; heights=%#v", subsystem, heights)
+	}
+
+	renderedRows := countLines(stripANSI(m.renderSessionPreviews(m.previewOffset)))
+	if renderedRows < m.previewAvailableHeight()-1 {
+		t.Fatalf("rendered rows = %d, want near available %d; heights=%#v", renderedRows, m.previewAvailableHeight(), heights)
+	}
+}
+
 func TestOrganizedCardBodyHeightsKeepServicesCompactWhenAttentionCrowds(t *testing.T) {
 	t.Parallel()
 
@@ -827,6 +989,225 @@ func TestOrganizedCardBodyHeightsKeepServicesCompactWhenAttentionCrowds(t *testi
 
 	if services <= 0 || services > 8 {
 		t.Fatalf("service height = %d, want compact service budget", services)
+	}
+}
+
+func TestOrganizedCardBodyHeightsShrinkSmallTerminalCleanly(t *testing.T) {
+	t.Parallel()
+
+	m := modelForAccordionSizing(100, 24)
+	m.previewOffset = 4
+	m.footerHeight = 4
+	m.sessions = []tmux.Session{
+		sessionForGroup("small-active", "claude", "/workspace", "Active work"),
+		sessionForGroup("small-inactive", "codex", "/workspace", "Finished work"),
+		sessionForGroup("small-runtime", "openclaw-runtime", "/workspace", "Runtime failure"),
+		sessionForGroup("small-service", "service", "/workspace/config/smonitor", "Service"),
+	}
+	m.sessions[1].Windows[0].Panes[0].Dead = true
+	m.sessions[1].Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{Kind: "agent", Agent: "codex", State: "done"}
+	m.sessions[2].Windows[0].Panes[0].Cockpit = testRuntimeMeta("needs_attention")
+	m.sessions[3].Windows[0].Panes[0].Cockpit = serviceMetaForTest()
+	for _, session := range m.sessions {
+		seedPreviewForSizingTest(m, session, 28, 8)
+	}
+
+	heights := m.cardBodyHeightsByGroup(m.sessions)
+	if len(heights) == 0 {
+		t.Fatal("expected populated groups to receive at least one body row")
+	}
+	for group, height := range heights {
+		if height < 1 {
+			t.Fatalf("group %q height = %d, want at least 1", group, height)
+		}
+	}
+
+	content := stripANSI(m.renderSessionPreviews(m.previewOffset))
+	for _, want := range []string{groupActiveAgents.name, groupInactiveAgents.name, groupOperationalFailures.name, groupServices.name} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("small terminal render missing divider %q in:\n%s", want, content)
+		}
+	}
+	available := m.previewAvailableHeight()
+	windowed := m.windowGrid(content, available)
+	if got := countLines(windowed); got > available {
+		t.Fatalf("windowed render lines = %d, want <= available %d; content:\n%s", got, available, content)
+	}
+	if countLines(content) > available && !m.pageScrollEngaged {
+		t.Fatalf("raw content lines = %d exceed available %d, want page scroll engaged", countLines(content), available)
+	}
+}
+
+func TestOrganizedCardBodyHeightsMultiRowAccountingStaysWithinBudget(t *testing.T) {
+	t.Parallel()
+
+	m := modelForAccordionSizing(363, 89)
+	m.sessions = []tmux.Session{
+		sessionForGroup("multi-active-1", "claude", "/workspace", "Active work"),
+		sessionForGroup("multi-active-2", "claude", "/workspace", "More active work"),
+	}
+	for _, session := range m.sessions {
+		seedPreviewForSizingTest(m, session, 86, 10)
+	}
+	for i := 0; i < 12; i++ {
+		session := sessionForGroup(fmt.Sprintf("multi-runtime-%02d", i), "openclaw-runtime", "/workspace", "Route failure")
+		session.Windows[0].Panes[0].Cockpit = testRuntimeMeta("route_health")
+		seedPreviewForSizingTest(m, session, 68, 6)
+		m.sessions = append(m.sessions, session)
+	}
+
+	heights := m.cardBodyHeightsByGroup(m.sessions)
+	counts := sessionGroupCounts(m, m.sessions)
+	groups := orderedCockpitGroups(m, m.sessions)
+	modeled := len(groups)
+	multiRowSeen := false
+	for _, group := range groups {
+		height, ok := heights[group.name]
+		if !ok || m.isGroupCollapsed(group.name) || counts[group.name] == 0 {
+			continue
+		}
+		cols, _ := m.cardLayoutForGroup(group, counts[group.name])
+		rows := (counts[group.name] + cols - 1) / cols
+		if rows >= 2 {
+			multiRowSeen = true
+		}
+		modeled += rows * (3 + height)
+	}
+	if !multiRowSeen {
+		t.Fatal("test setup did not create a multi-row group")
+	}
+	if available := m.previewAvailableHeight(); modeled > available {
+		t.Fatalf("modeled rows = %d, want <= available %d; heights=%#v", modeled, available, heights)
+	}
+}
+
+func TestOrganizedCardBodyHeightsServicesOnlyCanUseScreen(t *testing.T) {
+	t.Parallel()
+
+	m := modelForAccordionSizing(363, 89)
+	m.sessions = []tmux.Session{
+		sessionForGroup("only-service", "service", "/workspace/config/smonitor", "Service"),
+	}
+	m.sessions[0].Windows[0].Panes[0].Cockpit = serviceMetaForTest()
+	seedPreviewForSizingTest(m, m.sessions[0], 86, 10)
+
+	services := m.cardBodyHeightsByGroup(m.sessions)[groupServices.name]
+	if services <= bodyHeightConstraintForGroup(groupServices).max {
+		t.Fatalf("services height = %d, want only populated open group to relax past cap %d", services, bodyHeightConstraintForGroup(groupServices).max)
+	}
+}
+
+func TestOrganizedCardBodyHeightsAllGroupsCollapsedRenderDividersOnly(t *testing.T) {
+	t.Parallel()
+
+	m := modelForAccordionSizing(160, 40)
+	m.sessions = []tmux.Session{
+		sessionForGroup("collapsed-active", "claude", "/workspace", "Active work"),
+		sessionForGroup("collapsed-service", "service", "/workspace/config/smonitor", "Service"),
+	}
+	m.sessions[1].Windows[0].Panes[0].Cockpit = serviceMetaForTest()
+	for _, group := range orderedCockpitGroups(m, m.sessions) {
+		m.toggleGroupCollapsed(group.name)
+	}
+
+	heights := m.cardBodyHeightsByGroup(m.sessions)
+	if len(heights) != 0 {
+		t.Fatalf("all collapsed groups should receive no body heights, got %#v", heights)
+	}
+	view := stripANSI(m.renderSessionPreviews(m.previewOffset))
+	if strings.Contains(view, "collapsed-active") || strings.Contains(view, "collapsed-service") {
+		t.Fatalf("collapsed groups should render divider summaries only, got:\n%s", view)
+	}
+	for _, want := range []string{groupActiveAgents.name, groupServices.name} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("collapsed render missing divider %q in:\n%s", want, view)
+		}
+	}
+	if got, available := countLines(view), m.previewAvailableHeight(); got > available {
+		t.Fatalf("collapsed divider render lines = %d, want <= available %d", got, available)
+	}
+}
+
+func TestOrganizedCardBodyHeightsRenderWithinWindowAcrossGeometries(t *testing.T) {
+	t.Parallel()
+
+	for _, size := range []struct {
+		width  int
+		height int
+	}{
+		{width: 363, height: 89},
+		{width: 200, height: 50},
+		{width: 120, height: 30},
+		{width: 80, height: 24},
+	} {
+		size := size
+		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
+			t.Parallel()
+
+			m := modelForAccordionSizing(size.width, size.height)
+			m.sessions = []tmux.Session{
+				sessionForGroup("geometry-active", "claude", "/workspace", "Active work"),
+				sessionForGroup("geometry-inactive", "codex", "/workspace", "Finished"),
+				sessionForGroup("geometry-runtime", "openclaw-runtime", "/workspace", "Runtime failure"),
+				sessionForGroup("geometry-service", "service", "/workspace/config/smonitor", "Service"),
+			}
+			m.sessions[1].Windows[0].Panes[0].Dead = true
+			m.sessions[1].Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{Kind: "agent", Agent: "codex", State: "done"}
+			m.sessions[2].Windows[0].Panes[0].Cockpit = testRuntimeMeta("route_health")
+			m.sessions[3].Windows[0].Panes[0].Cockpit = serviceMetaForTest()
+			for _, session := range m.sessions {
+				seedPreviewForSizingTest(m, session, max(24, size.width/4), 10)
+			}
+
+			content := stripANSI(m.renderSessionPreviews(m.previewOffset))
+			available := m.previewAvailableHeight()
+			windowed := m.windowGrid(content, available)
+			if got := countLines(windowed); got > available {
+				t.Fatalf("windowed render lines = %d, want <= available %d; raw lines=%d", got, available, countLines(content))
+			}
+			if countLines(content) <= available && m.pageScrollEngaged {
+				t.Fatalf("scroll engaged despite content lines %d fitting available %d", countLines(content), available)
+			}
+		})
+	}
+}
+
+func modelForAccordionSizing(width, height int) *Model {
+	m := NewModel(nil, time.Second, 4, nil, false, true)
+	m.SetOrganized(true)
+	m.width = width
+	m.height = height
+	m.previewOffset = 4
+	m.footerHeight = 4
+	m.preferredCols = 4
+	m.cardInnerWidth = max(20, (width/4)-4)
+	return m
+}
+
+func seedPreviewForSizingTest(m *Model, session tmux.Session, width, height int) {
+	vp := viewportFor(innerDimension{width: width, height: height})
+	vp.SetContent(strings.Join([]string{
+		"line 01",
+		"line 02",
+		"line 03",
+		"line 04",
+		"line 05",
+		"line 06",
+		"line 07",
+		"line 08",
+		"line 09",
+		"line 10",
+	}, "\n"))
+	m.previews[session.ID] = &sessionPreview{viewport: &vp, paneID: session.Windows[0].Panes[0].ID}
+}
+
+func serviceMetaForTest() *tmux.CockpitMeta {
+	return &tmux.CockpitMeta{
+		ContractVersion: "display-only",
+		ManagedBy:       "manual_adopt",
+		Kind:            "service",
+		Agent:           "service",
+		State:           "running",
 	}
 }
 
