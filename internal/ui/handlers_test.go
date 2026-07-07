@@ -592,7 +592,7 @@ func TestWheelOverUnscrollableCardBubblesToWall(t *testing.T) {
 	}
 }
 
-func TestWheelOverScrollableCardScrollsCardNotWall(t *testing.T) {
+func TestWheelOverScrollableFocusedOverviewCardScrollsWall(t *testing.T) {
 	m := renderedScrollModel(t, true)
 	if len(m.cardLayout) == 0 {
 		t.Fatal("expected rendered cards")
@@ -601,14 +601,37 @@ func TestWheelOverScrollableCardScrollsCardNotWall(t *testing.T) {
 	m.focusedSession = card.sessionID
 	info := waitForZone(t, card.zoneID)
 	preview := m.previews[card.sessionID]
+	beforeWall := m.pageOffset
+	beforeCard := preview.viewport.YOffset()
+
+	m.handleMouse(tea.MouseWheelMsg{X: info.StartX, Y: info.StartY, Button: tea.MouseWheelDown})
+	if m.pageOffset <= beforeWall {
+		t.Fatalf("overview wheel over a focused scrollable card should scroll the wall, offset %d -> %d", beforeWall, m.pageOffset)
+	}
+	if got := preview.viewport.YOffset(); got != beforeCard {
+		t.Fatalf("overview card should not consume wheel, card offset %d -> %d", beforeCard, got)
+	}
+}
+
+func TestWheelOverScrollableDetailCardScrollsCardNotWall(t *testing.T) {
+	m := renderedScrollModel(t, true)
+	if len(m.cardLayout) == 0 {
+		t.Fatal("expected rendered cards")
+	}
+	card := m.cardLayout[0]
+	m.viewMode = viewModeDetail
+	m.detailSession = card.sessionID
+	m.focusedSession = card.sessionID
+	info := waitForZone(t, card.zoneID)
+	preview := m.previews[card.sessionID]
 	before := m.pageOffset
 
 	m.handleMouse(tea.MouseWheelMsg{X: info.StartX, Y: info.StartY, Button: tea.MouseWheelDown})
 	if m.pageOffset != before {
-		t.Fatalf("wheel over a scrollable card should not move the wall, offset %d -> %d", before, m.pageOffset)
+		t.Fatalf("wheel over a detail card should not move the wall, offset %d -> %d", before, m.pageOffset)
 	}
 	if preview.viewport.AtTop() {
-		t.Fatal("wheel over a scrollable card should scroll the card")
+		t.Fatal("wheel over a detail card should scroll the card")
 	}
 }
 

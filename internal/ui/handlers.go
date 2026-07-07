@@ -467,7 +467,7 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) cardOwnsWheel(sessionID string) bool {
-	return sessionID != "" && (m.focusedSession == sessionID || (m.viewMode == viewModeDetail && m.detailSession == sessionID))
+	return sessionID != "" && m.viewMode == viewModeDetail && m.detailSession == sessionID
 }
 
 // handleTabMouse reacts to mouse input overlapping the tab strip and switches
