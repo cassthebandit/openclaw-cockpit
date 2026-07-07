@@ -252,11 +252,11 @@ func (m *Model) clearCollapsed() {
 // other group defaults collapsed. Problem groups only appear when non-empty, so
 // "expanded when non-empty" falls out of a plain expanded default.
 var defaultExpandedGroups = map[string]struct{}{
-	groupActiveAgents.name:   {},
-	groupYourCall.name:       {},
-	groupFailedAgents.name:   {},
-	groupSystemProblems.name: {},
-	groupInactiveAgents.name: {},
+	groupActiveAgents.name:        {},
+	groupInactiveAgents.name:      {},
+	groupFailedAgents.name:        {},
+	groupOperationalFailures.name: {},
+	groupSubsystemFailures.name:   {},
 }
 
 // isGroupCollapsed reports whether an accordion group is collapsed.
@@ -284,7 +284,7 @@ func (m *Model) toggleGroupCollapsed(name string) {
 // seedGroupCollapse applies the default collapse state to each group exactly
 // once (tracked in seededGroups), so defaults land the first time a group
 // appears while user toggles persist across ticks. New groups appearing later
-// (e.g. a fresh System Problems) get their default when first seen.
+// get their default when first seen.
 func (m *Model) seedGroupCollapse(groups []cockpitGroup) {
 	if m.collapsedGroups == nil {
 		m.collapsedGroups = make(map[string]struct{})

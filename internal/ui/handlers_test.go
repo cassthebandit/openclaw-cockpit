@@ -415,29 +415,30 @@ func accordionModel(t *testing.T) *Model {
 
 func TestGroupDividerClickTogglesCollapse(t *testing.T) {
 	m := accordionModel(t)
+	m.toggleGroupCollapsed(groupSubsystemFailures.name)
 	view := m.renderSessionPreviews(0)
 	_ = zone.Scan(view)
 
-	if !m.isGroupCollapsed(groupRuntime.name) {
-		t.Fatal("Runtime should start collapsed by default")
+	if !m.isGroupCollapsed(groupSubsystemFailures.name) {
+		t.Fatal("Sub-System Failures should be collapsed for this click test")
 	}
 	zoneID := ""
 	for _, gz := range m.groupZones {
-		if gz.name == groupRuntime.name {
+		if gz.name == groupSubsystemFailures.name {
 			zoneID = gz.zoneID
 		}
 	}
 	if zoneID == "" {
-		t.Fatalf("no group zone recorded for %q; zones=%#v", groupRuntime.name, m.groupZones)
+		t.Fatalf("no group zone recorded for %q; zones=%#v", groupSubsystemFailures.name, m.groupZones)
 	}
 	info := waitForZone(t, zoneID)
 
 	m.handleMouse(tea.MouseClickMsg{X: info.StartX, Y: info.StartY, Button: tea.MouseLeft})
-	if m.isGroupCollapsed(groupRuntime.name) {
+	if m.isGroupCollapsed(groupSubsystemFailures.name) {
 		t.Fatal("divider click should expand a collapsed group")
 	}
 	m.handleMouse(tea.MouseClickMsg{X: info.StartX, Y: info.StartY, Button: tea.MouseLeft})
-	if !m.isGroupCollapsed(groupRuntime.name) {
+	if !m.isGroupCollapsed(groupSubsystemFailures.name) {
 		t.Fatal("second divider click should collapse the group again")
 	}
 }

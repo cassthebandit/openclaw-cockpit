@@ -285,7 +285,7 @@ func (m *Model) sessionMatchesViewFilter(session tmux.Session) bool {
 	case "":
 		return true
 	case "decision":
-		return cockpitGroupFor(m, session).name == groupYourCall.name || sessionAttentionState(m, session) == "awaiting-operator"
+		return cockpitGroupFor(m, session).name == groupOperationalFailures.name || sessionAttentionState(m, session) == "awaiting-operator"
 	case "route":
 		return sessionRuntimePresentationGroup(session) == "route_health"
 	case "handoff":

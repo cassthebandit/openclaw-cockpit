@@ -17,30 +17,23 @@ var (
 	// (starting/running/waiting/blocked/review), plus prompt/approval screens
 	// that can continue when answered.
 	groupActiveAgents = cockpitGroup{name: "Active Agents", rank: 0}
-	// Rank 1 — genuine operator decisions (runtime needs_decision + decision-gate
-	// runtime cards). Agent prompts stay in Active Agents.
-	groupYourCall = cockpitGroup{name: "Your Call", rank: 1}
+	// Rank 1 — alive or held agent panes that are no longer doing work.
+	groupInactiveAgents = cockpitGroup{name: "Inactive Agents", rank: 1}
 	// Rank 2 — failed/problem agent panes.
 	groupFailedAgents = cockpitGroup{name: "Failed Agents", rank: 2}
-	// Rank 3 — informational runtime/system failures; the system recovering.
-	groupSystemProblems = cockpitGroup{name: "System Problems", rank: 3}
-	// Rank 4 — consolidated runtime-snapshot cards (current_work / route_health /
-	// delivery_handoff / source_unknown).
-	groupRuntime = cockpitGroup{name: "Runtime · ACP / Route / Delivery", rank: 4}
-	// Rank 5 — alive or held agent panes that are no longer doing work.
-	groupInactiveAgents = cockpitGroup{name: "Inactive Agents", rank: 5}
+	// Rank 3 — workflow/runtime failures that need operator judgment.
+	groupOperationalFailures = cockpitGroup{name: "Operational Failures", rank: 3}
+	// Rank 4 — platform, route, skeleton, or source-health failures.
+	groupSubsystemFailures = cockpitGroup{name: "Sub-System Failures", rank: 4}
+	// Rank 5 — healthy long-running watchers/bridges/monitors.
+	groupServices = cockpitGroup{name: "Services", rank: 5}
 	// Rank 6 — completed runtime cards and non-agent held/done panes.
 	groupDoneHeld = cockpitGroup{name: "Completed Agent Runs", rank: 6}
-	// Rank 7 — runtime placeholders (rare).
-	groupExpectedControls = cockpitGroup{name: "Expected Controls", rank: 7}
-	groupSkeletons        = cockpitGroup{name: "Skeletons", rank: 7}
-	// Rank 8 — non-agent fallback work.
-	groupWork = cockpitGroup{name: "Active Work", rank: 8}
-	// Rank 9+ — genuine self-monitoring UIs and shells.
-	groupDashboard = cockpitGroup{name: "Dashboards", rank: 9}
-	groupViewers   = cockpitGroup{name: "Viewers", rank: 10}
-	groupIdle      = cockpitGroup{name: "Idle / Unowned", rank: 11}
-	groupServices  = cockpitGroup{name: "Services", rank: 12}
+	// Rank 7+ — non-agent fallback work, self-monitoring UIs, viewers, and shells.
+	groupWork      = cockpitGroup{name: "Active Work", rank: 7}
+	groupDashboard = cockpitGroup{name: "Dashboards", rank: 8}
+	groupViewers   = cockpitGroup{name: "Viewers", rank: 9}
+	groupIdle      = cockpitGroup{name: "Idle / Unowned", rank: 10}
 )
 
 // agentNameTokens identify an agent/review session by its chrome (name, window,
@@ -91,7 +84,7 @@ func cockpitGroupFor(m *Model, session tmux.Session) cockpitGroup {
 		return groupDoneHeld
 	}
 	if stateNeedsAttention(state) {
-		return groupSystemProblems
+		return groupSubsystemFailures
 	}
 	if isShellOnly(session) {
 		return groupIdle
@@ -385,29 +378,25 @@ func openClawRuntimeGroupFor(session tmux.Session) (cockpitGroup, bool) {
 			if !isOpenClawRuntimePane(pane) {
 				continue
 			}
-			// Presentation group is the authoritative routing signal. The four
-			// working bands consolidate into one Runtime section; needs_decision
-			// becomes Your Call; completed goes to Completed.
+			// Presentation group is the authoritative routing signal. Runtime
+			// work-item failures go to Operational Failures; route/source/platform
+			// health failures go to Sub-System Failures.
 			switch strings.ToLower(strings.TrimSpace(pane.Cockpit.PresentationGroup)) {
-			case "needs_decision":
-				return groupYourCall, true
-			case "current_work", "route_health", "delivery_handoff", "source_unknown":
-				return groupRuntime, true
-			case "expected_controls":
-				return groupExpectedControls, true
-			case "skeletons":
-				return groupSkeletons, true
+			case "needs_decision", "current_work", "delivery_handoff":
+				return groupOperationalFailures, true
+			case "route_health", "source_unknown", "expected_controls", "skeletons":
+				return groupSubsystemFailures, true
 			case "completed":
 				return groupDoneHeld, true
 			}
 			// Fallback: no presentationGroup mapping hit. Route the raw
-			// displayGroup; a needs_attention card goes to Your Call when it is
-			// decision-like, otherwise System Problems.
+			// displayGroup; a needs_attention card becomes operational when it is
+			// decision-like, otherwise sub-system.
 			switch strings.ToLower(strings.TrimSpace(pane.Cockpit.DisplayGroup)) {
 			case "needs_attention":
 				return runtimeNeedsAttentionFallback(pane), true
 			case "active":
-				return groupRuntime, true
+				return groupOperationalFailures, true
 			case "completed", "unknown":
 				return groupDoneHeld, true
 			default:
@@ -416,7 +405,7 @@ func openClawRuntimeGroupFor(session tmux.Session) (cockpitGroup, bool) {
 					return runtimeNeedsAttentionFallback(pane), true
 				}
 				if stateIsLiveAgentState(state) {
-					return groupRuntime, true
+					return groupOperationalFailures, true
 				}
 				return groupDoneHeld, true
 			}
@@ -425,14 +414,14 @@ func openClawRuntimeGroupFor(session tmux.Session) (cockpitGroup, bool) {
 	return cockpitGroup{}, false
 }
 
-// runtimeNeedsAttentionFallback routes a raw displayGroup=needs_attention
-// runtime card that had no presentationGroup mapping: Your Call when it looks
-// like an operator decision, otherwise System Problems.
+// runtimeNeedsAttentionFallback routes a raw displayGroup=needs_attention card
+// that had no presentationGroup mapping: operator decisions to Operational
+// Failures, platform-ish failures to Sub-System Failures.
 func runtimeNeedsAttentionFallback(pane tmux.Pane) cockpitGroup {
 	if runtimeCardIsDecisionLike(pane) {
-		return groupYourCall
+		return groupOperationalFailures
 	}
-	return groupSystemProblems
+	return groupSubsystemFailures
 }
 
 func runtimeCardIsDecisionLike(pane tmux.Pane) bool {

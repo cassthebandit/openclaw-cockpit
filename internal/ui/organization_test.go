@@ -88,10 +88,10 @@ func TestSortSessionsForCockpit(t *testing.T) {
 	}
 	want := []string{
 		"committee-specb-codex",
+		"camera-rtsp",
 		"cass-agents",
 		"clean-draft-daniel-brief-html",
 		"scratch",
-		"camera-rtsp",
 	}
 	for i := range want {
 		if got[i] != want[i] {
@@ -511,9 +511,9 @@ func TestOpenClawRuntimeDisplayGroupRoutesNeedsAttentionEvenWhenStale(t *testing
 		t.Fatalf("sessionAttentionState() = %q, want blocked", got)
 	}
 	// needs_attention with no presentationGroup + a decision-like (blocked)
-	// state falls back to Your Call.
-	if got := cockpitGroupFor(m, session).name; got != groupYourCall.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupYourCall.name)
+	// state falls back to Operational Failures.
+	if got := cockpitGroupFor(m, session).name; got != groupOperationalFailures.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupOperationalFailures.name)
 	}
 }
 
@@ -531,8 +531,8 @@ func TestOpenClawRuntimeActiveGroupUsesDisplayGroup(t *testing.T) {
 		DisplayGroup:    "active",
 	}
 
-	if got := cockpitGroupFor(nil, session).name; got != groupRuntime.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupRuntime.name)
+	if got := cockpitGroupFor(nil, session).name; got != groupOperationalFailures.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupOperationalFailures.name)
 	}
 }
 
@@ -544,13 +544,13 @@ func TestOpenClawRuntimePresentationGroupRoutesRuntimeCards(t *testing.T) {
 		presentationGroup string
 		want              string
 	}{
-		{name: "current work", presentationGroup: "current_work", want: groupRuntime.name},
-		{name: "needs decision", presentationGroup: "needs_decision", want: groupYourCall.name},
-		{name: "route health", presentationGroup: "route_health", want: groupRuntime.name},
-		{name: "delivery handoff", presentationGroup: "delivery_handoff", want: groupRuntime.name},
-		{name: "source unknown", presentationGroup: "source_unknown", want: groupRuntime.name},
-		{name: "expected controls", presentationGroup: "expected_controls", want: groupExpectedControls.name},
-		{name: "skeletons", presentationGroup: "skeletons", want: groupSkeletons.name},
+		{name: "current work", presentationGroup: "current_work", want: groupOperationalFailures.name},
+		{name: "needs decision", presentationGroup: "needs_decision", want: groupOperationalFailures.name},
+		{name: "route health", presentationGroup: "route_health", want: groupSubsystemFailures.name},
+		{name: "delivery handoff", presentationGroup: "delivery_handoff", want: groupOperationalFailures.name},
+		{name: "source unknown", presentationGroup: "source_unknown", want: groupSubsystemFailures.name},
+		{name: "expected controls", presentationGroup: "expected_controls", want: groupSubsystemFailures.name},
+		{name: "skeletons", presentationGroup: "skeletons", want: groupSubsystemFailures.name},
 	}
 
 	for _, tt := range tests {
@@ -644,7 +644,7 @@ func TestRuntimeGroupLayoutCanOverrideLiveColsCap(t *testing.T) {
 		t.Fatalf("global cols = %d, want live --cols cap of 4", globalCols)
 	}
 
-	runtimeCols, runtimeInner := m.cardLayoutForGroup(groupRuntime, 10)
+	runtimeCols, runtimeInner := m.cardLayoutForGroup(groupOperationalFailures, 10)
 	if runtimeCols != 5 {
 		t.Fatalf("runtime cols = %d, want 5 despite live --cols cap", runtimeCols)
 	}
@@ -652,10 +652,6 @@ func TestRuntimeGroupLayoutCanOverrideLiveColsCap(t *testing.T) {
 		t.Fatalf("runtime inner width = %d, want readable 5-across width", runtimeInner)
 	}
 
-	decisionCols, _ := m.cardLayoutForGroup(groupYourCall, 10)
-	if decisionCols != 3 {
-		t.Fatalf("Your Call cols = %d, want spacious 3-column cap", decisionCols)
-	}
 }
 
 func TestRuntimeGroupLayoutRejectsCrampedFiveAcross(t *testing.T) {
@@ -667,7 +663,7 @@ func TestRuntimeGroupLayoutRejectsCrampedFiveAcross(t *testing.T) {
 	m.height = 50
 	m.preferredCols = 4
 
-	cols, inner := m.cardLayoutForGroup(groupRuntime, 10)
+	cols, inner := m.cardLayoutForGroup(groupOperationalFailures, 10)
 	if cols >= 5 {
 		t.Fatalf("runtime cols = %d, want fewer than 5 on mid-width terminal", cols)
 	}
@@ -692,7 +688,7 @@ func TestRuntimeGroupHeightBudgetUsesGroupLayout(t *testing.T) {
 		m.sessions = append(m.sessions, session)
 	}
 
-	cols, _ := m.cardLayoutForGroup(groupRuntime, len(m.sessions))
+	cols, _ := m.cardLayoutForGroup(groupSubsystemFailures, len(m.sessions))
 	if cols != 5 {
 		t.Fatalf("runtime render cols = %d, want 5", cols)
 	}
@@ -701,7 +697,7 @@ func TestRuntimeGroupHeightBudgetUsesGroupLayout(t *testing.T) {
 		t.Fatalf("runtime rows = %d, want 2 rows for 10 cards at 5-across", rows)
 	}
 	heights := m.cardBodyHeightsByGroup(m.sessions)
-	if heights[groupRuntime.name] <= 0 {
+	if heights[groupSubsystemFailures.name] <= 0 {
 		t.Fatalf("missing runtime body budget: %#v", heights)
 	}
 }

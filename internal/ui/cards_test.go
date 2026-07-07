@@ -434,6 +434,7 @@ func TestCockpitCleanupLineBoundsEvidencePath(t *testing.T) {
 
 func TestCollapsedGroupRendersDividerOnly(t *testing.T) {
 	m := accordionModel(t)
+	m.toggleGroupCollapsed(groupSubsystemFailures.name)
 
 	view := m.renderSessionPreviews(0)
 
@@ -441,9 +442,9 @@ func TestCollapsedGroupRendersDividerOnly(t *testing.T) {
 	if !strings.Contains(view, groupCaretExpanded+" "+groupActiveAgents.name) {
 		t.Fatalf("expected expanded Active Agents divider in view:\n%s", view)
 	}
-	// Runtime is collapsed: caret ▸ + name + count + summary; no cards.
-	if !strings.Contains(view, groupCaretCollapsed+" "+groupRuntime.name) {
-		t.Fatalf("expected collapsed Runtime divider (caret ▸) in view:\n%s", view)
+	// Sub-System Failures is collapsed: caret ▸ + name + count + summary; no cards.
+	if !strings.Contains(view, groupCaretCollapsed+" "+groupSubsystemFailures.name) {
+		t.Fatalf("expected collapsed Sub-System Failures divider (caret ▸) in view:\n%s", view)
 	}
 
 	foundAgentCard, foundRuntimeCard := false, false
@@ -466,12 +467,12 @@ func TestCollapsedGroupRendersDividerOnly(t *testing.T) {
 func TestGroupDividerShowsCaretCountSummary(t *testing.T) {
 	m := accordionModel(t)
 	// route_health runtime cards resolve to a "review" attention state.
-	summary := m.groupCollapsedSummary(groupRuntime, m.filteredSessions())
+	summary := m.groupCollapsedSummary(groupSubsystemFailures, m.filteredSessions())
 	if !strings.Contains(summary, "review") {
-		t.Fatalf("collapsed Runtime summary should mention member states, got %q", summary)
+		t.Fatalf("collapsed Sub-System summary should mention member states, got %q", summary)
 	}
-	divider := m.renderGroupDivider(groupRuntime, 3, true, summary)
-	for _, want := range []string{groupCaretCollapsed, groupRuntime.name, "3", "review"} {
+	divider := m.renderGroupDivider(groupSubsystemFailures, 3, true, summary)
+	for _, want := range []string{groupCaretCollapsed, groupSubsystemFailures.name, "3", "review"} {
 		if !strings.Contains(divider, want) {
 			t.Fatalf("collapsed divider missing %q in %q", want, divider)
 		}

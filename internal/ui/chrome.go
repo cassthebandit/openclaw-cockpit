@@ -146,7 +146,7 @@ func (m *Model) titleSummary() string {
 	if n := runtimeCounts["source_unknown"]; n > 0 {
 		parts = append(parts, fmt.Sprintf("unknown %d", n))
 	}
-	if n := groupCounts[groupFailedAgents.name] + groupCounts[groupSystemProblems.name]; n > 0 {
+	if n := groupCounts[groupFailedAgents.name] + groupCounts[groupOperationalFailures.name] + groupCounts[groupSubsystemFailures.name]; n > 0 {
 		parts = append(parts, fmt.Sprintf("problems %d", n))
 	}
 	if services > 0 {

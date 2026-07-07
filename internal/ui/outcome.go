@@ -268,7 +268,7 @@ func stateNeedsAttention(state string) bool {
 // stateIsLiveAgentState reports the sub-states that keep a managed agent in the
 // Active Agents band. It is deliberately broader than stateIsActiveRun so
 // waiting/blocked/review agents are not inherited from stateNeedsAttention and
-// pushed into System Problems.
+// pushed into Sub-System Failures.
 func stateIsLiveAgentState(state string) bool {
 	switch state {
 	case "starting", "running", "waiting", "blocked", "review", "live-working":

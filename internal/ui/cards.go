@@ -306,9 +306,8 @@ func cappedPreferredColumns(global int, cap int) int {
 
 func isDenseRuntimeGroup(group cockpitGroup) bool {
 	switch group.name {
-	case groupRuntime.name,
-		groupExpectedControls.name,
-		groupSkeletons.name:
+	case groupOperationalFailures.name,
+		groupSubsystemFailures.name:
 		return true
 	default:
 		return false
@@ -320,7 +319,6 @@ func isSpaciousWorkGroup(group cockpitGroup) bool {
 	case groupActiveAgents.name,
 		groupInactiveAgents.name,
 		groupFailedAgents.name,
-		groupYourCall.name,
 		groupWork.name:
 		return true
 	default:
@@ -495,14 +493,12 @@ func bodyHeightConstraintForGroup(group cockpitGroup) bodyHeightConstraint {
 		return bodyHeightConstraint{min: 8, max: 32, weight: 5}
 	case groupFailedAgents.name:
 		return bodyHeightConstraint{min: 8, max: 32, weight: 6}
-	case groupYourCall.name:
-		return bodyHeightConstraint{min: 12, max: 48, weight: 7}
-	case groupSystemProblems.name:
-		return bodyHeightConstraint{min: 8, max: 32, weight: 5}
+	case groupOperationalFailures.name:
+		return bodyHeightConstraint{min: minPreviewHeight, max: 24, weight: 4}
+	case groupSubsystemFailures.name:
+		return bodyHeightConstraint{min: minPreviewHeight, max: 24, weight: 3}
 	case groupWork.name:
 		return bodyHeightConstraint{min: 12, max: 64, weight: 6}
-	case groupRuntime.name:
-		return bodyHeightConstraint{min: minPreviewHeight, max: 24, weight: 3}
 	case groupDoneHeld.name:
 		return bodyHeightConstraint{min: 3, max: 7, weight: 1}
 	case groupServices.name:
