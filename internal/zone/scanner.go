@@ -8,8 +8,6 @@ import (
 
 const eof = 1
 
-type stateFn func(*scanner) stateFn
-
 type scanner struct {
 	manager   *Manager
 	enabled   bool
@@ -17,14 +15,10 @@ type scanner struct {
 
 	input string
 	pos   int
-	start int
-	width int
 
-	newlines    int
-	lastNewline int
-
-	tracked map[string]*ZoneInfo
-	found   map[string]*ZoneInfo
+	newlines int
+	tracked  map[string]*ZoneInfo
+	found    map[string]*ZoneInfo
 }
 
 func newScanner(m *Manager, input string, iteration int) *scanner {
@@ -39,98 +33,72 @@ func newScanner(m *Manager, input string, iteration int) *scanner {
 }
 
 func (s *scanner) run() {
-	for state := scanMain; state != nil; {
-		state = state(s)
-	}
-}
+	var out []byte
+	out = make([]byte, 0, len(s.input))
+	lineStart := 0
 
-func (s *scanner) emit() {
-	if !s.enabled {
-		s.input = s.input[:s.start] + s.input[s.pos:]
-		s.pos = s.start
-		return
-	}
+	for s.pos < len(s.input) {
+		if rid, end, ok := zoneMarkerAt(s.input, s.pos); ok {
+			s.trackMarker(rid, ansi.PrintableRuneWidth(string(out[lineStart:])))
+			s.pos = end
+			continue
+		}
 
-	rid := s.input[s.start:s.pos]
-	if item, ok := s.tracked[rid]; ok {
-		item.EndX = ansi.PrintableRuneWidth(s.input[s.lastNewline:s.start]) - 1
-		item.EndY = s.newlines
-		s.found[rid] = item
-		delete(s.tracked, rid)
-	} else {
-		s.tracked[rid] = &ZoneInfo{
-			Id:        s.manager.getReverse(rid),
-			iteration: s.iteration,
-			StartX:    ansi.PrintableRuneWidth(s.input[s.lastNewline:s.start]),
-			StartY:    s.newlines,
+		r, width := utf8.DecodeRuneInString(s.input[s.pos:])
+		if r == utf8.RuneError && width == 0 {
+			break
+		}
+		out = append(out, s.input[s.pos:s.pos+width]...)
+		s.pos += width
+		if r == '\n' {
+			s.newlines++
+			lineStart = len(out)
 		}
 	}
 
-	s.input = s.input[:s.start] + s.input[s.pos:]
-	s.pos = s.start
+	s.input = string(out)
 }
 
-func (s *scanner) next() rune {
-	if s.pos >= len(s.input) {
-		s.width = 0
-		return eof
+func (s *scanner) trackMarker(rid string, x int) {
+	if !s.enabled {
+		return
 	}
 
-	r, width := utf8.DecodeRuneInString(s.input[s.pos:])
-	s.width = width
-	s.pos += width
-	return r
-}
+	if item, ok := s.tracked[rid]; ok {
+		item.EndX = x - 1
+		item.EndY = s.newlines
+		s.found[rid] = item
+		delete(s.tracked, rid)
+		return
+	}
 
-func (s *scanner) backup() {
-	s.pos -= s.width
-}
-
-func (s *scanner) peek() rune {
-	r := s.next()
-	s.backup()
-	return r
-}
-
-func scanMain(s *scanner) stateFn {
-	switch r := s.next(); r {
-	case eof:
-		return nil
-	case '\n':
-		s.newlines++
-		s.lastNewline = s.pos
-		return scanMain
-	case identStart:
-		s.start = s.pos - 1
-		return scanID
-	default:
-		return scanMain
+	s.tracked[rid] = &ZoneInfo{
+		Id:        s.manager.getReverse(rid),
+		iteration: s.iteration,
+		StartX:    x,
+		StartY:    s.newlines,
 	}
 }
 
-func scanID(s *scanner) stateFn {
-	if s.peek() != identBracket {
-		return scanMain
-	}
-	s.next()
-
-	if !isNumber(s.peek()) {
-		return scanMain
+func zoneMarkerAt(input string, pos int) (string, int, bool) {
+	if pos+4 > len(input) || input[pos] != identStart || input[pos+1] != identBracket {
+		return "", pos, false
 	}
 
-	for isNumber(s.peek()) {
-		s.next()
+	end := pos + 2
+	if end >= len(input) || !isNumberByte(input[end]) {
+		return "", pos, false
 	}
-
-	if s.peek() != identEnd {
-		return scanMain
+	for end < len(input) && isNumberByte(input[end]) {
+		end++
 	}
-	s.next()
-
-	s.emit()
-	return scanMain
+	if end >= len(input) || input[end] != identEnd {
+		return "", pos, false
+	}
+	end++
+	return input[pos:end], end, true
 }
 
-func isNumber(r rune) bool {
-	return r >= '0' && r <= '9'
+func isNumberByte(b byte) bool {
+	return b >= '0' && b <= '9'
 }

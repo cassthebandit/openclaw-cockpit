@@ -16,7 +16,7 @@ func benchFrame(m *Manager, cards, cardLines, cardWidth int) string {
 			m.Mark(fmt.Sprintf("collapse:%d", c), "[-]") + " " +
 			m.Mark(fmt.Sprintf("close:%d", c), "[x]")
 		var card strings.Builder
-		fmt.Fprintf(&card, "\x1b[38;5;250msession-%02d · running\x1b[0m %s\n", c, controls)
+		fmt.Fprintf(&card, "\x1b[38;5;250msession-%02d running\x1b[0m %s\n", c, controls)
 		for l := 0; l < cardLines; l++ {
 			fmt.Fprintf(&card, "\x1b[38;5;246m%s\x1b[0m\n",
 				strings.Repeat("x", cardWidth))
