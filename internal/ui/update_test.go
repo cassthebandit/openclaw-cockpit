@@ -90,6 +90,11 @@ func TestEnsurePreviewsCapturesDetailSessions(t *testing.T) {
 func TestEnsurePreviewsUsesSyntheticPreviewText(t *testing.T) {
 	t.Parallel()
 
+	lines := make([]string, 16)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("runtime line %02d", i)
+	}
+	content := strings.Join(lines, "\n")
 	m := &Model{
 		previews:  make(map[string]*sessionPreview),
 		hidden:    make(map[string]struct{}),
@@ -106,7 +111,7 @@ func TestEnsurePreviewsUsesSyntheticPreviewText(t *testing.T) {
 				ID:           "%synthetic",
 				Active:       true,
 				LastActivity: time.Now(),
-				PreviewText:  "runtime card\nblocked",
+				PreviewText:  content,
 			}},
 		}},
 	}}
@@ -118,8 +123,11 @@ func TestEnsurePreviewsUsesSyntheticPreviewText(t *testing.T) {
 	if preview == nil {
 		t.Fatalf("expected preview to be created")
 	}
-	if got := preview.lastContent; got != "runtime card\nblocked" {
+	if got := preview.lastContent; got != content {
 		t.Fatalf("lastContent = %q", got)
+	}
+	if !preview.viewport.AtBottom() {
+		t.Fatalf("synthetic preview text should anchor to bottom on initial load")
 	}
 }
 

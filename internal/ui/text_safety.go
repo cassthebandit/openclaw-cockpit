@@ -60,6 +60,14 @@ func isEmojiRune(r rune) bool {
 }
 
 func stripANSIBackgrounds(value string) string {
+	return normalizeANSIForCard(value, false)
+}
+
+func normalizeAgentCLIANSI(value string) string {
+	return normalizeANSIForCard(value, true)
+}
+
+func normalizeANSIForCard(value string, readableDarkForeground bool) string {
 	if value == "" {
 		return ""
 	}
@@ -80,7 +88,7 @@ func stripANSIBackgrounds(value string) string {
 				break
 			}
 			if value[end] == 'm' {
-				if sgr := stripSGRBackgroundParams(value[i+2 : end]); sgr != "" {
+				if sgr := normalizeSGRCardParams(value[i+2:end], readableDarkForeground); sgr != "" {
 					b.WriteString("\x1b[")
 					b.WriteString(sgr)
 					b.WriteByte('m')
@@ -107,7 +115,14 @@ func stripANSIBackgrounds(value string) string {
 }
 
 func stripSGRBackgroundParams(params string) string {
+	return normalizeSGRCardParams(params, false)
+}
+
+func normalizeSGRCardParams(params string, readableDarkForeground bool) string {
 	if params == "" {
+		if readableDarkForeground {
+			return "0;38;5;246"
+		}
 		return "0"
 	}
 	parts := strings.Split(params, ";")
@@ -123,6 +138,12 @@ func stripSGRBackgroundParams(params string) string {
 			continue
 		}
 		switch {
+		case readableDarkForeground && n == 0:
+			kept = append(kept, "0", "38", "5", "246")
+		case readableDarkForeground && n == 39:
+			kept = append(kept, "38", "5", "246")
+		case readableDarkForeground && isDarkBasicForeground(n):
+			kept = append(kept, "38", "5", "246")
 		case n == 49 || (n >= 40 && n <= 47) || (n >= 100 && n <= 107):
 			continue
 		case n == 48:
@@ -136,6 +157,26 @@ func stripSGRBackgroundParams(params string) string {
 				}
 			}
 			continue
+		case n == 38:
+			if readableDarkForeground && i+2 < len(parts) && parts[i+1] == "5" {
+				color, ok := parseDecimalParam(parts[i+2])
+				if ok && isDarkExtendedForeground(color) {
+					kept = append(kept, "38", "5", "246")
+					i += 2
+					continue
+				}
+			}
+			if readableDarkForeground && i+4 < len(parts) && parts[i+1] == "2" {
+				r, okR := parseDecimalParam(parts[i+2])
+				g, okG := parseDecimalParam(parts[i+3])
+				b, okB := parseDecimalParam(parts[i+4])
+				if okR && okG && okB && r <= 64 && g <= 64 && b <= 64 {
+					kept = append(kept, "38", "5", "246")
+					i += 4
+					continue
+				}
+			}
+			kept = append(kept, part)
 		default:
 			kept = append(kept, part)
 		}
@@ -144,6 +185,14 @@ func stripSGRBackgroundParams(params string) string {
 		return ""
 	}
 	return strings.Join(kept, ";")
+}
+
+func isDarkBasicForeground(n int) bool {
+	return n == 30 || n == 90
+}
+
+func isDarkExtendedForeground(n int) bool {
+	return n == 0 || n == 8 || (n >= 16 && n <= 19) || (n >= 232 && n <= 236)
 }
 
 func parseDecimalParam(value string) (int, bool) {

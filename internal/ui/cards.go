@@ -794,7 +794,7 @@ func renderCardBodyBlock(width int, body string, preserveAgentCLIColors bool) st
 		Width(width).
 		Foreground(lipgloss.Color("246"))
 	if preserveAgentCLIColors {
-		body = stripANSIBackgrounds(body)
+		body = normalizeAgentCLIANSI(body)
 	} else {
 		body = stripANSI(body)
 	}

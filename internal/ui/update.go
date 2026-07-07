@@ -152,10 +152,14 @@ func (m *Model) ensurePreviewsAndCapture() tea.Cmd {
 		}
 		if content := cardSafeBlock(strings.TrimRight(pane.PreviewText, "\n")); content != "" {
 			if content != preview.lastContent {
+				shouldFollow := preview.autoFollow || preview.lastContent == "" || preview.viewport.AtBottom()
 				preview.viewport.SetContent(content)
 				preview.lastContent = content
 				preview.lastChanged = time.Now()
-				preview.viewport.GotoTop()
+				if shouldFollow {
+					preview.viewport.GotoBottom()
+					preview.autoFollow = true
+				}
 			}
 			continue
 		}

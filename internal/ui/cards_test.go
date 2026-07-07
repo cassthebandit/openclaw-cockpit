@@ -512,6 +512,20 @@ func TestAgentLifecycleCardsPreserveCLIForegroundColors(t *testing.T) {
 	}
 }
 
+func TestAgentLifecycleCardsNormalizeDarkCLIForegroundColors(t *testing.T) {
+	m := accordionModel(t)
+	preview := m.previews["$live-agent"]
+	preview.viewport.SetContent("\x1b[30mblack runtime tag\x1b[0m\n\x1b[38;5;0mdark indexed tag\x1b[0m")
+
+	view := m.renderSessionPreviews(0)
+	if strings.Contains(view, "\x1b[30m") || strings.Contains(view, "\x1b[38;5;0m") {
+		t.Fatalf("agent lifecycle card should not preserve unreadable dark foregrounds, view=%q", view)
+	}
+	if !strings.Contains(view, "\x1b[38;5;246m") {
+		t.Fatalf("dark agent foregrounds should normalize to readable card text, view=%q", view)
+	}
+}
+
 func TestNonAgentCardsStripCLIColors(t *testing.T) {
 	body := "\x1b[38;5;10mgreen status\x1b[0m\n\x1b[48;5;1mred background\x1b[0m"
 	view := renderCardBodyBlock(80, body, false)
