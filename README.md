@@ -4,10 +4,11 @@
 
 It began as Peter Steinberger's `tmuxwatch`; this repo keeps that history and MIT attribution while turning the tool into an OpenClaw-specific cockpit with runtime, ACP, TaskFlow, service, lifecycle, and display-only operator cards.
 
-Product principles and scope boundaries live in [`VISION.md`](VISION.md); detailed architecture and roadmap notes live in [`docs/spec.md`](docs/spec.md).
+Product principles and scope boundaries live in [`VISION.md`](VISION.md). The top-level design contract lives in [`DESIGN_BRIEF.md`](DESIGN_BRIEF.md). Lifecycle, group, layout, and config contracts live in [`docs/lifecycle-contract.md`](docs/lifecycle-contract.md), [`docs/group-registry.md`](docs/group-registry.md), [`docs/layout-contract.md`](docs/layout-contract.md), and [`docs/config-contract.md`](docs/config-contract.md). Detailed architecture and roadmap notes live in [`docs/spec.md`](docs/spec.md).
 
 ## Highlights
 - **Live tmux snapshot**: Polls `list-sessions`, `list-windows`, and `list-panes`, stitches the hierarchy together, and shows the latest capture-pane output per session.
+- **Agent-first operator wall**: Organized mode is being aligned to the contract groups: active agent TUIs, held/blocked cleanup, teardown countdowns, failed agents, operational/subsystem failures, services, and completed work. The current implementation still has known lifecycle-label drift documented in the contract set.
 - **Tab-aware layout**: The strip lists the grid plus every visible tmux session; click or `shift+left/right` to jump tabs, `ctrl+m` toggles full-screen, and `esc` returns to the grid.
 - **Keyboard & mouse aware**: `/` to search, arrow/PageUp/PageDown to scroll, collapse cards with `z`/`Z`, maximise via `ctrl+m` or the `[^]` control, and mouse clicks/scrolls to focus, collapse, hide cards, or switch tabs.
 - **Command palette (`ctrl+P`)**: Run view actions such as refresh and show hidden from a centered overlay. Stale cleanup entries are disabled and route operators to `session_hygiene.py` / `safe_kill.py`.
@@ -42,6 +43,8 @@ Press `q` (or double `ctrl+c`) to exit. Prefer running OpenClaw Cockpit in its o
 - `--tmux <path>`: tmux binary to execute (defaults to `$PATH`).
 - `--dump`: emit the current snapshot as indented JSON and exit.
 - `--version`: print the build/version string.
+- `--organize`: organize overview cards into Cockpit groups.
+- `--janitor-status <path>`: read the janitor status sidecar JSON for cleanup counts/countdowns.
 
 ## Keyboard & Mouse Cheat Sheet
 ```
@@ -97,9 +100,10 @@ Guidelines live in `docs/idiomatic-go.md`; treat it as required reading. Key poi
 - The `gorunfresh` helper clears cache and re-runs the app but refuses to execute unless you launch it from within tmux.
 
 ## Roadmap (short list)
-- Theming + palette customization (Catppuccin/Dracula).
-- Configurable capture depth & poll interval via config file.
-- Pane interaction history and saved layouts.
+- Align lifecycle labels and janitor behavior with `docs/lifecycle-contract.md`.
+- Make resize, accordion persistence, active-agent priority, and footer constraints match `docs/layout-contract.md`.
+- Extract group policy, colors/theme, timers, and capture budgets per `docs/config-contract.md`.
+- Revisit pane interaction history and saved layouts only after the operator-wall contract is stable.
 
 ## License
 Released under the [MIT License](./LICENSE).

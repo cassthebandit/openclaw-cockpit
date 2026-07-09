@@ -1,114 +1,140 @@
 # OpenClaw Cockpit Spec
 
-Durable product principles and scope boundaries live in [`VISION.md`](../VISION.md). This document keeps the detailed architecture, terminology, migration history, and exploratory roadmap.
+This document describes the current implementation architecture and roadmap. The product contract lives in [`../DESIGN_BRIEF.md`](../DESIGN_BRIEF.md). Lifecycle, group, layout, and config rules live in [`lifecycle-contract.md`](lifecycle-contract.md), [`group-registry.md`](group-registry.md), [`layout-contract.md`](layout-contract.md), and [`config-contract.md`](config-contract.md).
 
-## Migration Status (2025-11-05)
-
-- **UI Framework Refresh**: Bubble Tea/Bubbles/Lip Gloss have been upgraded to their v2 beta line, BubbleZone v2 now powers all hit-testing, and BubbleApp tab titles are integrated. Mouse/tab instability regressions have been triaged; remaining follow-up is to expose BubbleApp tab actions beyond clicks (keyboard focus, palette hooks).
-- **Interaction Model**: Command palette, maximise/detail view, and collapse toggles are live. Mouse targeting uses BubbleZone boundaries throughout, fixing the long-standing "click selects wrong card" bug.
-- **Stale Detection**: Session-level last activity data sourced from tmux plus preview timestamps keeps stale badges accurate; future migration work is to persist activity history for analytics.
-- **Run Tooling**: `gorunfresh` + TMUX guards replace ad-hoc `go run` aliases; Homebrew tap targets version 0.9.
-
-## Vision
-
-Deliver an OpenClaw operator TUI that gives immediate situational awareness across every tmux session, window, pane, agent lane, runtime source card, and service. Users should be able to:
-
-- See live pane output in real time without manually iterating through `tmux` commands.
-- Triage noisy panes by hiding or reordering them, so attention stays on high-signal streams.
-- Move through their tmux estate entirely by keyboard (with optional mouse support later).
-- Eventually snapshot and restore tmux workspaces to jump between projects quickly.
-
-## Core User Stories
-
-1. **Live Monitor**: “As an operator, I want to open OpenClaw Cockpit and instantly see the latest output of panes across all active sessions so I can detect failures or progress at a glance.”
-2. **Focus Control**: “As a developer, I want to skip panes that aren’t relevant right now by hiding or reordering them, so my dashboard stays uncluttered.”
-3. **Navigation**: “As a tmux power user, I want vim-style keyboard navigation between sessions, windows, and panes, to keep muscle memory intact.”
-4. **Debug View**: “As an engineer diagnosing issues, I want a non-interactive mode that prints the current tmux structure as JSON so scripts and humans can inspect state.”
-5. **Future Snapshot** *(planned)*: “As a multitasker, I want to save and restore full tmux layouts, including pane commands and paths, to switch projects effortlessly.”
+If this spec conflicts with those contracts, treat the conflict as implementation drift to resolve in the next code phase.
 
 ## Current Architecture
 
-- **`internal/tmux`**: Go wrapper around the tmux binary, providing structured snapshots plus capture-pane support.
-- **`internal/ui`**: Bubble Tea model that renders adaptive session preview cards. Cards capture the active window/pane output, auto-scroll with new data, expose session metadata (last activity, exit status), forward keystrokes to panes, pulse briefly when output changes, and provide mouse affordances (focus, scroll, close).
- - **`internal/ui`**: Bubble Tea model that renders adaptive session preview cards. Cards capture the active window/pane output, auto-scroll with new data, expose session metadata (last activity, exit status), forward keystrokes to panes (including double-press ctrl+c quit), pulse briefly when output changes, and provide mouse affordances (focus, scroll, close).
-- **`cmd/openclaw-cockpit`**: CLI entry point with flags (`--interval`, `--tmux`, `--dump`) and version reporting.
-- **Documentation**: README highlights usage, features, and key bindings; changelog tracks notable updates; MIT license governs distribution.
+- `cmd/openclaw-cockpit`: CLI entry point, flags, version output, Bubble Tea program setup, and platform-specific terminal-tab helpers.
+- `internal/tmux`: thin tmux wrapper for structured session/window/pane snapshots, pane captures, options, and cockpit metadata parsing.
+- `internal/ui`: Bubble Tea model, update loop, render cache, card rendering, grouping, layout, status/footer, runtime-card integration, janitor status rendering, input handlers, timeline, and stale/lifecycle classifiers.
+- `internal/zone`: BubbleZone-compatible hit testing and ANSI-aware zone scanning.
+- `gorunfresh` and `scripts/`: local development launch helpers.
+- Workspace integration lives outside this repo under `/Users/cass/.openclaw/workspace/tools/tmux/`, including `agent_wall.py`, `session_hygiene.py`, `start_openclaw_cockpit.sh`, and installer/runbook helpers.
 
-## Inspiration & Competitive Scan
+## Runtime Inputs
 
-- **tmux-tui (Haskell)**: demonstrates stored session persistence, fuzzy search filters, and petname-based session creation. Highlights value of JSON snapshots, confirmation dialogs, and mouse-aware focus rings.
-- **tmux_tui (Go)**: provides split-pane helpers, swap modes, filtering, and theming. Reinforces demand for:
-  - Fast `list-panes` driven updates paired with `display-message` for current focus detection.
-  - Inline preview panel using `capture-pane -ep`.
-  - Swap workflows (mark source, accept destination) for windows/panes.
-  - Themable UI via predefined palettes (e.g., Catppuccin, Dracula, Nord).
-- OpenClaw Cockpit should blend the best ideas from tmux dashboards while keeping its monitor-first OpenClaw operator focus.
+Cockpit reads:
+
+- tmux session/window/pane topology;
+- tmux pane output and pane options;
+- OpenClaw `@oc_*` metadata from managed panes;
+- optional janitor status JSON from `session_hygiene.py`;
+- optional OpenClaw runtime cards;
+- local UI input such as filters, tabs, detail mode, collapse state, and mouse/keyboard events.
+
+Cockpit writes no lifecycle state. It may write normal process output/logs when launched by surrounding tools, but the UI itself is not the cleanup or metadata mutation authority.
+
+## CLI Surface
+
+Current stable flags include:
+
+- `--interval`: tmux poll frequency.
+- `--tmux`: tmux binary path.
+- `--dump`: print current tmux snapshot JSON and exit.
+- `--version`: print version.
+- `--organize`: organize overview cards into cockpit groups.
+- `--janitor-status`: read janitor status sidecar JSON.
+
+The launcher may pass additional local defaults such as organized mode, runtime cards, dashboard self-exclusion, column caps, and capture budgets. Those defaults should migrate toward the config contract instead of accumulating as hidden constants.
+
+## Presentation Model
+
+The organized wall groups sessions into the canonical operator-focused accordions listed in [`group-registry.md`](group-registry.md).
+
+The current source does not yet implement every group exactly. The next code phase should add or rename groups as needed to match [`group-registry.md`](group-registry.md) and [`lifecycle-contract.md`](lifecycle-contract.md), especially the distinction between actually marked teardown and cleanup-blocked/refused debt.
+
+## Lifecycle Integration
+
+The UI currently computes presentation state from a mix of:
+
+- pane liveness and dead status;
+- `@oc_state`, `@oc_kind`, `@oc_agent`, `@oc_hold_reason`, `@oc_cleanup_policy`, `@oc_evidence_path`, `@oc_teardown_marked_at`, and `@oc_janitor_state`;
+- semantic tail detection for completed/failed agent TUIs;
+- stale thresholds;
+- OpenClaw runtime-card presentation groups;
+- janitor status sidecar cycle counts.
+
+This logic exists to make the wall useful, but it must not override the lifecycle contract. The next implementation pass should harden the state machine, labels, and tests around the contract.
+
+## Layout Implementation
+
+The UI uses Bubble Tea v2, Lip Gloss v2, and the local zone scanner. The render path composes:
+
+1. title/filter/header;
+2. session cards or organized accordions;
+3. footer/status;
+4. overlays such as the command palette.
+
+The model tracks terminal width/height, page-scroll state, per-card geometry, hover/focus/cursor state, and render-cache invalidation. The current code already has tests for grouped height allocation, footer accounting, whole-wall scroll, collapse state, and render caching. The next code phase should extend those tests to cover the explicit resize and accordion-policy contracts.
 
 ## Roadmap
 
-### Phase 1 — Monitoring Foundations *(done)*
-- [x] Poll tmux sessions/windows/panes.
-- [x] Render adaptive session preview cards that auto-scroll with live output.
-- [x] Provide `--dump` JSON snapshot for debugging/automation.
+This roadmap is product-level. The reviewed implementation packet at `memory/runs/cockpit-contract-implementation-packet-20260709T1727/outputs/implementation-packet.md` now uses a Fable-reviewed vertical slice build sequence. Do not treat the roadmap phase numbers as interchangeable with implementation slices:
 
-### Phase 2 — UX Enhancements *(in progress)*
-- [ ] Add `--capture-lines` flag and config file to control history depth.
-- [x] Implement search/filter across sessions, windows, and panes.
-- [x] Forward focus and keystrokes from OpenClaw Cockpit to live panes; add mouse support for focusing, scrolling, and closing cards.
-- [ ] Surface more status metadata: pane last activity, command exit statuses, alerts.
-- [ ] Introduce optional theme selection aligned with tmux_tui palettes (Dracula, Nord, Catppuccin, etc.).
-- [ ] Provide swap workflows for panes/windows with visual feedback (mark source, confirm target).
+- Slice 0 preserves the docs/source baseline before code.
+- Slice 1 hardens janitor hold behavior before any cancellation-loop repair.
+- Slice 2 repairs mark/cancel baseline bookkeeping, sidecar hygiene, and then timer constants.
+- Slice 3 drains live debt under separate approval and adds producer degraded-artifact behavior.
+- Slice 4 implements lifecycle classifier and group registry in Cockpit.
+- Slice 5 implements layout, resize, accordion, footer, and launcher status-row behavior.
+- Slice 6 extracts config and theme after behavior is stable.
+- Slice 7 performs live verification and install/respawn decision.
 
-### Phase 3 — Workspace Management *(future)*
-- [ ] Introduce snapshot persistence (store sessions/windows/panes as JSON in `~/.config/openclaw-cockpit/`).
-- [ ] Provide commands to instantiate stored sessions, similar to Haskell tmux-tui.
-- [ ] Offer YAML/JSON schema for curated dashboards (e.g., always pin specific panes).
-- [ ] Integrate notifications (desktop or terminal bell) for configurable events (pane command changes, keywords).
+If the packet and this roadmap disagree, the design brief and contract docs govern, then the packet must be patched before build approval.
 
-### Phase 4 — Extensibility & Packaging *(future)*
-- [ ] Expose a gRPC / HTTP API for external tooling (CI dashboards, bots).
-- [ ] Package binaries via GoReleaser and distribute via Homebrew and Linux packages.
-- [ ] Support plugin hooks to run custom scripts on snapshot refresh.
+### Phase 1: Monitor Foundations
 
-## Risks & Mitigations
+- tmux snapshot and JSON dump.
+- Session/window/pane preview cards.
+- Keyboard and mouse navigation.
+- Search/filter.
+- Detail/maximize mode.
 
-- **Performance**: Frequent `capture-pane` calls can be expensive with many panes.  
-  *Mitigation*: cache content per pane with timestamps, allow user-tunable poll/capture intervals, and skip captures for hidden panes.
+### Phase 2: Operator Wall Contracts
 
-- **Permission / Environment**: tmux must be available in `$PATH` and compatible (3.1+).  
-  *Mitigation*: detect missing binaries early, provide helpful error messaging, and document requirements prominently.
+- Truthful lifecycle group labels.
+- Separate marked, held, cleanup-blocked, failed, completed, service, operational, and subsystem states.
+- Janitor countdown and refusal details.
+- Hold semantics aligned with hygiene docs.
+- Failed visible grace plus evidence-blocked display.
+- Dynamic terminal resize without dead space/corrupt rows.
+- Accordion persistence and per-group auto-open policy.
+- Footer/helper height constraints.
 
-- **Viewport Drift**: Continuous capture-pane updates can fight with user scrolling.  
-  *Mitigation*: keep cards auto-following new output only when the user is at the bottom; preserve manual scroll positions otherwise.
+### Phase 3: Config Extraction
 
-- **Snapshot Accuracy**: Restoring sessions requires faithfully reproducing commands, paths, and layouts.  
-  *Mitigation*: when implementing snapshots, serialize layout strings, current commands, cwd, and optionally environment variables.
+- Central config file and effective-config dump.
+- Theme/color tokens.
+- Group order, labels, policies, and layout constraints.
+- Lifecycle timers aligned with janitor status.
+- Capture and refresh budgets.
+- Footer max height.
 
-## Terminology
+### Phase 4: Operator Polish
 
-- **Session Sidebar**: Left-hand column listing `session:window` entries.
-- **Pane Tabs**: Horizontal list above the content pane representing visible tmux panes for the selected window.
-- **Hidden Pane**: Pane removed from the current view but still running; restored via `H`.
-- **Capture Lines**: Number of lines to read from tmux history buffer when refreshing pane content.
+- Better detail views for blocked cleanup and failed lanes.
+- Focused janitor diagnostics.
+- Optional snapshot/restore only after a separate persistence safety contract.
+- Packaging and release cleanup.
 
-## Implementation Notes
+## Non-Goals For The Current Contract Phase
 
-- Bubble Tea program runs in alt screen to take over the terminal and provide clean exit with `q` / `Ctrl+C`.
-- Pane contents refreshed on each snapshot and selection change; future optimization might use tmux hooks or events.
-- Reordering tabs is UI-only: we swap order in `paneOrder[windowID]` without modifying tmux layout.
-- Keyboard map matches tmux/vim habits; forthcoming features should preserve mnemonic consistency.
+- No cleanup buttons in Cockpit.
+- No direct tmux kill authority in the UI.
+- No Gateway/config/auth mutation.
+- No remote tmux/API/plugin layer.
+- No workspace snapshot/restore.
+- No code changes until the docs and contracts are aligned and reviewed.
 
-## Success Metrics
+## Quality Bar
 
-- **Adoption**: number of OpenClaw operators running OpenClaw Cockpit alongside tmux daily.
-- **Responsiveness**: pane content refresh under target (e.g., <= 500 ms with default interval).
-- **Stability**: zero crashes across long-running sessions (>24 hours).
-- **Feature Parity**: achieve core features of reference tools (e.g., tmux-tui) while maintaining Go simplicity.
+Contract-changing code must include:
 
-## Open Questions
-
-- Should hidden panes still capture output (for backlog) or only when unhidden?  
-- Is there value in supporting remote tmux sessions over SSH via `wish` or `glow` integration?  
-- What is the best way to persist user preferences (toml config, env vars, per-session state)?
-
-Contributions should align with this roadmap, keeping code modular (`internal/tmux`, `internal/ui`, future `internal/store`) and maintaining clear documentation updates alongside features.
+- focused unit tests for lifecycle classification and group labels;
+- layout tests for height/width/footer behavior;
+- janitor-status tests for stale, invalid, missing, marked, refused, and countdown states;
+- terminal resize smoke evidence when runtime geometry changes;
+- `go test ./...`;
+- a built-binary smoke against a real tmux session when UI runtime behavior changes.
