@@ -45,7 +45,7 @@ func renderTitleBar(m *Model, width int) string {
 		metaParts = append(metaParts, fmt.Sprintf("refreshed %s ago", coarseDuration(m.clockNow().Sub(m.lastUpdated))))
 	}
 	if m.focusedSession != "" {
-		metaParts = append(metaParts, "focus "+m.focusedSession)
+		metaParts = append(metaParts, "focus "+sessionLabel(m.focusedSession))
 	}
 	if m.searchQuery != "" {
 		metaParts = append(metaParts, fmt.Sprintf("filter %q", m.searchQuery))

@@ -142,10 +142,21 @@ func (m *Model) handleMessage(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case paneVarsMsg:
 		if preview, ok := m.previews[msg.sessionID]; ok && preview.paneID == msg.paneID {
+			var before string
+			if len(preview.vars) > 0 {
+				before = formatPaneVariables(preview.vars)
+			}
 			if msg.err != nil {
 				preview.vars = map[string]string{"error": msg.err.Error()}
 			} else {
 				preview.vars = msg.vars
+			}
+			var after string
+			if len(preview.vars) > 0 {
+				after = formatPaneVariables(preview.vars)
+			}
+			if after != before {
+				m.markRenderDirty()
 			}
 		}
 	case tickMsg:

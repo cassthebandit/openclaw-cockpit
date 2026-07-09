@@ -74,11 +74,19 @@ func (m *Model) buildStatusLine(width int) string {
 		lines = append(lines, staleLine)
 	}
 
-	if preview, ok := m.previews[m.focusedSession]; ok && len(preview.vars) > 0 {
+	if m.viewMode == viewModeDetail {
+		if preview, ok := m.previews[m.detailSession]; ok && len(preview.vars) > 0 {
+			varsLine := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("244")).
+				Padding(0, 2).
+				Render(formatPaneVariables(preview.vars))
+			lines = append(lines, varsLine)
+		}
+	} else if m.focusedSession != "" {
 		varsLine := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("244")).
 			Padding(0, 2).
-			Render(formatPaneVariables(preview.vars))
+			Render(fmt.Sprintf("focused: %s · press d for detail vars", sessionLabel(m.focusedSession)))
 		lines = append(lines, varsLine)
 	}
 

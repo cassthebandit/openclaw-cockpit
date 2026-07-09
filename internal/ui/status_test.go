@@ -21,6 +21,56 @@ func TestBuildStatusLineShowsPaneParseWarnings(t *testing.T) {
 	}
 }
 
+func TestOverviewStatusDoesNotDumpFocusedPaneVars(t *testing.T) {
+	t.Parallel()
+
+	m := &Model{
+		width:          120,
+		viewMode:       viewModeOverview,
+		focusedSession: "$failed",
+		previews: map[string]*sessionPreview{
+			"$failed": {
+				vars: map[string]string{
+					"@oc_agent":     "gemini-batch",
+					"@oc_exit_code": "1",
+					"@oc_evidence":  "lanes/gemini.md",
+				},
+			},
+		},
+	}
+
+	got := m.buildStatusLine(120)
+	if strings.Contains(got, "vars:") || strings.Contains(got, "@oc_agent") {
+		t.Fatalf("overview status leaked pane variables: %q", got)
+	}
+	if !strings.Contains(got, "focused: failed") {
+		t.Fatalf("overview status should keep a compact focus hint, got %q", got)
+	}
+}
+
+func TestDetailStatusShowsDetailPaneVars(t *testing.T) {
+	t.Parallel()
+
+	m := &Model{
+		width:         120,
+		viewMode:      viewModeDetail,
+		detailSession: "$failed",
+		previews: map[string]*sessionPreview{
+			"$failed": {
+				vars: map[string]string{
+					"@oc_agent":     "gemini-batch",
+					"@oc_exit_code": "1",
+				},
+			},
+		},
+	}
+
+	got := m.buildStatusLine(120)
+	if !strings.Contains(got, "vars:") || !strings.Contains(got, "@oc_agent=gemini-batch") {
+		t.Fatalf("detail status should include pane variables, got %q", got)
+	}
+}
+
 func TestFormatStaleLineRoutesCleanupToHygieneTools(t *testing.T) {
 	t.Parallel()
 
