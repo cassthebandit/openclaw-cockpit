@@ -18,6 +18,10 @@ import (
 // real session names like "AI-Alerts".
 const tmuxFieldSep = "::OC_FIELD::"
 
+func acceptedPaneFieldCount(count int) bool {
+	return count == 14 || count == 33 || count == 37 || count == 41 || count == 42
+}
+
 // listSessions shells out to tmux to enumerate sessions and translate them
 // into typed Session values.
 func (c *Client) listSessions(ctx context.Context) ([]Session, error) {
@@ -155,9 +159,14 @@ func (c *Client) listPanes(ctx context.Context) ([]Pane, int, error) {
 		"#{@oc_evidence_path}",
 		"#{@oc_hold_reason}",
 		"#{@oc_why_headless}",
+		"#{@oc_pane_log}",
 		"#{@oc_progress_path}",
 		"#{@oc_end_reason}",
 		"#{@oc_route_failure_reason}",
+		"#{@oc_teardown_marked_at}",
+		"#{@oc_teardown_reason}",
+		"#{@oc_janitor_state}",
+		"#{@oc_last_meaningful_activity_at}",
 	}, tmuxFieldSep)
 
 	out, err := c.runTmux(ctx, "list-panes", "-a", "-F", format)
@@ -176,7 +185,7 @@ func (c *Client) listPanes(ctx context.Context) ([]Pane, int, error) {
 			continue
 		}
 		fields := strings.Split(line, tmuxFieldSep)
-		if len(fields) != 14 && len(fields) != 33 && len(fields) != 37 {
+		if !acceptedPaneFieldCount(len(fields)) {
 			skipped++
 			continue
 		}
@@ -248,6 +257,22 @@ func (c *Client) listPanes(ctx context.Context) ([]Pane, int, error) {
 				meta.ProgressPath = strings.TrimSpace(fields[34])
 				meta.EndReason = strings.TrimSpace(fields[35])
 				meta.RouteFailure = strings.TrimSpace(fields[36])
+			}
+			if len(fields) >= 41 {
+				meta.TeardownMarkedAt = strings.TrimSpace(fields[37])
+				meta.TeardownReason = strings.TrimSpace(fields[38])
+				meta.JanitorState = strings.TrimSpace(fields[39])
+				meta.LastMeaningfulAt = strings.TrimSpace(fields[40])
+			}
+			if len(fields) >= 42 {
+				meta.PaneLog = strings.TrimSpace(fields[34])
+				meta.ProgressPath = strings.TrimSpace(fields[35])
+				meta.EndReason = strings.TrimSpace(fields[36])
+				meta.RouteFailure = strings.TrimSpace(fields[37])
+				meta.TeardownMarkedAt = strings.TrimSpace(fields[38])
+				meta.TeardownReason = strings.TrimSpace(fields[39])
+				meta.JanitorState = strings.TrimSpace(fields[40])
+				meta.LastMeaningfulAt = strings.TrimSpace(fields[41])
 			}
 			if meta.HasData() {
 				pane.Cockpit = &meta

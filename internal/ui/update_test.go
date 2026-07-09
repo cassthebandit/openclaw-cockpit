@@ -3,6 +3,8 @@ package ui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -114,6 +116,398 @@ func TestEnsurePreviewsFastCapturesActiveAgentsWithoutSpendingBackgroundBudget(t
 	}
 	if got, want := len(batch), 3; got != want {
 		t.Fatalf("capture command count = %d, want %d", got, want)
+	}
+}
+
+func TestFastCaptureTickDoesNotFetchFullRuntimeSnapshot(t *testing.T) {
+	t.Parallel()
+
+	client, err := tmux.NewClient("/bin/echo")
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	m := NewModel(client, time.Second, 1, nil, false, true)
+	m.SetOpenClawRuntimeSource("/tmp/should-not-run-at-fast-rate.py", 10, 5*time.Second)
+	m.sessions = []tmux.Session{
+		captureTestSession("$active-1", "%active-1", tmux.CockpitMeta{ManagedBy: "agent_wall", Kind: "agent", Agent: "fable", State: "waiting"}),
+	}
+	vp := viewportFor(innerDimension{width: 80, height: 8})
+	m.previews["$active-1"] = &sessionPreview{viewport: &vp, paneID: "%active-1", lastContent: "ready"}
+
+	_, cmd := m.Update(fastTickMsg{})
+	if cmd == nil {
+		t.Fatalf("expected fast tick command")
+	}
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("fast tick command = %T, want tea.BatchMsg", msg)
+	}
+	if len(batch) != 2 {
+		t.Fatalf("fast tick batch len = %d, want schedule + pane capture only", len(batch))
+	}
+}
+
+func TestFastCaptureSkipsPaneAlreadyInFlight(t *testing.T) {
+	t.Parallel()
+
+	client, err := tmux.NewClient("/bin/echo")
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	m := NewModel(client, time.Second, 1, nil, false, true)
+	m.sessions = []tmux.Session{
+		captureTestSession("$active-1", "%active-1", tmux.CockpitMeta{ManagedBy: "agent_wall", Kind: "agent", Agent: "fable", State: "waiting"}),
+	}
+	vp := viewportFor(innerDimension{width: 80, height: 8})
+	m.previews["$active-1"] = &sessionPreview{viewport: &vp, paneID: "%active-1", lastContent: "ready"}
+
+	first := m.ensureFastCaptures()
+	if first == nil {
+		t.Fatalf("expected first fast capture command")
+	}
+	if _, ok := m.fastCaptureActive["$active-1"]; !ok {
+		t.Fatalf("expected fast capture in-flight marker")
+	}
+	if second := m.ensureFastCaptures(); second != nil {
+		t.Fatalf("expected no overlapping fast capture command")
+	}
+	m.Update(paneContentMsg{sessionID: "$active-1", paneID: "%active-1", text: "done"})
+	if _, ok := m.fastCaptureActive["$active-1"]; ok {
+		t.Fatalf("expected fast capture in-flight marker to clear")
+	}
+	if third := m.ensureFastCaptures(); third != nil {
+		t.Fatalf("expected no immediate fallback fast capture without a pane log signal")
+	}
+	time.Sleep(260 * time.Millisecond)
+	if fourth := m.ensureFastCaptures(); fourth == nil {
+		t.Fatalf("expected fallback fast capture after throttle window")
+	}
+}
+
+func TestFastCaptureWaitsForPaneLogSignal(t *testing.T) {
+	t.Parallel()
+
+	logPath := filepath.Join(t.TempDir(), "active-pane.log")
+	if err := os.WriteFile(logPath, []byte("ready\n"), 0o644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+	client, err := tmux.NewClient("/bin/echo")
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	m := NewModel(client, time.Second, 1, nil, false, true)
+	m.sessions = []tmux.Session{
+		captureTestSession("$active-1", "%active-1", tmux.CockpitMeta{
+			ManagedBy: "agent_wall",
+			Kind:      "agent",
+			Agent:     "fable",
+			State:     "waiting",
+			PaneLog:   logPath,
+		}),
+	}
+	vp := viewportFor(innerDimension{width: 80, height: 8})
+	m.previews["$active-1"] = &sessionPreview{viewport: &vp, paneID: "%active-1", lastContent: "ready"}
+
+	first := m.ensureFastCaptures()
+	if first == nil {
+		t.Fatalf("expected initial capture to seed signal state")
+	}
+	m.Update(paneContentMsg{sessionID: "$active-1", paneID: "%active-1", text: "ready"})
+	if second := m.ensureFastCaptures(); second != nil {
+		t.Fatalf("expected unchanged pane log to suppress fast capture")
+	}
+	if err := os.WriteFile(logPath, []byte("ready\nchanged\n"), 0o644); err != nil {
+		t.Fatalf("update log: %v", err)
+	}
+	if third := m.ensureFastCaptures(); third == nil {
+		t.Fatalf("expected changed pane log to trigger fast capture")
+	}
+}
+
+// TestSnapshotDoesNotSpawnSecondWatcherLineage is the P0-1 regression: while a
+// fast watcher command is outstanding, snapshot ticks must not arm another
+// lineage, and each fastTickMsg must arm exactly one successor.
+func TestSnapshotDoesNotSpawnSecondWatcherLineage(t *testing.T) {
+	t.Parallel()
+
+	client, err := tmux.NewClient("/bin/echo")
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	m := NewModel(client, time.Second, 1, nil, false, true)
+	m.sessions = []tmux.Session{
+		captureTestSession("$active-1", "%active-1", tmux.CockpitMeta{ManagedBy: "agent_wall", Kind: "agent", Agent: "fable", State: "waiting"}),
+	}
+
+	first := m.scheduleFastCaptureWatch()
+	if first == nil {
+		t.Fatalf("expected initial watcher to be armed")
+	}
+	if !m.fastWatchActive || m.fastWatchGen != 1 {
+		t.Fatalf("watcher state = active %v gen %d, want active true gen 1", m.fastWatchActive, m.fastWatchGen)
+	}
+	if second := m.scheduleFastCaptureWatch(); second != nil {
+		t.Fatalf("expected no second watcher while one is outstanding")
+	}
+
+	m.Update(snapshotMsg{snapshot: tmux.Snapshot{Timestamp: time.Now(), Sessions: m.sessions}})
+	if m.fastWatchGen != 1 {
+		t.Fatalf("snapshot spawned a watcher lineage: gen = %d, want 1", m.fastWatchGen)
+	}
+	if !m.fastWatchActive {
+		t.Fatalf("outstanding watcher lost its single-flight marker")
+	}
+
+	m.Update(fastTickMsg{})
+	if m.fastWatchGen != 2 {
+		t.Fatalf("fast tick armed %d watchers total, want exactly one successor (gen 2)", m.fastWatchGen)
+	}
+	if !m.fastWatchActive {
+		t.Fatalf("expected successor watcher to be outstanding after fast tick")
+	}
+}
+
+// TestFastCaptureSignalsExcludeInFlightAndCollapsed is the P0-2 regression:
+// the watcher's signal set must exclude sessions the dispatch path would skip,
+// so a non-dispatchable signal change can never re-fire the watcher.
+func TestFastCaptureSignalsExcludeInFlightAndCollapsed(t *testing.T) {
+	t.Parallel()
+
+	client, err := tmux.NewClient("/bin/echo")
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	m := NewModel(client, time.Second, 1, nil, false, true)
+	dir := t.TempDir()
+	ids := []string{"$inflight", "$collapsed", "$eligible"}
+	for _, id := range ids {
+		name := strings.TrimPrefix(id, "$")
+		logPath := filepath.Join(dir, name+"-pane.log")
+		if err := os.WriteFile(logPath, []byte("ready\n"), 0o644); err != nil {
+			t.Fatalf("write log: %v", err)
+		}
+		paneID := "%" + name
+		m.sessions = append(m.sessions, captureTestSession(id, paneID, tmux.CockpitMeta{
+			ManagedBy: "agent_wall",
+			Kind:      "agent",
+			Agent:     "fable",
+			State:     "running",
+			PaneLog:   logPath,
+		}))
+		vp := viewportFor(innerDimension{width: 80, height: 8})
+		m.previews[id] = &sessionPreview{viewport: &vp, paneID: paneID, lastContent: "ready"}
+	}
+	m.fastCaptureActive["$inflight"] = struct{}{}
+	m.collapsed["$collapsed"] = struct{}{}
+
+	signals, missingSignal, inflightSkipped := m.fastCaptureSignals()
+	if len(signals) != 1 || signals[0].sessionID != "$eligible" {
+		t.Fatalf("signal set = %#v, want only $eligible", signals)
+	}
+	if !inflightSkipped {
+		t.Fatalf("expected in-flight session to report inflightSkipped")
+	}
+	if missingSignal {
+		t.Fatalf("unexpected missing-signal flag with pane logs present")
+	}
+}
+
+// TestFastCaptureStatErrorRecordsSignalState is the P0-2 regression for the
+// error path: a failing pane-log stat must be recorded as observed state so
+// the watcher treats it as known-bad instead of firing on every sweep, and a
+// reappearing log must read as a change.
+func TestFastCaptureStatErrorRecordsSignalState(t *testing.T) {
+	t.Parallel()
+
+	client, err := tmux.NewClient("/bin/echo")
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	m := NewModel(client, time.Second, 1, nil, false, true)
+	logPath := filepath.Join(t.TempDir(), "gone", "pane.log")
+	m.sessions = []tmux.Session{
+		captureTestSession("$active-1", "%active-1", tmux.CockpitMeta{
+			ManagedBy: "agent_wall",
+			Kind:      "agent",
+			Agent:     "fable",
+			State:     "running",
+			PaneLog:   logPath,
+		}),
+	}
+	vp := viewportFor(innerDimension{width: 80, height: 8})
+	m.previews["$active-1"] = &sessionPreview{viewport: &vp, paneID: "%active-1", lastContent: "ready"}
+
+	if cmd := m.ensureFastCaptures(); cmd == nil {
+		t.Fatalf("expected fallback capture dispatch on first stat error")
+	}
+	preview := m.previews["$active-1"]
+	if !preview.signal.statErr || !preview.signal.seen || preview.signal.path != logPath {
+		t.Fatalf("stat error not recorded as signal state: %+v", preview.signal)
+	}
+	m.Update(paneContentMsg{sessionID: "$active-1", paneID: "%active-1", text: "ready"})
+
+	signals, _, inflightSkipped := m.fastCaptureSignals()
+	if inflightSkipped {
+		t.Fatalf("capture completion should clear the in-flight marker")
+	}
+	if len(signals) != 1 || !signals[0].statErr || !signals[0].seen {
+		t.Fatalf("signal entry = %#v, want recorded stat-error state", signals)
+	}
+	if fastCaptureSignalsDirty(signals) {
+		t.Fatalf("known-bad pane log must not read as a signal change")
+	}
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(logPath, []byte("back\n"), 0o644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+	if !fastCaptureSignalsDirty(signals) {
+		t.Fatalf("reappearing pane log must read as a signal change")
+	}
+}
+
+// TestFastCaptureWatchSleepsBeforeReturning is the P0-2 no-spin invariant: the
+// watcher command must never return faster than one sweep interval, even when
+// its signal set is dirty from the start.
+func TestFastCaptureWatchSleepsBeforeReturning(t *testing.T) {
+	t.Parallel()
+
+	signals := []fastCaptureSignal{{
+		sessionID: "$a",
+		path:      filepath.Join(t.TempDir(), "missing-pane.log"),
+	}}
+	cmd := scheduleFastCaptureWatch(signals, fastCaptureIdleTick, fastCaptureIdleTick)
+	start := time.Now()
+	msg := cmd()
+	elapsed := time.Since(start)
+	if _, ok := msg.(fastTickMsg); !ok {
+		t.Fatalf("watch returned %T, want fastTickMsg", msg)
+	}
+	if elapsed < fastCaptureInterval {
+		t.Fatalf("watcher returned after %s without sleeping a sweep interval (%s)", elapsed, fastCaptureInterval)
+	}
+}
+
+// TestFastCaptureWatchKnownStatErrorHoldsUntilDeadline verifies a persistently
+// missing pane log with recorded stat-error state does not fire the watcher
+// early; the watch runs to its idle deadline.
+func TestFastCaptureWatchKnownStatErrorHoldsUntilDeadline(t *testing.T) {
+	t.Parallel()
+
+	signals := []fastCaptureSignal{{
+		sessionID: "$a",
+		path:      filepath.Join(t.TempDir(), "missing-pane.log"),
+		seen:      true,
+		statErr:   true,
+	}}
+	deadline := 60 * time.Millisecond
+	cmd := scheduleFastCaptureWatch(signals, fastCaptureIdleTick, deadline)
+	start := time.Now()
+	msg := cmd()
+	elapsed := time.Since(start)
+	if _, ok := msg.(fastTickMsg); !ok {
+		t.Fatalf("watch returned %T, want fastTickMsg", msg)
+	}
+	if elapsed < deadline {
+		t.Fatalf("watcher fired after %s on a known-bad signal, want to hold for %s", elapsed, deadline)
+	}
+}
+
+// TestSnapshotMergesCachedRuntimeCards is the P1-1 regression: snapshots carry
+// tmux sessions only and runtime cards merge from the async loader's cache, so
+// the runtime script is never on the snapshot path.
+func TestSnapshotMergesCachedRuntimeCards(t *testing.T) {
+	t.Parallel()
+
+	client, err := tmux.NewClient("/bin/echo")
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	m := NewModel(client, time.Second, 1, nil, false, true)
+	m.SetOpenClawRuntimeSource("/nonexistent/should-not-run.py", 10, time.Second)
+	cached := tmux.Session{
+		ID:   "openclaw-runtime:cached-card",
+		Name: "cached card",
+		Windows: []tmux.Window{{
+			ID:     "@openclaw-runtime:cached-card",
+			Active: true,
+			Panes:  []tmux.Pane{{ID: "%openclaw-runtime:cached-card", Active: true, LastActivity: time.Now()}},
+		}},
+	}
+	m.runtimeSessions = []tmux.Session{cached}
+
+	m.Update(snapshotMsg{snapshot: tmux.Snapshot{
+		Timestamp: time.Now(),
+		Sessions: []tmux.Session{
+			captureTestSession("$normal", "%normal", tmux.CockpitMeta{}),
+		},
+	}})
+
+	if len(m.sessions) != 2 {
+		t.Fatalf("merged session count = %d, want tmux session + cached runtime card", len(m.sessions))
+	}
+	if !m.sessionExists("$normal") || !m.sessionExists("openclaw-runtime:cached-card") {
+		t.Fatalf("merged sessions missing tmux or cached runtime entry: %#v", m.sessions)
+	}
+}
+
+// TestRuntimeCardRefreshIsSingleFlightAndReschedules covers the P1-1 refresh
+// loop: ticks are ignored while a load is in flight or the source is disabled,
+// and a completed load replaces the cache and re-arms the next tick.
+func TestRuntimeCardRefreshIsSingleFlightAndReschedules(t *testing.T) {
+	t.Parallel()
+
+	client, err := tmux.NewClient("/bin/echo")
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	m := NewModel(client, time.Second, 1, nil, false, true)
+
+	if _, cmd := m.Update(runtimeTickMsg{}); cmd != nil {
+		t.Fatalf("runtime tick must be a no-op while the source is disabled")
+	}
+
+	m.SetOpenClawRuntimeSource("/nonexistent/should-not-run.py", 10, time.Second)
+	_, cmd := m.Update(runtimeTickMsg{})
+	if cmd == nil || !m.runtimeInflight {
+		t.Fatalf("expected runtime tick to arm a single load")
+	}
+	if _, second := m.Update(runtimeTickMsg{}); second != nil {
+		t.Fatalf("expected no overlapping runtime load")
+	}
+
+	cards := []tmux.Session{{ID: "openclaw-runtime:new-card", Name: "new card"}}
+	_, rearm := m.Update(runtimeCardsMsg{sessions: cards, loadedAt: time.Now()})
+	if rearm == nil {
+		t.Fatalf("expected completed runtime load to schedule the next tick")
+	}
+	if m.runtimeInflight {
+		t.Fatalf("expected completed runtime load to clear the in-flight marker")
+	}
+	if len(m.runtimeSessions) != 1 || m.runtimeSessions[0].ID != "openclaw-runtime:new-card" {
+		t.Fatalf("runtime card cache = %#v, want replaced by the new load", m.runtimeSessions)
+	}
+}
+
+func TestPaneOutputSignalPathInfersAgentWallLog(t *testing.T) {
+	t.Parallel()
+
+	session := captureTestSession("$active-1", "%active-1", tmux.CockpitMeta{
+		ManagedBy: "agent_wall",
+		Kind:      "agent",
+		Agent:     "fable",
+		State:     "waiting",
+		RunRoot:   "/tmp/run-root",
+	})
+	window, _ := activeWindow(session)
+	pane, _ := activePane(window)
+
+	got := paneOutputSignalPath(session, pane)
+	want := "/tmp/run-root/logs/active-1-pane.log"
+	if got != want {
+		t.Fatalf("paneOutputSignalPath() = %q, want %q", got, want)
 	}
 }
 

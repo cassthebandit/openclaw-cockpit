@@ -16,9 +16,21 @@ const (
 
 // View renders the entire tmuxwatch interface, including title bar, search
 // state, session previews, status footer, and overlays.
+//
+// F1 frame cache: when no render-affecting state change has been marked since
+// the last build and the clock has not crossed the next scheduled time-based
+// transition, the previously composed (and zone-scanned) frame is returned
+// as-is. Skipping zone.Scan on cached frames is safe because the global zone
+// manager retains the last scan's hit boxes: nothing in this package clears
+// them outside Scan itself.
 func (m *Model) View() tea.View {
 	if m.width == 0 || m.height == 0 {
 		return tea.NewView("loading...")
+	}
+
+	now := m.clockNow()
+	if m.cachedViewOK && !m.renderDirty && (m.nextRenderAt.IsZero() || now.Before(m.nextRenderAt)) {
+		return m.cachedView
 	}
 
 	targetWidth := max(m.width, 1)
@@ -40,10 +52,14 @@ func (m *Model) View() tea.View {
 
 	status := m.renderStatus()
 	m.footerHeight = max(1, countLines(status))
-	m.updatePreviewDimensions(m.filteredSessionCount())
+	// Compute the filtered/sorted wall once per frame; layout sizing, card
+	// rendering, and cursor selection all reuse this slice instead of
+	// re-filtering and re-sorting per call.
+	visible := m.filteredSessions()
+	m.updatePreviewDimensions(len(visible))
 
 	availableHeight := max(0, targetHeight-headerHeight-m.footerHeight)
-	gridContent := m.renderSessionPreviews(headerHeight)
+	gridContent := m.renderSessionCards(visible)
 	if gridContent == "" {
 		m.resetPageScroll()
 		gridContent = emptyStateView(targetWidth, availableHeight)
@@ -84,6 +100,15 @@ func (m *Model) View() tea.View {
 	content := tea.NewView(zone.Scan(view))
 	content.AltScreen = true
 	content.MouseMode = tea.MouseModeCellMotion
+
+	m.cachedView = content
+	m.cachedViewOK = true
+	m.renderDirty = false
+	m.renderBuilds++
+	// A rebuild can consume a passed time transition on a clean message (the
+	// armed tick may still be in flight); recompute so the cache is not
+	// treated as permanently expired. Ticks are armed only from Update.
+	m.nextRenderAt = m.computeNextRenderTransition(now)
 	return content
 }
 

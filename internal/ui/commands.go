@@ -3,6 +3,7 @@ package ui
 
 import (
 	"context"
+	"os"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -11,8 +12,10 @@ import (
 )
 
 // fetchSnapshotCmd captures the current tmux snapshot or returns an error
-// message when it fails.
-func fetchSnapshotCmd(client *tmux.Client, runtime RuntimeSource) tea.Cmd {
+// message when it fails. Runtime cards deliberately stay off this path: they
+// load on their own cadence (fetchRuntimeCardsCmd) and merge from cache, so a
+// slow runtime script can never stretch the structural snapshot cadence.
+func fetchSnapshotCmd(client *tmux.Client) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -20,7 +23,17 @@ func fetchSnapshotCmd(client *tmux.Client, runtime RuntimeSource) tea.Cmd {
 		if err != nil {
 			return errMsg{err: err}
 		}
-		return snapshotMsg{snapshot: AppendOpenClawRuntimeSessions(snap, runtime)}
+		return snapshotMsg{snapshot: snap}
+	}
+}
+
+// fetchRuntimeCardsCmd loads OpenClaw runtime cards asynchronously. Load
+// failures already materialize as a source-error card inside
+// openClawRuntimeSessions, so this command never returns errMsg.
+func fetchRuntimeCardsCmd(source RuntimeSource) tea.Cmd {
+	return func() tea.Msg {
+		now := time.Now()
+		return runtimeCardsMsg{sessions: openClawRuntimeSessions(source, now), loadedAt: now}
 	}
 }
 
@@ -29,6 +42,75 @@ func scheduleTick(interval time.Duration) tea.Cmd {
 	return tea.Tick(interval, func(time.Time) tea.Msg {
 		return tickMsg{}
 	})
+}
+
+// scheduleRuntimeTick re-arms the runtime-card refresh loop.
+func scheduleRuntimeTick(interval time.Duration) tea.Cmd {
+	if interval <= 0 {
+		interval = runtimeCardInterval
+	}
+	return tea.Tick(interval, func(time.Time) tea.Msg {
+		return runtimeTickMsg{}
+	})
+}
+
+// fastCaptureSignalsDirty reports whether any watched pane-log signal differs
+// from its recorded state. A path whose stat fails while its recorded state is
+// already statErr is known-bad, not a change; a successful stat over a statErr
+// record is a change (the log came back).
+func fastCaptureSignalsDirty(signals []fastCaptureSignal) bool {
+	for _, signal := range signals {
+		info, err := os.Stat(signal.path)
+		if err != nil {
+			if signal.statErr {
+				continue
+			}
+			return true
+		}
+		if signal.statErr || !signal.seen || info.Size() != signal.size || !info.ModTime().Equal(signal.modTime) {
+			return true
+		}
+	}
+	return false
+}
+
+// scheduleFastCaptureWatch watches the given pane-log signals off the update
+// loop. It always sleeps one sweep interval before checking, so it can never
+// deliver messages faster than the sweep rate: a stale or non-dispatchable
+// signal throttles the loop instead of spinning it.
+func scheduleFastCaptureWatch(signals []fastCaptureSignal, fallback, deadline time.Duration) tea.Cmd {
+	if fallback <= 0 {
+		fallback = fastCaptureIdleTick
+	}
+	if deadline <= 0 {
+		deadline = fastCaptureIdleTick
+	}
+	return func() tea.Msg {
+		if len(signals) == 0 {
+			time.Sleep(fallback)
+			return fastTickMsg{}
+		}
+		end := time.Now().Add(deadline)
+		for {
+			time.Sleep(fastCaptureInterval)
+			if fastCaptureSignalsDirty(signals) {
+				return fastTickMsg{}
+			}
+			if time.Now().After(end) {
+				return fastTickMsg{}
+			}
+		}
+	}
+}
+
+func scheduleFastCaptureTick(interval time.Duration) tea.Cmd {
+	if interval <= 0 {
+		interval = fastCaptureInterval
+	}
+	return func() tea.Msg {
+		time.Sleep(interval)
+		return fastTickMsg{}
+	}
 }
 
 // emitMsg replays the provided message during the next update cycle.

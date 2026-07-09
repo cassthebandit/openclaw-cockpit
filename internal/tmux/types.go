@@ -108,9 +108,14 @@ type CockpitMeta struct {
 	EvidencePath         string `json:",omitempty"`
 	HoldReason           string `json:",omitempty"`
 	WhyHeadless          string `json:",omitempty"`
+	PaneLog              string `json:",omitempty"`
 	ProgressPath         string `json:",omitempty"`
 	EndReason            string `json:",omitempty"`
 	RouteFailure         string `json:",omitempty"`
+	TeardownMarkedAt     string `json:",omitempty"`
+	TeardownReason       string `json:",omitempty"`
+	JanitorState         string `json:",omitempty"`
+	LastMeaningfulAt     string `json:",omitempty"`
 }
 
 // HasData reports whether any cockpit metadata field is populated.
@@ -164,9 +169,14 @@ func (m CockpitMeta) HasData() bool {
 		strings.TrimSpace(m.EvidencePath) != "" ||
 		strings.TrimSpace(m.HoldReason) != "" ||
 		strings.TrimSpace(m.WhyHeadless) != "" ||
+		strings.TrimSpace(m.PaneLog) != "" ||
 		strings.TrimSpace(m.ProgressPath) != "" ||
 		strings.TrimSpace(m.EndReason) != "" ||
-		strings.TrimSpace(m.RouteFailure) != ""
+		strings.TrimSpace(m.RouteFailure) != "" ||
+		strings.TrimSpace(m.TeardownMarkedAt) != "" ||
+		strings.TrimSpace(m.TeardownReason) != "" ||
+		strings.TrimSpace(m.JanitorState) != "" ||
+		strings.TrimSpace(m.LastMeaningfulAt) != ""
 }
 
 // DisplayOnly reports metadata that was manually adopted for visibility but

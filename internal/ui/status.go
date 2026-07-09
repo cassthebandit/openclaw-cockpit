@@ -51,6 +51,13 @@ func (m *Model) buildStatusLine(width int) string {
 			Render(timeline))
 	}
 
+	if janitor := m.janitorStatusLine(width); janitor != "" {
+		lines = append(lines, lipgloss.NewStyle().
+			Foreground(lipgloss.Color("250")).
+			Padding(0, 2).
+			Render(janitor))
+	}
+
 	if m.paneParseWarnings > 0 {
 		warning := fmt.Sprintf("warning: %d pane row(s) hidden due to tmux parse errors", m.paneParseWarnings)
 		lines = append(lines, lipgloss.NewStyle().

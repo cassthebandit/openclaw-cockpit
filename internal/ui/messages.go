@@ -19,7 +19,7 @@ func (m *Model) showToast(msg string) {
 		m.toast = &toastState{}
 	}
 	m.toast.text = msg
-	m.toast.exp = time.Now().Add(3 * time.Second)
+	m.toast.exp = m.clockNow().Add(3 * time.Second)
 }
 
 // toastView renders the toast centred on the footer or returns an empty string
@@ -28,7 +28,7 @@ func (m *Model) toastView(width int) string {
 	if m.toast == nil || m.toast.text == "" {
 		return ""
 	}
-	if time.Now().After(m.toast.exp) {
+	if !m.clockNow().Before(m.toast.exp) {
 		m.toast.text = ""
 		return ""
 	}

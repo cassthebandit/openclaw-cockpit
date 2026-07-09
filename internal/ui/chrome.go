@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
@@ -43,7 +42,7 @@ func renderTitleBar(m *Model, width int) string {
 
 	metaParts := []string{m.titleSummary()}
 	if !m.lastUpdated.IsZero() {
-		metaParts = append(metaParts, fmt.Sprintf("refreshed %s ago", coarseDuration(time.Since(m.lastUpdated))))
+		metaParts = append(metaParts, fmt.Sprintf("refreshed %s ago", coarseDuration(m.clockNow().Sub(m.lastUpdated))))
 	}
 	if m.focusedSession != "" {
 		metaParts = append(metaParts, "focus "+m.focusedSession)

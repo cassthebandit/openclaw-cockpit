@@ -26,11 +26,13 @@ var (
 )
 
 func (m *Model) tabTitles() []string {
-	sessions := m.filteredSessionsFull()
-	titles := make([]string, 1, len(sessions)+1)
-	titles[0] = "Pulse"
 	m.tabSessionIDs = m.tabSessionIDs[:0]
 	if m.organized {
+		// Organized mode renders no per-session tabs, so the filtered slice
+		// is never consumed here; skipping it avoids a full filter+classify+
+		// sort pass on every frame (F7).
+		titles := make([]string, 1, 2)
+		titles[0] = "Pulse"
 		if m.viewMode == viewModeDetail && m.detailSession != "" {
 			if session, ok := m.sessionByID(m.detailSession); ok {
 				label := session.Name
@@ -43,6 +45,9 @@ func (m *Model) tabTitles() []string {
 		}
 		return titles
 	}
+	sessions := m.filteredSessionsFull()
+	titles := make([]string, 1, len(sessions)+1)
+	titles[0] = "Pulse"
 	for _, session := range sessions {
 		label := session.Name
 		if label == "" {
@@ -253,6 +258,7 @@ func (m *Model) clearCollapsed() {
 // "expanded when non-empty" falls out of a plain expanded default.
 var defaultExpandedGroups = map[string]struct{}{
 	groupActiveAgents.name:        {},
+	groupHeldAgents.name:          {},
 	groupInactiveAgents.name:      {},
 	groupFailedAgents.name:        {},
 	groupOperationalFailures.name: {},

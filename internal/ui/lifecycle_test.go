@@ -48,6 +48,19 @@ const (
 ────────────────────────────────────────────────────── cd-slice5d-fable-build ──
 ❯ `
 
+	fableSauteedIdleFinished = `● Delivered the numbering spec.
+
+✻ Sautéed for 15m 37s
+
+────────────────────────────────────────────────────── cd-slice6-numbering ──
+❯ `
+
+	fableCrunchedIdleFinished = `● Parent review packet is ready.
+
+✻ Crunched for 13m 43s
+
+│ › `
+
 	geminiIdleFinished = `✦ Completed the refactor across 3 files and verified the build.
 
   Completed in 1m 45s
@@ -92,6 +105,8 @@ func TestScreenIsIdleFinishedPositives(t *testing.T) {
 		"claude":            claudeIdleFinished,
 		"fable":             fableIdleFinished,
 		"fable baked ready": fableBakedReadyForParentReview,
+		"fable sauteed":     fableSauteedIdleFinished,
+		"fable crunched":    fableCrunchedIdleFinished,
 		"gemini":            geminiIdleFinished,
 		"agy":               agyIdleFinished,
 	}
@@ -263,6 +278,40 @@ func TestLifecycleOperatorPromptBeatsCompletion(t *testing.T) {
 	}
 }
 
+func TestLifecycleStaleOperatorMentionDoesNotBeatBottomCompletion(t *testing.T) {
+	t.Parallel()
+
+	session := agentSessionForGroup("stale-operator-mention", "running")
+	pane := &session.Windows[0].Panes[0]
+	pane.PreviewText = "Would you like to proceed?\n" + strings.Repeat("working\n", 20) + fableCrunchedIdleFinished
+
+	if got := sessionAttentionState(nil, session); got != "delivered-idle" {
+		t.Fatalf("sessionAttentionState() = %q, want delivered-idle", got)
+	}
+}
+
+func TestLifecycleNumberedPlanIsNotOperatorPrompt(t *testing.T) {
+	t.Parallel()
+
+	session := agentSessionForGroup("numbered-plan", "running")
+	session.Windows[0].Panes[0].PreviewText = "Implementation plan:\n1. Read files\n2. Patch tests\n3. Run checks\n› "
+
+	if got := sessionAttentionState(nil, session); got != "running" {
+		t.Fatalf("sessionAttentionState() = %q, want running", got)
+	}
+}
+
+func TestLifecycleNumberedMenuWithPromptIsOperatorPrompt(t *testing.T) {
+	t.Parallel()
+
+	session := agentSessionForGroup("numbered-menu", "running")
+	session.Windows[0].Panes[0].PreviewText = "Choose an option:\n1. Approve\n2. Reject\n> "
+
+	if got := sessionAttentionState(nil, session); got != "awaiting-operator" {
+		t.Fatalf("sessionAttentionState() = %q, want awaiting-operator", got)
+	}
+}
+
 func TestLifecycleAvoidsLoosePlanAndFailedMarkers(t *testing.T) {
 	t.Parallel()
 
@@ -308,7 +357,7 @@ func TestDeadHeldAgentRoutesToCompleted(t *testing.T) {
 	if got := sessionAttentionState(nil, session); got != "held" {
 		t.Fatalf("sessionAttentionState() = %q, want held", got)
 	}
-	if got := cockpitGroupFor(nil, session).name; got != groupInactiveAgents.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupInactiveAgents.name)
+	if got := cockpitGroupFor(nil, session).name; got != groupHeldAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupHeldAgents.name)
 	}
 }

@@ -41,3 +41,18 @@ func TestParseUnixInvalid(t *testing.T) {
 		t.Fatal("parseUnix expected error for invalid input")
 	}
 }
+
+func TestAcceptedPaneFieldCountIncludesJanitorMetadata(t *testing.T) {
+	t.Parallel()
+
+	for _, count := range []int{14, 33, 37, 41, 42} {
+		if !acceptedPaneFieldCount(count) {
+			t.Fatalf("field count %d should be accepted", count)
+		}
+	}
+	for _, count := range []int{13, 36, 40, 43} {
+		if acceptedPaneFieldCount(count) {
+			t.Fatalf("field count %d should be rejected", count)
+		}
+	}
+}

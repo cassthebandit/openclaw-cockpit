@@ -30,8 +30,11 @@ var (
 	// ansiCSI matches CSI escape sequences (colours, cursor movement).
 	ansiCSI = regexp.MustCompile("\x1b\\[[0-9;:?]*[ -/]*[@-~]")
 	// ansiOSC matches OSC sequences terminated by BEL or ST.
-	ansiOSC    = regexp.MustCompile("\x1b\\][^\x07\x1b]*(?:\x07|\x1b\\\\)")
-	failedWord = regexp.MustCompile(`(?m)\bFAILED\b`)
+	ansiOSC                 = regexp.MustCompile("\x1b\\][^\x07\x1b]*(?:\x07|\x1b\\\\)")
+	failedWord              = regexp.MustCompile(`(?m)\bFAILED\b`)
+	durationCompletionShape = regexp.MustCompile(`(?i)\b[\pL]+(?:ed|n)\s+for\s+\d+\s*(?:s|m|h|d|sec|secs|second|seconds|min|mins|minute|minutes|hr|hrs|hour|hours)\b`)
+	numberedChoiceShape     = regexp.MustCompile(`(?m)^\s*(?:[1-9][0-9]*[\.)]\s+|[❯>]\s*[1-9][0-9]*\b)`)
+	operatorDecisionShape   = regexp.MustCompile(`(?m)\b[1-9][0-9]*\.\s*(approve|reject|deny|edit|allow)\b`)
 )
 
 // idleFinishedActiveMarkers veto an idle-finished verdict: if any appear in the
@@ -91,6 +94,9 @@ var idleFinishedCompletionMarkers = []string{
 	"cooked for ",
 	"brewed for ",
 	"baked for ",
+	"sautéed for ",
+	"sauteed for ",
+	"crunched for ",
 	"ran for ",
 	"done in ",
 	"completed in ",
@@ -266,7 +272,11 @@ func paneLifecycleVerdictFor(pane tmux.Pane, agentLike bool) paneLifecycleVerdic
 	if containsAny(lowered, idleFinishedActiveMarkers...) {
 		return paneLifecycleVerdict{state: "live-working", confidence: 85, reasons: []string{"active-marker"}}
 	}
-	if containsAny(lowered, lifecycleOperatorMarkers...) {
+	operatorTail := tail
+	if len(operatorTail) > 12 {
+		operatorTail = operatorTail[len(operatorTail)-12:]
+	}
+	if hasOperatorPrompt(operatorTail) {
 		return paneLifecycleVerdict{state: "awaiting-operator", confidence: 80, reasons: []string{"operator-marker"}}
 	}
 	if hasIdlePromptMarkerFor(tail, lowered, paneHasAgentIdentity(pane)) && hasCompletionMarkerFor(lowered, paneHasAgentIdentity(pane)) {
@@ -336,7 +346,7 @@ func screenIsIdleFinished(text string) bool {
 	if !hasIdlePromptMarker(tail, lowered) {
 		return false
 	}
-	return containsAny(lowered, idleFinishedCompletionMarkers...)
+	return hasCompletionMarkerFor(lowered, true)
 }
 
 func hasIdlePromptMarker(tail []string, lowered string) bool {
@@ -364,13 +374,16 @@ func hasIdlePromptMarkerFor(tail []string, lowered string, allowBarePrompt bool)
 
 func hasCompletionMarkerFor(lowered string, managed bool) bool {
 	if managed {
-		return containsAny(lowered, idleFinishedCompletionMarkers...)
+		return containsAny(lowered, idleFinishedCompletionMarkers...) || durationCompletionShape.MatchString(lowered)
 	}
 	for _, marker := range []string{
 		"worked for ",
 		"cooked for ",
 		"brewed for ",
 		"baked for ",
+		"sautéed for ",
+		"sauteed for ",
+		"crunched for ",
 		"goal achieved",
 		"goal complete",
 		"task complete",
@@ -383,6 +396,21 @@ func hasCompletionMarkerFor(lowered string, managed bool) bool {
 		}
 	}
 	return false
+}
+
+func hasOperatorPrompt(tail []string) bool {
+	lowered := strings.ToLower(strings.Join(tail, "\n"))
+	if lowered == "" {
+		return false
+	}
+	if containsAny(lowered, lifecycleOperatorMarkers...) {
+		return true
+	}
+	menuPhrases := []string{"choose an option", "select an option", "what would you like to do", "press 1"}
+	if containsAny(lowered, menuPhrases...) && numberedChoiceShape.MatchString(lowered) {
+		return true
+	}
+	return operatorDecisionShape.MatchString(lowered)
 }
 
 func hasErrorMarker(lowered string) bool {

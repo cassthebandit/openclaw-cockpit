@@ -42,8 +42,13 @@ func resizePreviewViewport(preview *sessionPreview, width, height int) {
 
 // renderSessionPreviews lays out each visible session card with consistent
 // sizing and mouse hit-test metadata.
-func (m *Model) renderSessionPreviews(offset int) string {
-	sessions := m.filteredSessions()
+func (m *Model) renderSessionPreviews(int) string {
+	return m.renderSessionCards(m.filteredSessions())
+}
+
+// renderSessionCards renders the card wall for an already filtered/sorted
+// session list, letting View reuse one computation per frame.
+func (m *Model) renderSessionCards(sessions []tmux.Session) string {
 	m.cardLayout = m.cardLayout[:0]
 	m.groupZones = m.groupZones[:0]
 	m.cardTopLine = make(map[string]int)
@@ -61,7 +66,7 @@ func (m *Model) renderSessionPreviews(offset int) string {
 	}
 
 	cols := max(1, m.cardCols)
-	m.ensureCursor(m.gridSessions())
+	m.ensureCursor(m.gridSessionsFrom(sessions))
 	baseStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(borderColorBase)).
@@ -76,7 +81,7 @@ func (m *Model) renderSessionPreviews(offset int) string {
 	currentRow := make([]string, 0, cols)
 	currentRowIDs := make([]string, 0, cols)
 	lineCursor := 0
-	now := time.Now()
+	now := m.clockNow()
 	groupCounts := sessionGroupCounts(m, sessions)
 	groupHeights := m.cardBodyHeightsByGroup(sessions)
 	currentGroup := ""
@@ -235,7 +240,7 @@ func (m *Model) renderSessionPreviews(offset int) string {
 		}
 		infoLines := []string{}
 		if !m.isCollapsed(session.ID) {
-			infoLines = cockpitCardInfoLines(innerWidth, m, session, pane, sessionState)
+			infoLines = cockpitCardInfoLines(innerWidth, m, session, pane, sessionState, now)
 		}
 		viewportHeight := bodyBudget
 		if len(infoLines) > 0 {
@@ -246,7 +251,7 @@ func (m *Model) renderSessionPreviews(offset int) string {
 		}
 		resizePreviewViewport(preview, innerWidth, viewportHeight)
 
-		header := lipgloss.NewStyle().Render(formatHeader(innerWidth, session, window, pane, focused, pulsing, stale, cursor, sessionState, controls, m.hostname))
+		header := lipgloss.NewStyle().Render(formatHeader(now, innerWidth, session, window, pane, focused, pulsing, stale, cursor, sessionState, controls, m.hostname))
 		body := preview.viewport.View()
 		if m.isCollapsed(session.ID) {
 			body = ""
@@ -272,7 +277,9 @@ func (m *Model) renderSessionPreviews(offset int) string {
 			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorBlocked))
 		case state == "waiting":
 			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorWaiting))
-		case currentGroup == groupInactiveAgents.name && (state == "done" || state == "pass" || state == "signal" || state == "idle-finished" || state == "terminal-done" || state == "delivered-idle"):
+		case currentGroup == groupInactiveAgents.name && (state == "done" || state == "pass" || state == "signal" || state == "idle-finished" || state == "terminal-done" || state == "delivered-idle" || state == "marked-for-teardown"):
+			borderStyle = borderStyle.BorderForeground(lipgloss.Color(groupColorInactive))
+		case state == "marked-for-teardown":
 			borderStyle = borderStyle.BorderForeground(lipgloss.Color(groupColorInactive))
 		case state == "done" || state == "pass" || state == "signal":
 			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorExitOK))
@@ -577,6 +584,8 @@ func bodyHeightConstraintForGroup(group cockpitGroup) bodyHeightConstraint {
 	switch group.name {
 	case groupActiveAgents.name:
 		return bodyHeightConstraint{min: 12, max: 64, weight: 8}
+	case groupHeldAgents.name:
+		return bodyHeightConstraint{min: 8, max: 32, weight: 5}
 	case groupInactiveAgents.name:
 		return bodyHeightConstraint{min: 8, max: 32, weight: 5}
 	case groupFailedAgents.name:
@@ -614,7 +623,12 @@ func sessionGroupCounts(m *Model, sessions []tmux.Session) map[string]int {
 // Card rendering and cursor navigation both use this so a collapsed group's
 // cards are neither drawn nor selectable, while its divider still shows.
 func (m *Model) gridSessions() []tmux.Session {
-	sessions := m.filteredSessions()
+	return m.gridSessionsFrom(m.filteredSessions())
+}
+
+// gridSessionsFrom applies the collapsed-group filter to an already computed
+// filtered session list.
+func (m *Model) gridSessionsFrom(sessions []tmux.Session) []tmux.Session {
 	if !m.organized || m.viewMode != viewModeOverview {
 		return sessions
 	}
@@ -718,6 +732,8 @@ func groupAccentColor(group cockpitGroup) string {
 	switch group.name {
 	case groupActiveAgents.name:
 		return groupColorActive
+	case groupHeldAgents.name:
+		return groupColorInactive
 	case groupInactiveAgents.name:
 		return groupColorInactive
 	case groupFailedAgents.name:
@@ -735,21 +751,21 @@ func groupAccentColor(group cockpitGroup) string {
 
 // formatHeader builds the label line for a session card, colouring it based on
 // status and focus state.
-func formatHeader(width int, session tmux.Session, window tmux.Window, pane tmux.Pane, focused, pulsing, stale, cursor bool, attentionState string, controls string, host string) string {
+func formatHeader(now time.Time, width int, session tmux.Session, window tmux.Window, pane tmux.Pane, focused, pulsing, stale, cursor bool, attentionState string, controls string, host string) string {
 	var meta []string
 	hasDoneTiming := false
 	if pane.Dead {
 		meta = append(meta, pane.StatusString())
 	}
 	if !pane.LastActivity.IsZero() {
-		meta = append(meta, fmt.Sprintf("last %s", coarseDuration(time.Since(pane.LastActivity))))
+		meta = append(meta, fmt.Sprintf("last %s", coarseDuration(now.Sub(pane.LastActivity))))
 	}
 	if pane.Cockpit != nil {
 		if doneAt := parseCockpitTimestamp(pane.Cockpit.CompletedAt); !doneAt.IsZero() {
-			meta = append(meta, fmt.Sprintf("done %s", coarseDuration(time.Since(doneAt))))
+			meta = append(meta, fmt.Sprintf("done %s", coarseDuration(now.Sub(doneAt))))
 			hasDoneTiming = true
 		} else if startedAt := parseCockpitTimestamp(pane.Cockpit.StartedAt); !startedAt.IsZero() {
-			meta = append(meta, fmt.Sprintf("launched %s", coarseDuration(time.Since(startedAt))))
+			meta = append(meta, fmt.Sprintf("launched %s", coarseDuration(now.Sub(startedAt))))
 		}
 	}
 	state := attentionState
@@ -790,6 +806,8 @@ func formatHeader(width int, session tmux.Session, window tmux.Window, pane tmux
 	case state == "blocked" || state == "review":
 		style = style.Foreground(lipgloss.Color(headerColorBlocked))
 	case state == "waiting":
+		style = style.Foreground(lipgloss.Color(headerColorWaiting))
+	case state == "marked-for-teardown":
 		style = style.Foreground(lipgloss.Color(headerColorWaiting))
 	case state == "done" || state == "pass" || state == "signal":
 		style = style.Foreground(lipgloss.Color(headerColorExitOK))
@@ -837,7 +855,7 @@ func renderCardBodyBlock(width int, body string, preserveAgentCLIColors bool) st
 
 func agentCLIColorPassthroughGroup(groupName string) bool {
 	switch groupName {
-	case groupActiveAgents.name, groupInactiveAgents.name, groupFailedAgents.name:
+	case groupActiveAgents.name, groupHeldAgents.name, groupInactiveAgents.name, groupFailedAgents.name:
 		return true
 	default:
 		return false
@@ -950,6 +968,13 @@ func cockpitStateWithModel(m *Model, pane tmux.Pane, stale bool) string {
 		if pane.Cockpit.DisplayOnly() && pane.Dead {
 			return "done"
 		}
+		switch strings.ToLower(strings.TrimSpace(pane.Cockpit.JanitorState)) {
+		case "marked_for_teardown", "cleanup_pending":
+			return "marked-for-teardown"
+		}
+		if strings.TrimSpace(pane.Cockpit.TeardownMarkedAt) != "" {
+			return "marked-for-teardown"
+		}
 		state := strings.ToLower(strings.TrimSpace(pane.Cockpit.State))
 		if pane.Dead {
 			switch state {
@@ -975,7 +1000,7 @@ func sessionCockpitState(m *Model, session tmux.Session, pane tmux.Pane, stale b
 	return cockpitStateWithModel(m, pane, stale)
 }
 
-func cockpitInfoLines(width int, pane tmux.Pane) []string {
+func cockpitInfoLines(width int, pane tmux.Pane, now time.Time) []string {
 	if pane.Cockpit == nil {
 		return nil
 	}
@@ -984,18 +1009,18 @@ func cockpitInfoLines(width int, pane tmux.Pane) []string {
 	if goal != "" {
 		lines = append(lines, cockpitSubtleLine(width, "goal: "+goal))
 	}
-	if cleanup := cockpitCleanupLine(pane); cleanup != "" {
+	if cleanup := cockpitCleanupLine(pane, now); cleanup != "" {
 		lines = append(lines, cockpitSubtleLine(width, cleanup))
 	}
 	return lines
 }
 
-func cockpitCardInfoLines(width int, m *Model, session tmux.Session, pane tmux.Pane, sessionState string) []string {
+func cockpitCardInfoLines(width int, m *Model, session tmux.Session, pane tmux.Pane, sessionState string, now time.Time) []string {
 	lines := []string{}
 	if attention := cockpitAttentionLine(width, m, session, pane, sessionState); attention != "" {
 		lines = append(lines, attention)
 	}
-	lines = append(lines, cockpitInfoLines(width, pane)...)
+	lines = append(lines, cockpitInfoLines(width, pane, now)...)
 	if m != nil &&
 		m.viewMode == viewModeDetail &&
 		m.detailSession == session.ID &&
@@ -1032,12 +1057,18 @@ func attentionStateLabel(state string) string {
 	if state == "idle-finished" {
 		return "finished · awaiting review"
 	}
+	if state == "marked-for-teardown" {
+		return "marked for teardown"
+	}
+	if state == "awaiting-operator" {
+		return "waiting on operator"
+	}
 	return state
 }
 
 func compactFinishedBody(width int, body string, state string, maxLines int) string {
 	switch state {
-	case "done", "held", "stale", "failed", "route-fail", "safety-fail", "review", "pass", "signal", "directional", "null-safe", "idle-finished":
+	case "done", "held", "stale", "failed", "route-fail", "safety-fail", "review", "pass", "signal", "directional", "null-safe", "idle-finished", "marked-for-teardown":
 	default:
 		return body
 	}
@@ -1094,7 +1125,7 @@ func trimTrailingBlankLines(lines []string) []string {
 	return append([]string{}, lines[:end]...)
 }
 
-func cockpitCleanupLine(pane tmux.Pane) string {
+func cockpitCleanupLine(pane tmux.Pane, now time.Time) string {
 	if pane.Cockpit == nil {
 		return ""
 	}
@@ -1107,7 +1138,24 @@ func cockpitCleanupLine(pane tmux.Pane) string {
 		parts = append(parts, "ttl: "+ttl)
 	}
 	if hold := strings.TrimSpace(meta.HoldReason); hold != "" {
-		parts = append(parts, "hold: "+hold)
+		parts = append(parts, "hold blocks cleanup: "+hold)
+	}
+	if marked := strings.TrimSpace(meta.TeardownMarkedAt); marked != "" {
+		label := "marked for teardown"
+		if reason := strings.TrimSpace(meta.TeardownReason); reason != "" {
+			label += ": " + reason
+		}
+		if markedAt := parseCockpitTimestamp(marked); !markedAt.IsZero() {
+			killAt := markedAt.Add(teardownKillDelay)
+			if remaining := killAt.Sub(now); remaining > 0 {
+				label += " · cleanup in " + coarseDuration(remaining)
+			} else {
+				label += " · cleanup pending"
+			}
+		}
+		parts = append(parts, label)
+	} else if strings.EqualFold(strings.TrimSpace(meta.JanitorState), "cleanup_pending") {
+		parts = append(parts, "cleanup pending")
 	}
 	if end := strings.TrimSpace(meta.EndReason); end != "" && end != "expected_exit" {
 		parts = append(parts, "end: "+end)

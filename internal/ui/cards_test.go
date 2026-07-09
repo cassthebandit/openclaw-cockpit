@@ -22,7 +22,7 @@ func TestFormatHeaderOmitsHost(t *testing.T) {
 		LastActivity: time.Now().Add(-time.Minute),
 	}
 
-	got := formatHeader(80, session, window, pane, false, false, false, false, "", "[x]", "dev-host")
+	got := formatHeader(time.Now(), 80, session, window, pane, false, false, false, false, "", "[x]", "dev-host")
 	if strings.Contains(got, "dev-host") {
 		t.Fatalf("formatHeader should omit host when title matches, got %q", got)
 	}
@@ -39,7 +39,7 @@ func TestFormatHeaderKeepsCustomTitle(t *testing.T) {
 		LastActivity: time.Now().Add(-time.Minute),
 	}
 
-	got := formatHeader(80, session, window, pane, false, false, false, false, "", "[x]", "dev-host")
+	got := formatHeader(time.Now(), 80, session, window, pane, false, false, false, false, "", "[x]", "dev-host")
 	if !strings.Contains(got, "npm run dev") {
 		t.Fatalf("formatHeader should keep custom title, got %q", got)
 	}
@@ -60,7 +60,7 @@ func TestFormatHeaderUsesCockpitMetadata(t *testing.T) {
 		},
 	}
 
-	got := formatHeader(100, session, window, pane, false, false, false, false, "", "[x]", "dev-host")
+	got := formatHeader(time.Now(), 100, session, window, pane, false, false, false, false, "", "[x]", "dev-host")
 	for _, want := range []string{"CODEX", "waiting", "workshop-4", "tmuxwatch"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("formatHeader missing %q in %q", want, got)
@@ -88,7 +88,7 @@ func TestFormatHeaderMarksDisplayOnlyMetadata(t *testing.T) {
 		},
 	}
 
-	got := formatHeader(120, session, window, pane, false, false, false, false, "", "[x]", "dev-host")
+	got := formatHeader(time.Now(), 120, session, window, pane, false, false, false, false, "", "[x]", "dev-host")
 	for _, want := range []string{"ADOPTED", "CLAUDE", "workshop-4", "tmuxwatch"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("formatHeader missing %q in %q", want, got)
@@ -118,7 +118,7 @@ func TestFormatHeaderUsesCompactOpenClawRuntimeHeader(t *testing.T) {
 		},
 	}
 
-	got := formatHeader(140, session, window, pane, false, false, false, false, "blocked", "[x]", "dev-host")
+	got := formatHeader(time.Now(), 140, session, window, pane, false, false, false, false, "blocked", "[x]", "dev-host")
 	for _, want := range []string{"TASKFLOW", "blocked", "backend packet", "last"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("runtime header missing %q in %q", want, got)
@@ -155,7 +155,7 @@ func TestFormatHeaderShowsGroupedRuntimeBadge(t *testing.T) {
 		},
 	}
 
-	got := formatHeader(140, session, window, pane, false, false, false, false, "failed", "[x]", "dev-host")
+	got := formatHeader(time.Now(), 140, session, window, pane, false, false, false, false, "failed", "[x]", "dev-host")
 	if !strings.Contains(got, "x4") {
 		t.Fatalf("runtime header missing grouped badge: %q", got)
 	}
@@ -207,7 +207,7 @@ func TestCardTopRowsStripWideGlyphs(t *testing.T) {
 		},
 	}
 
-	header := formatHeader(100, session, window, pane, false, false, false, false, "blocked", "[x]", "dev-host")
+	header := formatHeader(time.Now(), 100, session, window, pane, false, false, false, false, "blocked", "[x]", "dev-host")
 	goal := cockpitSubtleLine(100, "goal: "+pane.Cockpit.Goal)
 	for _, row := range []string{header, goal} {
 		if strings.ContainsAny(row, "🌧️\t") {
@@ -237,7 +237,7 @@ func TestFormatHeaderUsesServiceSessionName(t *testing.T) {
 		},
 	}
 
-	got := formatHeader(120, session, window, pane, false, false, false, false, "running", "[x]", "dev-host")
+	got := formatHeader(time.Now(), 120, session, window, pane, false, false, false, false, "running", "[x]", "dev-host")
 	for _, want := range []string{"SERVICE", "smonitor"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("formatHeader missing %q in %q", want, got)
@@ -265,7 +265,7 @@ func TestFormatHeaderTruncatesLongLabelsToSingleLine(t *testing.T) {
 		},
 	}
 
-	got := formatHeader(88, session, window, pane, false, false, false, false, "failed", "[^] [-] [x]", "dev-host")
+	got := formatHeader(time.Now(), 88, session, window, pane, false, false, false, false, "failed", "[^] [-] [x]", "dev-host")
 	if strings.Contains(got, "\n") {
 		t.Fatalf("header should stay one line, got %q", got)
 	}
@@ -301,7 +301,7 @@ func TestFormatHeaderUsesSessionAttentionState(t *testing.T) {
 	window := session.Windows[0]
 	pane := tmux.Pane{Title: "zsh"}
 
-	got := formatHeader(100, session, window, pane, false, false, false, false, "failed", "[x]", "dev-host")
+	got := formatHeader(time.Now(), 100, session, window, pane, false, false, false, false, "failed", "[x]", "dev-host")
 	if !strings.Contains(got, "failed") {
 		t.Fatalf("formatHeader should include session attention state, got %q", got)
 	}
@@ -314,7 +314,7 @@ func TestFormatHeaderDedupesServiceFallbackPartsAndStaleState(t *testing.T) {
 	window := session.Windows[0]
 	pane := tmux.Pane{Title: "AI-Alerts"}
 
-	got := formatHeader(120, session, window, pane, false, false, true, false, "quiet", "[x]", "dev-host")
+	got := formatHeader(time.Now(), 120, session, window, pane, false, false, true, false, "quiet", "[x]", "dev-host")
 	if strings.Count(got, "AI-Alerts") != 1 {
 		t.Fatalf("formatHeader should dedupe repeated service labels, got %q", got)
 	}
@@ -333,7 +333,7 @@ func TestFormatHeaderShowsCockpitLaunchTiming(t *testing.T) {
 		StartedAt: time.Now().Add(-12 * time.Minute).UTC().Format(time.RFC3339),
 	}}
 
-	got := formatHeader(120, session, window, pane, false, false, false, false, "running", "[x]", "dev-host")
+	got := formatHeader(time.Now(), 120, session, window, pane, false, false, false, false, "running", "[x]", "dev-host")
 	if !strings.Contains(got, "launched") {
 		t.Fatalf("formatHeader should show launch timing, got %q", got)
 	}
@@ -350,7 +350,7 @@ func TestFormatHeaderDoesNotDuplicateDoneStateWhenDoneTimingExists(t *testing.T)
 		CompletedAt: time.Now().Add(-3 * time.Minute).UTC().Format(time.RFC3339),
 	}}
 
-	got := formatHeader(120, session, window, pane, false, false, false, false, "done", "[x]", "dev-host")
+	got := formatHeader(time.Now(), 120, session, window, pane, false, false, false, false, "done", "[x]", "dev-host")
 	if strings.Count(got, "done") != 1 {
 		t.Fatalf("formatHeader should not duplicate done state, got %q", got)
 	}
@@ -421,8 +421,8 @@ func TestCockpitCleanupLineBoundsEvidencePath(t *testing.T) {
 		EvidencePath:  "/Users/cass/.openclaw/workspace/memory/runs/secretish/result.txt",
 	}}
 
-	got := cockpitCleanupLine(pane)
-	for _, want := range []string{"policy: kill_on_done", "ttl: 30m", "hold: review", "end: process_exit_nonzero", "progress: progress.jsonl", "evidence: result.txt"} {
+	got := cockpitCleanupLine(pane, time.Now())
+	for _, want := range []string{"policy: kill_on_done", "ttl: 30m", "hold blocks cleanup: review", "end: process_exit_nonzero", "progress: progress.jsonl", "evidence: result.txt"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("cleanup line missing %q in %q", want, got)
 		}

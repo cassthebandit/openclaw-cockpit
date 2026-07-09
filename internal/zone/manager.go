@@ -108,6 +108,20 @@ func (m *Manager) getReverse(id string) string {
 	return resolved
 }
 
+// ZoneSnapshot returns a copy of the currently scanned zones keyed by logical
+// id, for tests that assert hit-box existence and stability across frames.
+func (m *Manager) ZoneSnapshot() map[string]ZoneInfo {
+	m.zoneMu.RLock()
+	defer m.zoneMu.RUnlock()
+	out := make(map[string]ZoneInfo, len(m.zones))
+	for id, info := range m.zones {
+		if info != nil {
+			out[id] = *info
+		}
+	}
+	return out
+}
+
 func (m *Manager) Scan(v string) string {
 	scanner := newScanner(m, v, time.Now().Nanosecond())
 	scanner.run()

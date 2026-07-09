@@ -31,6 +31,13 @@ const (
 	groupCaretCollapsed   = "▸"
 	scrollStep            = 3
 	pulseDuration         = 1500 * time.Millisecond
+	// teardownKillDelay is the janitor's mark-to-kill window rendered as the
+	// cleanup countdown; scheduled render invalidation mirrors it.
+	teardownKillDelay = 5 * time.Minute
+	fastCaptureInterval   = time.Second / 60
+	fastCaptureFallback   = 250 * time.Millisecond
+	fastCaptureIdleTick   = time.Second
+	runtimeCardInterval   = 15 * time.Second
 	quitChordWindow       = 600 * time.Millisecond
 	staleThreshold        = time.Hour
 	minCaptureLines       = 80
@@ -87,7 +94,15 @@ type (
 	}
 	errMsg        struct{ err error }
 	tickMsg       struct{}
+	fastTickMsg   struct{}
 	searchBlurMsg struct{}
+	// runtimeCardsMsg delivers an asynchronously loaded OpenClaw runtime card
+	// set; loadedAt is the completion time the timeline diff should use.
+	runtimeCardsMsg struct {
+		sessions []tmux.Session
+		loadedAt time.Time
+	}
+	runtimeTickMsg struct{}
 )
 
 type sessionPreview struct {
@@ -97,6 +112,28 @@ type sessionPreview struct {
 	lastChanged time.Time
 	vars        map[string]string
 	autoFollow  bool
+	signal      outputSignalState
+}
+
+type outputSignalState struct {
+	path         string
+	size         int64
+	modTime      time.Time
+	lastFallback time.Time
+	seen         bool
+	// statErr records that the last observation of path was a failed stat, so
+	// a persistently missing pane log reads as known state instead of leaving
+	// seen false forever (which would fire the watcher on every sweep).
+	statErr bool
+}
+
+type fastCaptureSignal struct {
+	sessionID string
+	path      string
+	size      int64
+	modTime   time.Time
+	seen      bool
+	statErr   bool
 }
 
 type cardBounds struct {
@@ -192,12 +229,27 @@ type Model struct {
 	footer            *viewport.Model
 	footerHeight      int
 
-	debugMsgs   []tea.Msg
-	traceMouse  bool
-	hostname    string
-	monitorOnly bool
-	organized   bool
-	runtime     RuntimeSource
+	debugMsgs         []tea.Msg
+	traceMouse        bool
+	hostname          string
+	monitorOnly       bool
+	organized         bool
+	runtime           RuntimeSource
+	janitorStatusPath string
+	janitorStatus     janitorStatusView
+	fastCaptureActive map[string]struct{}
+
+	// Single-flight fast watcher state: fastWatchActive is true while exactly
+	// one watcher command is outstanding, and fastWatchGen counts armed
+	// watchers so tests can assert that snapshot ticks never add a lineage.
+	fastWatchActive bool
+	fastWatchGen    uint64
+
+	// runtimeSessions caches the last OpenClaw runtime card load (including
+	// the source-error card on failure) so 1s snapshots merge cards without
+	// re-running the runtime script; runtimeInflight single-flights the loads.
+	runtimeSessions []tmux.Session
+	runtimeInflight bool
 
 	timelineSeeded      bool
 	lastRuntimeTimeline runtimeTimelineSnapshot
@@ -212,6 +264,24 @@ type Model struct {
 	err         error
 	inflight    bool
 
+	// F1 frame cache: View() serves cachedView while renderDirty is false and
+	// the clock has not crossed nextRenderAt (the earliest scheduled
+	// time-based transition). renderBuilds counts full frame builds so tests
+	// and benchmarks can prove render-neutral messages skip rebuilds.
+	// armedRenderAt/renderDeadlineGen single-flight the scheduled tea.Tick:
+	// only the tick carrying the current generation may dirty the frame.
+	renderDirty       bool
+	cachedView        tea.View
+	cachedViewOK      bool
+	renderBuilds      uint64
+	nextRenderAt      time.Time
+	armedRenderAt     time.Time
+	renderDeadlineGen uint64
+
+	// clock is the injectable time source used by render and update paths so
+	// time-bin/pulse tests are deterministic; nil means time.Now.
+	clock func() time.Time
+
 	cachedStatus      string
 	paneParseWarnings int
 	lastCtrlC         time.Time
@@ -225,6 +295,10 @@ type RuntimeSource struct {
 	Script  string
 	Limit   int
 	Timeout time.Duration
+	// Interval is the runtime-card refresh cadence. Runtime cards load on
+	// their own async loop and are cache-merged into each tmux snapshot, so
+	// this bounds card staleness without touching the 1s structural cadence.
+	Interval time.Duration
 }
 
 // SetPreferredColumns caps the overview grid at a caller-selected column
@@ -250,11 +324,25 @@ func (m *Model) SetOpenClawRuntimeSource(script string, limit int, timeout time.
 		timeout = 10 * time.Second
 	}
 	m.runtime = RuntimeSource{
-		Enabled: true,
-		Script:  strings.TrimSpace(script),
-		Limit:   limit,
-		Timeout: timeout,
+		Enabled:  true,
+		Script:   strings.TrimSpace(script),
+		Limit:    limit,
+		Timeout:  timeout,
+		Interval: runtimeCardInterval,
 	}
+}
+
+// SetOpenClawRuntimeInterval overrides the runtime-card refresh cadence.
+func (m *Model) SetOpenClawRuntimeInterval(interval time.Duration) {
+	if interval > 0 {
+		m.runtime.Interval = interval
+	}
+}
+
+// SetJanitorStatusFile points the UI at the Python janitor's status sidecar.
+func (m *Model) SetJanitorStatusFile(path string) {
+	m.janitorStatusPath = strings.TrimSpace(path)
+	m.refreshJanitorStatus()
 }
 
 // sessionLabel strips leading sigils from tmux session identifiers for
@@ -297,6 +385,7 @@ func NewModel(client *tmux.Client, poll time.Duration, captureBudget int, debugM
 		artifactProbes:    make(map[string]artifactOutcomeProbe),
 		lifecycleVerdicts: make(map[string]paneLifecycleVerdict),
 		classifyCache:     make(map[string]*sessionClassification),
+		fastCaptureActive: make(map[string]struct{}),
 		cardTopLine:       make(map[string]int),
 		cardLineHeight:    make(map[string]int),
 		searchInput:       ti,
@@ -306,6 +395,7 @@ func NewModel(client *tmux.Client, poll time.Duration, captureBudget int, debugM
 		cardInnerWidth:    20,
 		cardInnerHeight:   minPreviewHeight,
 		inflight:          true,
+		renderDirty:       true,
 		previewOffset:     topPaddingLines,
 		debugMsgs:         append([]tea.Msg(nil), debugMsgs...),
 		traceMouse:        traceMouse,
@@ -337,8 +427,12 @@ func footerViewport() *viewport.Model {
 // Init starts the initial tmux snapshot fetch and ticking loop.
 func (m *Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{
-		fetchSnapshotCmd(m.client, m.runtime),
+		fetchSnapshotCmd(m.client),
 		scheduleTick(m.pollInterval),
+	}
+	if m.runtime.Enabled {
+		m.runtimeInflight = true
+		cmds = append(cmds, fetchRuntimeCardsCmd(m.runtime))
 	}
 	for _, msg := range m.debugMsgs {
 		cmds = append(cmds, emitMsg(msg))

@@ -8,12 +8,14 @@ import (
 	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
-// updateStaleSessions recalculates which sessions qualify as stale.
-func (m *Model) updateStaleSessions() {
-	for k := range m.stale {
-		delete(m.stale, k)
-	}
-	now := time.Now()
+// updateStaleSessions recalculates which sessions qualify as stale and
+// reports whether the stale set changed. The stale set is a cross-session
+// classification input, so callers use the report to pick between global and
+// per-session classification invalidation.
+func (m *Model) updateStaleSessions() bool {
+	previous := m.stale
+	next := make(map[string]struct{}, len(previous))
+	now := m.clockNow()
 	for _, session := range m.sessions {
 		if sessionHasOpenClawRuntime(session) {
 			continue
@@ -22,7 +24,7 @@ func (m *Model) updateStaleSessions() {
 			continue
 		}
 		if sessionAllPanesDead(session) {
-			m.stale[session.ID] = struct{}{}
+			next[session.ID] = struct{}{}
 			continue
 		}
 		last := m.sessionActivity(session)
@@ -30,9 +32,19 @@ func (m *Model) updateStaleSessions() {
 			continue
 		}
 		if now.Sub(last) >= staleThreshold {
-			m.stale[session.ID] = struct{}{}
+			next[session.ID] = struct{}{}
 		}
 	}
+	m.stale = next
+	if len(next) != len(previous) {
+		return true
+	}
+	for id := range next {
+		if _, ok := previous[id]; !ok {
+			return true
+		}
+	}
+	return false
 }
 
 // isStale reports whether the provided session identifier is marked stale.

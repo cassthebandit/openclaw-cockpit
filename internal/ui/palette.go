@@ -107,7 +107,7 @@ func (m *Model) buildCommandItems() []commandItem {
 		enabled: true,
 		run: func(*Model) tea.Cmd {
 			m.inflight = true
-			return fetchSnapshotCmd(m.client, m.runtime)
+			return fetchSnapshotCmd(m.client)
 		},
 	})
 

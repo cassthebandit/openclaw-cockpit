@@ -17,23 +17,25 @@ var (
 	// (starting/running/waiting/blocked/review), plus prompt/approval screens
 	// that can continue when answered.
 	groupActiveAgents = cockpitGroup{name: "Active Agents", rank: 0}
-	// Rank 1 — alive or held agent panes that are no longer doing work.
-	groupInactiveAgents = cockpitGroup{name: "Inactive Agents", rank: 1}
-	// Rank 2 — failed/problem agent panes.
-	groupFailedAgents = cockpitGroup{name: "Failed Agents", rank: 2}
+	// Rank 1 — held agent panes that are cleanup-blocked by an explicit hold.
+	groupHeldAgents = cockpitGroup{name: "Held / Teardown Blocked", rank: 1}
+	// Rank 2 — cleanup-bound agent panes waiting for the Python janitor.
+	groupInactiveAgents = cockpitGroup{name: "Marked For Teardown", rank: 2}
+	// Rank 3 — failed/problem agent panes.
+	groupFailedAgents = cockpitGroup{name: "Failed Agents", rank: 3}
 	// Rank 3 — workflow/runtime failures that need operator judgment.
-	groupOperationalFailures = cockpitGroup{name: "Operational Failures", rank: 3}
+	groupOperationalFailures = cockpitGroup{name: "Operational Failures", rank: 4}
 	// Rank 4 — platform, route, skeleton, or source-health failures.
-	groupSubsystemFailures = cockpitGroup{name: "Sub-System Failures", rank: 4}
+	groupSubsystemFailures = cockpitGroup{name: "Sub-System Failures", rank: 5}
 	// Rank 5 — healthy long-running watchers/bridges/monitors.
-	groupServices = cockpitGroup{name: "Services", rank: 5}
+	groupServices = cockpitGroup{name: "Services", rank: 6}
 	// Rank 6 — completed runtime cards and non-agent held/done panes.
-	groupDoneHeld = cockpitGroup{name: "Completed Agent Runs", rank: 6}
+	groupDoneHeld = cockpitGroup{name: "Completed Agent Runs", rank: 7}
 	// Rank 7+ — non-agent fallback work, self-monitoring UIs, viewers, and shells.
-	groupWork      = cockpitGroup{name: "Active Work", rank: 7}
-	groupDashboard = cockpitGroup{name: "Dashboards", rank: 8}
-	groupViewers   = cockpitGroup{name: "Viewers", rank: 9}
-	groupIdle      = cockpitGroup{name: "Idle / Unowned", rank: 10}
+	groupWork      = cockpitGroup{name: "Active Work", rank: 8}
+	groupDashboard = cockpitGroup{name: "Dashboards", rank: 9}
+	groupViewers   = cockpitGroup{name: "Viewers", rank: 10}
+	groupIdle      = cockpitGroup{name: "Idle / Unowned", rank: 11}
 )
 
 // agentNameTokens identify an agent/review session by its chrome (name, window,
@@ -70,13 +72,37 @@ func (m *Model) classifyEntry(sessionID string) *sessionClassification {
 }
 
 // invalidateClassifications drops all memoized group/attention results. Call
-// after any change to m.sessions, m.lifecycleVerdicts, m.artifactOutcomes, or
-// m.stale — the inputs the classifiers read.
+// after any cross-session change to m.sessions, m.lifecycleVerdicts,
+// m.artifactOutcomes, or m.stale — the inputs the classifiers read.
+// Classification changes can move cards between groups, reorder the wall, and
+// change attention labels, so invalidation always dirties the frame cache:
+// F6/F7 invalidation and F1 dirtiness are one accounting system.
 func (m *Model) invalidateClassifications() {
-	if m == nil || len(m.classifyCache) == 0 {
+	if m == nil {
+		return
+	}
+	m.markRenderDirty()
+	if len(m.classifyCache) == 0 {
 		return
 	}
 	clear(m.classifyCache)
+}
+
+// invalidateClassification drops one session's memoized group/attention
+// result after a change scoped to that session's own inputs (its captured
+// pane content and per-pane lifecycle verdict). Changes to cross-session
+// inputs — snapshot swaps, the stale set, artifact outcomes — must use
+// invalidateClassifications instead. Like the global form, it always dirties
+// the frame cache so F6 invalidation and F1 dirtiness cannot disagree.
+func (m *Model) invalidateClassification(sessionID string) {
+	if m == nil || sessionID == "" {
+		return
+	}
+	m.markRenderDirty()
+	if len(m.classifyCache) == 0 {
+		return
+	}
+	delete(m.classifyCache, sessionID)
 }
 
 func cockpitGroupFor(m *Model, session tmux.Session) cockpitGroup {
@@ -146,7 +172,13 @@ func computeCockpitGroupFor(m *Model, session tmux.Session) cockpitGroup {
 // and completed/held/dead-clean agents remain visible as Inactive cleanup debt.
 func agentLifecycleGroup(session tmux.Session, state string) cockpitGroup {
 	// Explicit completed/terminal states win regardless of process liveness.
-	if stateIsCompletedInfo(state) || state == "idle-finished" || state == "held" {
+	if state == "marked-for-teardown" {
+		return groupInactiveAgents
+	}
+	if stateIsCompletedInfo(state) || state == "idle-finished" || state == "marked-for-teardown" {
+		if sessionHasHold(session) || state == "held" {
+			return groupHeldAgents
+		}
 		return groupInactiveAgents
 	}
 	if state == "awaiting-operator" {
@@ -158,14 +190,31 @@ func agentLifecycleGroup(session tmux.Session, state string) cockpitGroup {
 	// A dead agent with no completed/terminal signal is finished, not live —
 	// this keeps a dead-but-"review" pane out of the active band.
 	if sessionAllPanesDead(session) {
+		if sessionHasHold(session) || state == "held" {
+			return groupHeldAgents
+		}
 		return groupInactiveAgents
 	}
 	if state == "stale" || state == "quiet" {
+		if sessionHasHold(session) || state == "held" {
+			return groupHeldAgents
+		}
 		return groupInactiveAgents
 	}
 	// Live managed agent: waiting/blocked/review and any unknown sub-state stay
 	// in the active band, never scattered.
 	return groupActiveAgents
+}
+
+func sessionHasHold(session tmux.Session) bool {
+	for _, window := range session.Windows {
+		for _, pane := range window.Panes {
+			if pane.Cockpit != nil && strings.TrimSpace(pane.Cockpit.HoldReason) != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func sessionAttentionState(m *Model, session tmux.Session) string {
@@ -202,6 +251,15 @@ func computeSessionAttentionState(m *Model, session tmux.Session) string {
 }
 
 func paneAttentionState(m *Model, session tmux.Session, pane tmux.Pane) string {
+	if pane.Cockpit != nil {
+		switch strings.ToLower(strings.TrimSpace(pane.Cockpit.JanitorState)) {
+		case "marked_for_teardown", "cleanup_pending":
+			return "marked-for-teardown"
+		}
+		if strings.TrimSpace(pane.Cockpit.TeardownMarkedAt) != "" {
+			return "marked-for-teardown"
+		}
+	}
 	if !pane.Dead {
 		var verdict paneLifecycleVerdict
 		if m != nil {
@@ -261,6 +319,12 @@ func paneAttentionState(m *Model, session tmux.Session, pane tmux.Pane) string {
 				return "stale"
 			}
 		}
+		switch strings.ToLower(strings.TrimSpace(pane.Cockpit.JanitorState)) {
+		case "protected", "cleanup_refused":
+			if strings.TrimSpace(pane.Cockpit.HoldReason) != "" {
+				return "held"
+			}
+		}
 		state := strings.ToLower(strings.TrimSpace(pane.Cockpit.State))
 		// A live managed agent TUI that has finished its work but idles at a
 		// prompt is reclassified (read-only, presentation-only) as idle-finished
@@ -295,7 +359,7 @@ func attentionRank(state string) int {
 		return 1
 	case "running", "starting":
 		return 2
-	case "done", "held", "stale", "pass", "signal", "directional", "null-safe", "idle-finished", "delivered-idle", "terminal-done":
+	case "done", "held", "stale", "pass", "signal", "directional", "null-safe", "idle-finished", "delivered-idle", "terminal-done", "marked-for-teardown":
 		return 3
 	default:
 		return 4
@@ -562,6 +626,7 @@ func orderedCockpitGroups(m *Model, sessions []tmux.Session) []cockpitGroup {
 func primaryCockpitGroups() []cockpitGroup {
 	return []cockpitGroup{
 		groupActiveAgents,
+		groupHeldAgents,
 		groupInactiveAgents,
 		groupFailedAgents,
 		groupOperationalFailures,

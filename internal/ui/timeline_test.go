@@ -321,17 +321,17 @@ func TestRuntimeTimelineDetailOnlyForSelectedRuntimeCard(t *testing.T) {
 		}},
 	}
 
-	if got := strings.Join(cockpitCardInfoLines(100, m, session, pane, ""), "\n"); strings.Contains(got, "timeline:") {
+	if got := strings.Join(cockpitCardInfoLines(100, m, session, pane, "", time.Now()), "\n"); strings.Contains(got, "timeline:") {
 		t.Fatalf("overview info lines should not render timeline detail, got %q", got)
 	}
 
 	m.viewMode = viewModeDetail
-	if got := strings.Join(cockpitCardInfoLines(100, m, session, pane, ""), "\n"); !strings.Contains(got, "timeline:") {
+	if got := strings.Join(cockpitCardInfoLines(100, m, session, pane, "", time.Now()), "\n"); !strings.Contains(got, "timeline:") {
 		t.Fatalf("selected runtime detail should render timeline detail, got %q", got)
 	}
 
 	m.detailSession = "openclaw-runtime:other"
-	if got := strings.Join(cockpitCardInfoLines(100, m, session, pane, ""), "\n"); strings.Contains(got, "timeline:") {
+	if got := strings.Join(cockpitCardInfoLines(100, m, session, pane, "", time.Now()), "\n"); strings.Contains(got, "timeline:") {
 		t.Fatalf("unselected runtime card should not render timeline detail, got %q", got)
 	}
 
@@ -342,7 +342,7 @@ func TestRuntimeTimelineDetailOnlyForSelectedRuntimeCard(t *testing.T) {
 		}},
 	}
 	m.detailSession = plain.ID
-	if got := strings.Join(cockpitCardInfoLines(100, m, plain, plain.Windows[0].Panes[0], ""), "\n"); strings.Contains(got, "timeline:") {
+	if got := strings.Join(cockpitCardInfoLines(100, m, plain, plain.Windows[0].Panes[0], "", time.Now()), "\n"); strings.Contains(got, "timeline:") {
 		t.Fatalf("non-runtime detail should not render timeline detail, got %q", got)
 	}
 }
@@ -354,7 +354,7 @@ func TestRuntimeTimelineDetailEmptyTimelineSilent(t *testing.T) {
 	pane := session.Windows[0].Panes[0]
 	m := &Model{viewMode: viewModeDetail, detailSession: session.ID}
 
-	got := strings.Join(cockpitCardInfoLines(100, m, session, pane, ""), "\n")
+	got := strings.Join(cockpitCardInfoLines(100, m, session, pane, "", time.Now()), "\n")
 	if strings.Contains(got, "timeline:") {
 		t.Fatalf("empty timeline should render no detail block, got %q", got)
 	}

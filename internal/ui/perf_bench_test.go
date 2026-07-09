@@ -2,6 +2,8 @@ package ui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -103,13 +105,16 @@ func benchWallModel(tb testing.TB, agents, runtimes int) *Model {
 }
 
 // BenchmarkViewOrganizedWall measures the full frame path — classification,
-// card render, windowing, and zone.Scan — exactly what every key/mouse event
-// pays in the live TUI.
+// card render, windowing, and zone.Scan — the cost of every DIRTY frame.
+// Each iteration force-dirties the F1 frame cache so this stays a full-rebuild
+// baseline comparable with pre-cache runs; it deliberately does not measure
+// cache hits (see BenchmarkViewMessageMixStreaming / BenchmarkViewNoopFastTicks).
 func BenchmarkViewOrganizedWall(b *testing.B) {
 	m := benchWallModel(b, 30, 8)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
+		m.markRenderDirty()
 		_ = m.View()
 	}
 }
@@ -127,6 +132,7 @@ func BenchmarkViewCollapsedGroups(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
+		m.markRenderDirty()
 		_ = m.View()
 	}
 }
@@ -142,6 +148,20 @@ func BenchmarkFilteredSessionsOrganized(b *testing.B) {
 	}
 }
 
+// BenchmarkFilteredSessionsColdCache measures the filter+classify+sort
+// pipeline from an empty classification cache — the cost a global
+// invalidation forces onto the next frame, which per-session invalidation
+// (F6) avoids for unaffected sessions.
+func BenchmarkFilteredSessionsColdCache(b *testing.B) {
+	m := benchWallModel(b, 30, 8)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m.invalidateClassifications()
+		_ = m.filteredSessions()
+	}
+}
+
 // BenchmarkSessionAttentionStateHot measures one classification of a single
 // content-heavy live agent session, the unit cost multiplied everywhere.
 func BenchmarkSessionAttentionStateHot(b *testing.B) {
@@ -151,5 +171,146 @@ func BenchmarkSessionAttentionStateHot(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = sessionAttentionState(m, session)
+	}
+}
+
+// BenchmarkViewOverviewWall measures a full View at fixed wall sizes. Each
+// sub-benchmark's session total counts agents plus the fixed service/shell
+// extras from benchWallModel, giving the per-message frame budget at 8, 16,
+// and 32 sessions.
+func BenchmarkViewOverviewWall(b *testing.B) {
+	for _, total := range []int{8, 16, 32} {
+		agents := total - 6 // benchWallModel adds 4 services + 2 shells
+		if agents < 1 {
+			agents = 1
+		}
+		b.Run(fmt.Sprintf("sessions-%d", total), func(b *testing.B) {
+			m := benchWallModel(b, agents, 0)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				m.markRenderDirty()
+				_ = m.View()
+			}
+		})
+	}
+}
+
+// BenchmarkFastCaptureSignalSweep measures one watcher sweep over ten clean
+// pane-log signals — the cost the off-loop watcher pays every sweep interval.
+func BenchmarkFastCaptureSignalSweep(b *testing.B) {
+	dir := b.TempDir()
+	signals := make([]fastCaptureSignal, 10)
+	for i := range signals {
+		path := filepath.Join(dir, fmt.Sprintf("pane-%02d.log", i))
+		if err := os.WriteFile(path, []byte("ready\n"), 0o644); err != nil {
+			b.Fatalf("write log: %v", err)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			b.Fatalf("stat log: %v", err)
+		}
+		signals[i] = fastCaptureSignal{
+			sessionID: fmt.Sprintf("$s%02d", i),
+			path:      path,
+			size:      info.Size(),
+			modTime:   info.ModTime(),
+			seen:      true,
+		}
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if fastCaptureSignalsDirty(signals) {
+			b.Fatal("clean signals reported dirty")
+		}
+	}
+}
+
+// benchStreamingTraffic replays one simulated second of streaming lane
+// traffic through Update and View: sixty fastTickMsg heartbeats (each
+// followed by a render, as Bubble Tea does) plus one changed-content
+// paneContentMsg. forceDirty replicates pre-F1 behavior where every message
+// rebuilt the frame, giving an in-tree before/after for the cache.
+func benchStreamingTraffic(b *testing.B, forceDirty bool) {
+	m := benchWallModel(b, 30, 8)
+	_ = m.View()
+	target := m.sessions[0]
+	paneID := target.Windows[0].Panes[0].ID
+	body := benchPaneBody(200, "\x1b[38;5;108m* working...\x1b[0m esc to interrupt\n")
+	startBuilds := m.renderBuilds
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for tick := 0; tick < 60; tick++ {
+			m.Update(fastTickMsg{})
+			if forceDirty {
+				m.markRenderDirty()
+			}
+			_ = m.View()
+		}
+		m.Update(paneContentMsg{
+			sessionID: target.ID,
+			paneID:    paneID,
+			text:      fmt.Sprintf("%sprogress update %d\n", body, i),
+		})
+		if forceDirty {
+			m.markRenderDirty()
+		}
+		_ = m.View()
+	}
+	b.StopTimer()
+	b.ReportMetric(float64(m.renderBuilds-startBuilds)/float64(b.N), "builds/op")
+}
+
+// BenchmarkViewMessageMixStreaming is the F1 acceptance benchmark: repeated
+// render-neutral heartbeat ticks plus one dirty capture per simulated second.
+// builds/op shows how many full frame rebuilds the mix actually paid.
+func BenchmarkViewMessageMixStreaming(b *testing.B) {
+	benchStreamingTraffic(b, false)
+}
+
+// BenchmarkViewMessageMixForcedDirty replays the identical traffic with the
+// frame cache defeated (every message force-dirtied) — the pre-F1 cost of the
+// same message mix, measured by the same code.
+func BenchmarkViewMessageMixForcedDirty(b *testing.B) {
+	benchStreamingTraffic(b, true)
+}
+
+// BenchmarkViewNoopFastTicks measures the pure clean-heartbeat path: a
+// fastTickMsg through Update plus a cached View. builds/op near zero is the
+// no-op proof at benchmark scale; the strict assertion lives in
+// TestFastTickMessageMixDoesNotRebuild with a frozen clock.
+func BenchmarkViewNoopFastTicks(b *testing.B) {
+	m := benchWallModel(b, 30, 8)
+	_ = m.View()
+	startBuilds := m.renderBuilds
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m.Update(fastTickMsg{})
+		_ = m.View()
+	}
+	b.StopTimer()
+	b.ReportMetric(float64(m.renderBuilds-startBuilds)/float64(b.N), "builds/op")
+}
+
+// BenchmarkPaneLifecycleVerdict bounds the per-capture classification cost on
+// a 600-line ANSI-heavy agent transcript (the refreshPaneLifecycleVerdict
+// path that runs once per changed pane capture).
+func BenchmarkPaneLifecycleVerdict(b *testing.B) {
+	pane := tmux.Pane{
+		ID:          "%bench",
+		Active:      true,
+		PreviewText: benchPaneBody(600, "\x1b[38;5;108m* working...\x1b[0m esc to interrupt\n"),
+		Cockpit:     &tmux.CockpitMeta{Kind: "agent", Agent: "fable", State: "running"},
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		verdict := paneLifecycleVerdictFor(pane, true)
+		if verdict.state == "" {
+			b.Fatal("expected a classified verdict")
+		}
 	}
 }

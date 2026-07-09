@@ -136,7 +136,7 @@ func TestCockpitGroupUsesSessionAttentionRollup(t *testing.T) {
 	}
 }
 
-func TestCockpitGroupTreatsHoldReasonAsAnnotation(t *testing.T) {
+func TestCockpitGroupKeepsLiveHeldAgentActive(t *testing.T) {
 	t.Parallel()
 
 	session := sessionForGroup("held-but-running", "zsh", "/workspace", "")
@@ -1365,11 +1365,23 @@ func TestLiveAgentSubStatesStayInteractive(t *testing.T) {
 
 	t.Run("live-held", func(t *testing.T) {
 		t.Parallel()
-		// A hold means "don't reap", not "finished": a live held agent stays live.
+		// A hold blocks cleanup, but live work still belongs in Active.
 		session := agentSessionForGroup("held-live-agent", "running")
 		session.Windows[0].Panes[0].Cockpit.HoldReason = "awaiting evidence capture"
 		if got := cockpitGroupFor(nil, session).name; got != groupActiveAgents.name {
 			t.Fatalf("live+held: cockpitGroupFor() = %q, want %q", got, groupActiveAgents.name)
+		}
+	})
+
+	t.Run("marked-held", func(t *testing.T) {
+		t.Parallel()
+		// Once janitor marks a pane, the countdown is the operator-visible state.
+		session := agentSessionForGroup("held-marked-agent", "running")
+		session.Windows[0].Panes[0].Cockpit.HoldReason = "awaiting evidence capture"
+		session.Windows[0].Panes[0].Cockpit.TeardownMarkedAt = "2026-07-08T01:26:00Z"
+		session.Windows[0].Panes[0].Cockpit.JanitorState = "marked_for_teardown"
+		if got := cockpitGroupFor(nil, session).name; got != groupInactiveAgents.name {
+			t.Fatalf("marked+held: cockpitGroupFor() = %q, want %q", got, groupInactiveAgents.name)
 		}
 	})
 }
