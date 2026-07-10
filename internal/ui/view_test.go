@@ -19,6 +19,40 @@ func numberedLines(n int) string {
 	return strings.Join(lines, "\n")
 }
 
+func TestClampFooterKeepsTailLines(t *testing.T) {
+	t.Parallel()
+
+	status := strings.Join([]string{
+		"helper hints",
+		"cockpit summary",
+		"runtime timeline",
+		"stale warning",
+		"janitor: stale 45m old",
+	}, "\n")
+	got := clampFooter(status, maxFooterHeight)
+	if countLines(got) != maxFooterHeight {
+		t.Fatalf("clamped footer lines = %d, want %d", countLines(got), maxFooterHeight)
+	}
+	if !strings.Contains(got, "janitor: stale") {
+		t.Fatalf("footer clamp must keep janitor health (tail), got %q", got)
+	}
+	if strings.Contains(got, "helper hints") {
+		t.Fatalf("footer clamp should drop the helper line first, got %q", got)
+	}
+}
+
+func TestClampFooterLeavesShortStatusAlone(t *testing.T) {
+	t.Parallel()
+
+	status := "helper hints\njanitor: ok"
+	if got := clampFooter(status, maxFooterHeight); got != status {
+		t.Fatalf("short footer changed: %q", got)
+	}
+	if got := clampFooter(status, 0); got != "" {
+		t.Fatalf("zero-limit footer = %q, want empty", got)
+	}
+}
+
 func TestWindowGridFitsPinsOffsetZero(t *testing.T) {
 	t.Parallel()
 

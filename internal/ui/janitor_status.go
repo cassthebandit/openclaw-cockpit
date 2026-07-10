@@ -136,8 +136,10 @@ func (m *Model) janitorStatusLine(width int) string {
 		parts = append(parts, status.Detail)
 	}
 	line := strings.Join(parts, " · ")
-	if width > 0 && len(line) > width {
-		return line[:max(0, width-3)] + "..."
+	if width > 0 {
+		// Display-width-safe truncation: byte slicing can split a multibyte
+		// rune and emit a broken tail into the footer.
+		return truncateSingleLine(line, width)
 	}
 	return line
 }

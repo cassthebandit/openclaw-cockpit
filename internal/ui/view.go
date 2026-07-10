@@ -12,6 +12,10 @@ import (
 
 const (
 	topPaddingLines = 0
+	// maxFooterHeight bounds the status footer so helper/status text can never
+	// crowd card content out of the viewport (layout contract: the footer must
+	// stay compact and never steal meaningful active-agent height).
+	maxFooterHeight = 4
 )
 
 // View renders the entire tmuxwatch interface, including title bar, search
@@ -51,7 +55,8 @@ func (m *Model) View() tea.View {
 	m.previewOffset = headerHeight
 
 	status := m.renderStatus()
-	m.footerHeight = max(1, countLines(status))
+	m.footerHeight = max(1, min(countLines(status), maxFooterHeight))
+	status = clampFooter(status, m.footerHeight)
 	// Compute the filtered/sorted wall once per frame; layout sizing, card
 	// rendering, and cursor selection all reuse this slice instead of
 	// re-filtering and re-sorting per call.
@@ -110,6 +115,20 @@ func (m *Model) View() tea.View {
 	// treated as permanently expired. Ticks are armed only from Update.
 	m.nextRenderAt = m.computeNextRenderTransition(now)
 	return content
+}
+
+// clampFooter bounds the footer to limit lines by dropping lines from the TOP:
+// the key-hint helper line is the most expendable, while stale warnings,
+// janitor health, toasts, and errors accumulate at the tail and must survive.
+func clampFooter(status string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	lines := strings.Split(status, "\n")
+	if len(lines) <= limit {
+		return status
+	}
+	return strings.Join(lines[len(lines)-limit:], "\n")
 }
 
 // resetPageScroll disengages whole-wall scroll (used when there is no grid).

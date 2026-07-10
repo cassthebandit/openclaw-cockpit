@@ -6,6 +6,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"charm.land/lipgloss/v2"
+
+	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
 func TestLoadJanitorStatusFileStates(t *testing.T) {
@@ -53,5 +57,65 @@ func TestJanitorStatusFooterLine(t *testing.T) {
 		if !strings.Contains(line, want) {
 			t.Fatalf("status line missing %q in %q", want, line)
 		}
+	}
+}
+
+func TestJanitorStatusFooterLineTruncatesDisplayWidthSafe(t *testing.T) {
+	t.Parallel()
+
+	// Multibyte detail must never be byte-sliced into a broken rune.
+	m := &Model{janitorStatus: janitorStatusView{
+		State:  "stale",
+		Detail: "статус застарів на 45 хвилин · 状態が古い",
+		Cycle:  janitorCycleStatus{Mark: 3, Refuse: 2},
+	}}
+	for _, width := range []int{10, 20, 30, 40} {
+		line := m.janitorStatusLine(width)
+		if got := lipgloss.Width(line); got > width {
+			t.Fatalf("width %d: rendered janitor line display width = %d, line %q", width, got, line)
+		}
+		if strings.ContainsRune(line, '�') {
+			t.Fatalf("width %d: janitor line contains replacement char: %q", width, line)
+		}
+	}
+}
+
+func TestManualCollapsePersistsAcrossJanitorAndSnapshotRefresh(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "status.json")
+	writeStatus := func(generated time.Time) {
+		payload := `{"status_version":1,"generated_at":"` + generated.UTC().Format("2006-01-02T15:04:05Z") +
+			`","sessions":{"held-lane":{"janitor_state":"protected"}},"last_cycle":{"refuse":1}}`
+		if err := os.WriteFile(path, []byte(payload), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeStatus(time.Now())
+
+	m := NewModel(nil, time.Second, 4, nil, false, true)
+	m.SetOrganized(true)
+	m.SetJanitorStatusFile(path)
+	m.seedGroupCollapse(primaryCockpitGroups())
+
+	m.toggleGroupCollapsed(groupActiveAgents.name)
+	if !m.isGroupCollapsed(groupActiveAgents.name) {
+		t.Fatalf("toggle did not collapse Active Agents")
+	}
+
+	// Janitor sidecar reload (new generation) must not reopen the group.
+	writeStatus(time.Now().Add(time.Second))
+	m.refreshJanitorStatus()
+	if !m.isGroupCollapsed(groupActiveAgents.name) {
+		t.Fatalf("janitor status reload reopened a manually collapsed group")
+	}
+
+	// Snapshot swap + reseeding on the next frame must not reopen it either.
+	m.sessions = []tmux.Session{sessionForGroup("fresh-agent", "claude", "/workspace", "")}
+	m.invalidateClassifications()
+	m.seedGroupCollapse(primaryCockpitGroups())
+	if !m.isGroupCollapsed(groupActiveAgents.name) {
+		t.Fatalf("snapshot refresh/reseeding reopened a manually collapsed group")
 	}
 }
