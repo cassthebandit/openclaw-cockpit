@@ -319,6 +319,15 @@ func (m *Model) SetOrganized(enabled bool) {
 	m.organized = enabled
 }
 
+// SetStartupError surfaces startup-time fallback errors inside the TUI footer.
+func (m *Model) SetStartupError(err error) {
+	if err == nil {
+		return
+	}
+	m.err = err
+	m.markRenderDirty()
+}
+
 // SetOpenClawRuntimeSource enables read-only OpenClaw runtime cards.
 func (m *Model) SetOpenClawRuntimeSource(script string, limit int, timeout time.Duration) {
 	if limit <= 0 {

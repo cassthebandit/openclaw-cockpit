@@ -131,6 +131,9 @@ func main() {
 
 	model := ui.NewModel(client, *interval, *captureBudget, debugMsgs, *traceMouse, monitorOnly)
 	model.ApplyWallConfig(wallConfig)
+	if configErr != nil {
+		model.SetStartupError(fmt.Errorf("wall config error: %w (using built-in defaults)", configErr))
+	}
 	model.SetPreferredColumns(*cols)
 	model.SetOrganized(*organize)
 	model.SetJanitorStatusFile(*janitorStatus)

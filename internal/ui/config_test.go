@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -172,5 +173,16 @@ func TestConfigCannotOverrideSidecarCountdown(t *testing.T) {
 	got := cockpitCleanupLine(m, tmux.Session{Name: "marked-lane"}, pane, now)
 	if !strings.Contains(got, "cleanup in ") {
 		t.Fatalf("countdown must still come from sidecar kill_not_before, got %q", got)
+	}
+}
+
+func TestStartupConfigErrorSurfacesInFooter(t *testing.T) {
+	t.Parallel()
+
+	m := &Model{width: 120}
+	m.SetStartupError(errors.New("wall config error: invalid config"))
+	got := m.buildStatusLine(120)
+	if !strings.Contains(got, "wall config error") {
+		t.Fatalf("startup config error missing from footer: %q", got)
 	}
 }

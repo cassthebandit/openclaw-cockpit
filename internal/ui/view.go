@@ -132,7 +132,19 @@ func clampFooter(status string, limit int) string {
 	if len(lines) <= limit {
 		return status
 	}
-	return strings.Join(lines[len(lines)-limit:], "\n")
+	kept := append([]string(nil), lines[len(lines)-limit:]...)
+	for _, line := range kept {
+		if strings.Contains(line, "janitor:") {
+			return strings.Join(kept, "\n")
+		}
+	}
+	for _, line := range lines[:len(lines)-limit] {
+		if strings.Contains(line, "janitor:") {
+			kept[0] = line
+			break
+		}
+	}
+	return strings.Join(kept, "\n")
 }
 
 // resetPageScroll disengages whole-wall scroll (used when there is no grid).

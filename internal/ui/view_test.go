@@ -41,6 +41,32 @@ func TestClampFooterKeepsTailLines(t *testing.T) {
 	}
 }
 
+func TestClampFooterPinsJanitorLineWhenLaterLinesWouldDropIt(t *testing.T) {
+	t.Parallel()
+
+	status := strings.Join([]string{
+		"helper hints",
+		"cockpit summary",
+		"runtime timeline",
+		"janitor: ok · marked 1 · held/refused 2",
+		"warning: parse row hidden",
+		"stale sessions: worker",
+		"focused: build-lane",
+		"Error: config invalid",
+		"toast: saved",
+	}, "\n")
+	got := clampFooter(status, maxFooterHeight)
+	if countLines(got) != maxFooterHeight {
+		t.Fatalf("clamped footer lines = %d, want %d", countLines(got), maxFooterHeight)
+	}
+	if !strings.Contains(got, "janitor: ok") {
+		t.Fatalf("footer clamp must pin janitor health, got %q", got)
+	}
+	if strings.Contains(got, "helper hints") {
+		t.Fatalf("footer clamp should still drop expendable helper line, got %q", got)
+	}
+}
+
 func TestClampFooterLeavesShortStatusAlone(t *testing.T) {
 	t.Parallel()
 
