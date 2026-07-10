@@ -260,6 +260,7 @@ var defaultExpandedGroups = map[string]struct{}{
 	groupActiveAgents.name:        {},
 	groupHeldAgents.name:          {},
 	groupInactiveAgents.name:      {},
+	groupCleanupBlocked.name:      {},
 	groupFailedAgents.name:        {},
 	groupOperationalFailures.name: {},
 	groupSubsystemFailures.name:   {},

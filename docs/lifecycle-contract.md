@@ -121,8 +121,7 @@ Contract:
 
 - Only actually marked sessions may appear in a group named `Marked For Teardown`.
 - The operator should see a countdown or "kill not before" time when available.
-- Current janitor constants are `ACTIVE_IDLE_MARK_SECONDS=300`, `TEARDOWN_GRACE_SECONDS=300`, and `FAILED_VISIBLE_SECONDS=900`.
-- Target next-code defaults are now decided: `2m` stable delivered-idle before marking, `8m` mark-to-kill grace, and `10m` failed-visible grace. The operator rule is that completed work should be gone in about 10 minutes once it is done, assuming valid evidence and no hold/blocker.
+- Current janitor constants are `ACTIVE_IDLE_MARK_SECONDS=120`, `TEARDOWN_GRACE_SECONDS=480`, and `FAILED_VISIBLE_SECONDS=600` — the decided defaults: `2m` stable delivered-idle before marking, `8m` mark-to-kill grace, and `10m` failed-visible grace. The operator rule is that completed work should be gone in about 10 minutes once it is done, assuming valid evidence and no hold/blocker.
 - The mark-to-kill window rendered by Cockpit must match janitor policy or display the janitor-provided `kill_not_before`; Cockpit must not guess a countdown that disagrees with hygiene.
 - Mark cancellation should be rare and explainable. It may cancel for real operator prompts or meaningful output, not cosmetic render churn.
 - Mark cancellation must compare against a mark-time normalized baseline, not a stale skip-path observation. A statically completed pane should retain its mark across repeated janitor cycles.

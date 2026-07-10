@@ -31,9 +31,6 @@ const (
 	groupCaretCollapsed   = "▸"
 	scrollStep            = 3
 	pulseDuration         = 1500 * time.Millisecond
-	// teardownKillDelay is the janitor's mark-to-kill window rendered as the
-	// cleanup countdown; scheduled render invalidation mirrors it.
-	teardownKillDelay = 5 * time.Minute
 	fastCaptureInterval   = time.Second / 60
 	fastCaptureFallback   = 250 * time.Millisecond
 	fastCaptureIdleTick   = time.Second

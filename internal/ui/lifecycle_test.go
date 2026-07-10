@@ -222,12 +222,14 @@ func TestIdleFinishedAgentRoutesToCompleted(t *testing.T) {
 	if got := sessionAttentionState(nil, session); got != "delivered-idle" {
 		t.Fatalf("sessionAttentionState() = %q, want delivered-idle", got)
 	}
-	if got := cockpitGroupFor(nil, session).name; got != groupInactiveAgents.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupInactiveAgents.name)
+	// Delivered-idle with no janitor mark is completed informational debt,
+	// not "Marked For Teardown" (only actually marked sessions may live there).
+	if got := cockpitGroupFor(nil, session).name; got != groupDoneHeld.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupDoneHeld.name)
 	}
 }
 
-func TestFableBakedReadyForParentReviewRoutesToInactive(t *testing.T) {
+func TestFableBakedReadyForParentReviewRoutesToCompleted(t *testing.T) {
 	t.Parallel()
 
 	session := agentSessionForGroup("cd-slice5d-fable-build", "running")
@@ -239,8 +241,8 @@ func TestFableBakedReadyForParentReviewRoutesToInactive(t *testing.T) {
 	if got := sessionAttentionState(nil, session); got != "delivered-idle" {
 		t.Fatalf("sessionAttentionState() = %q, want delivered-idle", got)
 	}
-	if got := cockpitGroupFor(nil, session).name; got != groupInactiveAgents.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupInactiveAgents.name)
+	if got := cockpitGroupFor(nil, session).name; got != groupDoneHeld.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupDoneHeld.name)
 	}
 }
 

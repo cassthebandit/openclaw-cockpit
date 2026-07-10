@@ -172,8 +172,8 @@ func TestDisplayOnlyMetadataDoesNotOverrideDeadPane(t *testing.T) {
 	if got := sessionAttentionState(nil, session); got != "done" {
 		t.Fatalf("sessionAttentionState() = %q, want done", got)
 	}
-	if got := cockpitGroupFor(nil, session).name; got != groupInactiveAgents.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupInactiveAgents.name)
+	if got := cockpitGroupFor(nil, session).name; got != groupDoneHeld.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupDoneHeld.name)
 	}
 }
 
@@ -409,8 +409,8 @@ func TestManagedDeliveredIdleIgnoresSiblingShellPane(t *testing.T) {
 	if got := sessionAttentionState(nil, session); got != "delivered-idle" {
 		t.Fatalf("sessionAttentionState() = %q, want delivered-idle", got)
 	}
-	if got := cockpitGroupFor(nil, session).name; got != groupInactiveAgents.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupInactiveAgents.name)
+	if got := cockpitGroupFor(nil, session).name; got != groupDoneHeld.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupDoneHeld.name)
 	}
 }
 
@@ -774,7 +774,12 @@ func TestOrganizedCardBodyHeightsUseVerticalSpace(t *testing.T) {
 		sessionForGroup("clean-draft-tranche4-fable-code", "claude", "/workspace", "Finished tranche"),
 	}
 	m.sessions[4].Windows[0].Panes[0].Dead = true
-	m.sessions[4].Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{Kind: "agent", Agent: "claude", State: "done"}
+	// Actually janitor-marked: only marked sessions render under Marked For
+	// Teardown since the registry reset.
+	m.sessions[4].Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{
+		Kind: "agent", Agent: "claude", State: "done",
+		TeardownMarkedAt: "2026-07-08T01:26:00Z", JanitorState: "marked_for_teardown",
+	}
 
 	heights := m.cardBodyHeightsByGroup(m.sessions)
 	running := heights[groupActiveAgents.name]
@@ -839,7 +844,10 @@ func TestOrganizedCardBodyHeightsCollapsedTopPromotesNextOpenGroup(t *testing.T)
 		sessionForGroup("workshop-codex-done", "codex", "/workspace", "Finished"),
 	}
 	m.sessions[1].Windows[0].Panes[0].Dead = true
-	m.sessions[1].Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{Kind: "agent", Agent: "codex", State: "done"}
+	m.sessions[1].Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{
+		Kind: "agent", Agent: "codex", State: "done",
+		TeardownMarkedAt: "2026-07-08T01:26:00Z", JanitorState: "marked_for_teardown",
+	}
 	m.toggleGroupCollapsed(groupActiveAgents.name)
 
 	heights := m.cardBodyHeightsByGroup(m.sessions)
@@ -1266,7 +1274,7 @@ func TestCockpitGroupRoutesWaitingBlockedAndDone(t *testing.T) {
 	}{
 		{state: "waiting", want: groupActiveAgents.name},
 		{state: "blocked", want: groupActiveAgents.name},
-		{state: "done", want: groupInactiveAgents.name},
+		{state: "done", want: groupDoneHeld.name},
 	}
 	for _, tt := range tests {
 		tt := tt
@@ -1323,6 +1331,71 @@ func agentSessionForGroup(name, state string) tmux.Session {
 	return session
 }
 
+// modelWithJanitorSidecar returns a Model whose janitor status sidecar is
+// fresh ("ok") and carries the given session rows.
+func modelWithJanitorSidecar(rows map[string]janitorSessionStatus) *Model {
+	m := NewModel(nil, time.Second, 4, nil, false, true)
+	m.SetOrganized(true)
+	m.janitorStatus = janitorStatusView{State: "ok", Sessions: rows}
+	return m
+}
+
+func TestSidecarCleanupBlockedRoutesToCleanupBlocked(t *testing.T) {
+	t.Parallel()
+
+	session := agentSessionForGroup("evidence-empty-lane", "done")
+	m := modelWithJanitorSidecar(map[string]janitorSessionStatus{
+		"evidence-empty-lane": {JanitorState: "cleanup_blocked", LastAction: "refuse", LastRefusal: "evidence_empty"},
+	})
+	if got := cockpitGroupFor(m, session).name; got != groupCleanupBlocked.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupCleanupBlocked.name)
+	}
+}
+
+func TestSidecarMarkRoutesToMarkedForTeardown(t *testing.T) {
+	t.Parallel()
+
+	// The janitor marked the session (sidecar fact) even though tmux metadata
+	// has not caught up: sidecar facts route the card.
+	session := agentSessionForGroup("marked-by-sidecar", "done")
+	m := modelWithJanitorSidecar(map[string]janitorSessionStatus{
+		"marked-by-sidecar": {JanitorState: "marked_for_teardown", KillNotBefore: "2026-07-09T23:59:00Z"},
+	})
+	if got := cockpitGroupFor(m, session).name; got != groupInactiveAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupInactiveAgents.name)
+	}
+}
+
+func TestStaleSidecarNeverInfersCleanupEligibility(t *testing.T) {
+	t.Parallel()
+
+	// A stale sidecar is a janitor-health warning, not routing input: the
+	// completed session stays plain completed debt.
+	session := agentSessionForGroup("stale-sidecar-lane", "done")
+	m := modelWithJanitorSidecar(map[string]janitorSessionStatus{
+		"stale-sidecar-lane": {JanitorState: "cleanup_blocked", LastRefusal: "evidence_empty"},
+	})
+	m.janitorStatus.State = "stale"
+	if got := cockpitGroupFor(m, session).name; got != groupDoneHeld.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupDoneHeld.name)
+	}
+}
+
+func TestHeldBeatsSidecarBlockerForGrouping(t *testing.T) {
+	t.Parallel()
+
+	// Precedence: an explicit hold on non-live work outranks a janitor
+	// refusal/blocker row.
+	session := agentSessionForGroup("held-blocked-lane", "done")
+	session.Windows[0].Panes[0].Cockpit.HoldReason = "parent review"
+	m := modelWithJanitorSidecar(map[string]janitorSessionStatus{
+		"held-blocked-lane": {JanitorState: "protected", LastRefusal: "hold_reason_active"},
+	})
+	if got := cockpitGroupFor(m, session).name; got != groupHeldAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupHeldAgents.name)
+	}
+}
+
 func TestAgentIdentityBeatsDashboardAndViewerTheft(t *testing.T) {
 	t.Parallel()
 
@@ -1375,13 +1448,14 @@ func TestLiveAgentSubStatesStayInteractive(t *testing.T) {
 
 	t.Run("marked-held", func(t *testing.T) {
 		t.Parallel()
-		// Once janitor marks a pane, the countdown is the operator-visible state.
+		// Held+marked is a conflict: the hold wins and the pane must render as
+		// blocked, never as a clean countdown (lifecycle contract precedence 4).
 		session := agentSessionForGroup("held-marked-agent", "running")
 		session.Windows[0].Panes[0].Cockpit.HoldReason = "awaiting evidence capture"
 		session.Windows[0].Panes[0].Cockpit.TeardownMarkedAt = "2026-07-08T01:26:00Z"
 		session.Windows[0].Panes[0].Cockpit.JanitorState = "marked_for_teardown"
-		if got := cockpitGroupFor(nil, session).name; got != groupInactiveAgents.name {
-			t.Fatalf("marked+held: cockpitGroupFor() = %q, want %q", got, groupInactiveAgents.name)
+		if got := cockpitGroupFor(nil, session).name; got != groupHeldAgents.name {
+			t.Fatalf("marked+held: cockpitGroupFor() = %q, want %q", got, groupHeldAgents.name)
 		}
 	})
 }
@@ -1402,9 +1476,10 @@ func TestTerminalAgentStatesRouteToSystemProblems(t *testing.T) {
 
 	t.Run("stale", func(t *testing.T) {
 		t.Parallel()
+		// Stale is completed-ish debt, not a janitor mark: Completed Agent Runs.
 		session := agentSessionForGroup("terminal-agent-stale", "stale")
-		if got := cockpitGroupFor(nil, session).name; got != groupInactiveAgents.name {
-			t.Fatalf("stale: cockpitGroupFor() = %q, want %q", got, groupInactiveAgents.name)
+		if got := cockpitGroupFor(nil, session).name; got != groupDoneHeld.name {
+			t.Fatalf("stale: cockpitGroupFor() = %q, want %q", got, groupDoneHeld.name)
 		}
 	})
 
@@ -1419,7 +1494,7 @@ func TestTerminalAgentStatesRouteToSystemProblems(t *testing.T) {
 	})
 }
 
-func TestStaleAgentRoutesInactiveWithAndWithoutPreview(t *testing.T) {
+func TestStaleAgentRoutesCompletedWithAndWithoutPreview(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -1435,8 +1510,8 @@ func TestStaleAgentRoutesInactiveWithAndWithoutPreview(t *testing.T) {
 			t.Parallel()
 			session := agentSessionForGroup("stale-agent-"+tt.name, "stale")
 			session.Windows[0].Panes[0].PreviewText = tt.preview
-			if got := cockpitGroupFor(nil, session).name; got != groupInactiveAgents.name {
-				t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupInactiveAgents.name)
+			if got := cockpitGroupFor(nil, session).name; got != groupDoneHeld.name {
+				t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupDoneHeld.name)
 			}
 		})
 	}

@@ -12,30 +12,38 @@ type cockpitGroup struct {
 	rank int
 }
 
+// Canonical group registry. Ranks and definitions mirror
+// docs/group-registry.md exactly; that table is the source of truth.
 var (
 	// Rank 0 — live/resumable agent TUIs: managed agents in a live sub-state
 	// (starting/running/waiting/blocked/review), plus prompt/approval screens
 	// that can continue when answered.
 	groupActiveAgents = cockpitGroup{name: "Active Agents", rank: 0}
-	// Rank 1 — held agent panes that are cleanup-blocked by an explicit hold.
+	// Rank 1 — non-live agent panes blocked by an explicit hold, including the
+	// held+marked conflict (hold always wins over a mark for presentation).
 	groupHeldAgents = cockpitGroup{name: "Held / Teardown Blocked", rank: 1}
-	// Rank 2 — cleanup-bound agent panes waiting for the Python janitor.
+	// Rank 2 — sessions actually marked by the janitor with no hold/evidence
+	// conflict; the only group that may render a cleanup countdown.
 	groupInactiveAgents = cockpitGroup{name: "Marked For Teardown", rank: 2}
-	// Rank 3 — failed/problem agent panes.
-	groupFailedAgents = cockpitGroup{name: "Failed Agents", rank: 3}
-	// Rank 3 — workflow/runtime failures that need operator judgment.
-	groupOperationalFailures = cockpitGroup{name: "Operational Failures", rank: 4}
-	// Rank 4 — platform, route, skeleton, or source-health failures.
-	groupSubsystemFailures = cockpitGroup{name: "Sub-System Failures", rank: 5}
-	// Rank 5 — healthy long-running watchers/bridges/monitors.
-	groupServices = cockpitGroup{name: "Services", rank: 6}
-	// Rank 6 — completed runtime cards and non-agent held/done panes.
-	groupDoneHeld = cockpitGroup{name: "Completed Agent Runs", rank: 7}
-	// Rank 7+ — non-agent fallback work, self-monitoring UIs, viewers, and shells.
-	groupWork      = cockpitGroup{name: "Active Work", rank: 8}
-	groupDashboard = cockpitGroup{name: "Dashboards", rank: 9}
-	groupViewers   = cockpitGroup{name: "Viewers", rank: 10}
-	groupIdle      = cockpitGroup{name: "Idle / Unowned", rank: 11}
+	// Rank 3 — non-active cleanup debt hygiene refuses to mark or kill
+	// (missing/empty evidence, relative run root, invalid contract data).
+	groupCleanupBlocked = cockpitGroup{name: "Cleanup Blocked", rank: 3}
+	// Rank 4 — failed/problem agent panes inside the failure-visible window.
+	groupFailedAgents = cockpitGroup{name: "Failed Agents", rank: 4}
+	// Rank 5 — workflow/runtime failures that need operator judgment.
+	groupOperationalFailures = cockpitGroup{name: "Operational Failures", rank: 5}
+	// Rank 6 — platform, route, skeleton, or source-health failures.
+	groupSubsystemFailures = cockpitGroup{name: "Sub-System Failures", rank: 6}
+	// Rank 7 — healthy long-running watchers/bridges/monitors.
+	groupServices = cockpitGroup{name: "Services", rank: 7}
+	// Rank 8 — completed agent cards that are not held, failed-visible,
+	// marked, or cleanup-blocked; also completed runtime cards.
+	groupDoneHeld = cockpitGroup{name: "Completed Agent Runs", rank: 8}
+	// Rank 9+ — non-agent fallback work, self-monitoring UIs, viewers, shells.
+	groupWork      = cockpitGroup{name: "Active Work", rank: 9}
+	groupDashboard = cockpitGroup{name: "Dashboards", rank: 10}
+	groupViewers   = cockpitGroup{name: "Viewers", rank: 11}
+	groupIdle      = cockpitGroup{name: "Idle / Unowned", rank: 12}
 )
 
 // agentNameTokens identify an agent/review session by its chrome (name, window,
@@ -132,7 +140,7 @@ func computeCockpitGroupFor(m *Model, session tmux.Session) cockpitGroup {
 	//    preview text. Managed agents split only by lifecycle. Service/runtime
 	//    kinds are not agents even when they carry an @oc_agent label.
 	if sessionHasManagedAgent(session) {
-		return agentLifecycleGroup(session, state)
+		return agentLifecycleGroup(m, session, state)
 	}
 
 	// 3. Non-agent sessions: genuine services, dashboards, and viewers match on
@@ -151,7 +159,7 @@ func computeCockpitGroupFor(m *Model, session tmux.Session) cockpitGroup {
 	// 4. Sessions that look like agent runs by name but carry no managed metadata
 	//    (e.g. a raw committee/codex shell) still route by lifecycle.
 	if containsAny(chrome, agentNameTokens...) {
-		return agentLifecycleGroup(session, state)
+		return agentLifecycleGroup(m, session, state)
 	}
 
 	// 5. Remaining non-agent work.
@@ -167,39 +175,66 @@ func computeCockpitGroupFor(m *Model, session tmux.Session) cockpitGroup {
 	return groupWork
 }
 
-// agentLifecycleGroup places an agent session by its lifecycle only: live and
-// resumable agents lead in Active Agents, failed agents route to Failed Agents,
-// and completed/held/dead-clean agents remain visible as Inactive cleanup debt.
-func agentLifecycleGroup(session tmux.Session, state string) cockpitGroup {
-	// Explicit completed/terminal states win regardless of process liveness.
-	if state == "marked-for-teardown" {
-		return groupInactiveAgents
+// janitorSessionRow returns the janitor sidecar row for a session when the
+// sidecar is fresh ("ok"). A missing, stale, or invalid sidecar yields no row:
+// Cockpit renders a janitor-health warning elsewhere and must never infer
+// cleanup eligibility from absent facts.
+func (m *Model) janitorSessionRow(sessionName string) (janitorSessionStatus, bool) {
+	if m == nil || m.janitorStatus.State != "ok" || len(m.janitorStatus.Sessions) == 0 {
+		return janitorSessionStatus{}, false
 	}
-	if stateIsCompletedInfo(state) || state == "idle-finished" || state == "marked-for-teardown" {
-		if sessionHasHold(session) || state == "held" {
-			return groupHeldAgents
-		}
-		return groupInactiveAgents
-	}
+	row, ok := m.janitorStatus.Sessions[sessionName]
+	return row, ok
+}
+
+// agentLifecycleGroup places an agent session by the lifecycle-contract
+// presentation precedence (docs/lifecycle-contract.md, Signal Precedence):
+//
+//  1. live operator/approval prompt        -> Active Agents
+//  2. live/resumed work (incl. live+held)  -> Active Agents
+//  3. failed/terminal problem in window    -> Failed Agents
+//  4. explicit hold on non-live work       -> Held / Teardown Blocked
+//     (a held+marked conflict is held, never a clean countdown)
+//  5. janitor refusal/blocker              -> Cleanup Blocked
+//  6. valid janitor mark, no conflict      -> Marked For Teardown
+//  7. completed/delivered-idle, unmarked   -> Completed Agent Runs
+//
+// Janitor facts come from the status sidecar when fresh; tmux @oc_* metadata
+// is the fallback signal. Only actually-marked sessions may appear under
+// Marked For Teardown.
+func agentLifecycleGroup(m *Model, session tmux.Session, state string) cockpitGroup {
+	row, hasRow := m.janitorSessionRow(session.Name)
+	held := sessionHasHold(session) || state == "held"
+	blocked := hasRow && strings.EqualFold(strings.TrimSpace(row.JanitorState), "cleanup_blocked")
+	marked := state == "marked-for-teardown" ||
+		(hasRow && strings.EqualFold(strings.TrimSpace(row.JanitorState), "marked_for_teardown"))
+
 	if state == "awaiting-operator" {
 		return groupActiveAgents
 	}
 	if stateIsTerminalProblem(state) {
+		// A failed pane the janitor refuses on evidence grounds is past its
+		// visible window and permanently stuck: show the blocker, not an
+		// immortal failure card.
+		if blocked && !held {
+			return groupCleanupBlocked
+		}
 		return groupFailedAgents
 	}
-	// A dead agent with no completed/terminal signal is finished, not live —
-	// this keeps a dead-but-"review" pane out of the active band.
-	if sessionAllPanesDead(session) {
-		if sessionHasHold(session) || state == "held" {
+	// Non-live cleanup debt: completed/delivered-idle/stale/quiet, an explicit
+	// janitor mark, or a dead pane with no completed/terminal signal.
+	if stateIsCompletedInfo(state) || state == "idle-finished" || marked ||
+		state == "stale" || state == "quiet" || state == "held" || sessionAllPanesDead(session) {
+		if held {
 			return groupHeldAgents
 		}
-		return groupInactiveAgents
-	}
-	if state == "stale" || state == "quiet" {
-		if sessionHasHold(session) || state == "held" {
-			return groupHeldAgents
+		if blocked {
+			return groupCleanupBlocked
 		}
-		return groupInactiveAgents
+		if marked {
+			return groupInactiveAgents
+		}
+		return groupDoneHeld
 	}
 	// Live managed agent: waiting/blocked/review and any unknown sub-state stay
 	// in the active band, never scattered.
@@ -628,6 +663,7 @@ func primaryCockpitGroups() []cockpitGroup {
 		groupActiveAgents,
 		groupHeldAgents,
 		groupInactiveAgents,
+		groupCleanupBlocked,
 		groupFailedAgents,
 		groupOperationalFailures,
 		groupSubsystemFailures,

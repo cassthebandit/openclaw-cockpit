@@ -421,7 +421,7 @@ func TestCockpitCleanupLineBoundsEvidencePath(t *testing.T) {
 		EvidencePath:  "/Users/cass/.openclaw/workspace/memory/runs/secretish/result.txt",
 	}}
 
-	got := cockpitCleanupLine(pane, time.Now())
+	got := cockpitCleanupLine(nil, tmux.Session{Name: "secretish"}, pane, time.Now())
 	for _, want := range []string{"policy: kill_on_done", "ttl: 30m", "hold blocks cleanup: review", "end: process_exit_nonzero", "progress: progress.jsonl", "evidence: result.txt"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("cleanup line missing %q in %q", want, got)
@@ -429,6 +429,77 @@ func TestCockpitCleanupLineBoundsEvidencePath(t *testing.T) {
 	}
 	if strings.Contains(got, "/Users/cass") {
 		t.Fatalf("cleanup line should not expose absolute path, got %q", got)
+	}
+}
+
+func TestCockpitCleanupLineCountdownComesFromSidecar(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 7, 9, 23, 0, 0, 0, time.UTC)
+	pane := tmux.Pane{Cockpit: &tmux.CockpitMeta{
+		TeardownMarkedAt: "2026-07-09T22:58:00Z",
+		TeardownReason:   "completed_idle_teardown",
+	}}
+	m := modelWithJanitorSidecar(map[string]janitorSessionStatus{
+		"marked-lane": {JanitorState: "marked_for_teardown", KillNotBefore: "2026-07-09T23:06:00Z"},
+	})
+	got := cockpitCleanupLine(m, tmux.Session{Name: "marked-lane"}, pane, now)
+	if !strings.Contains(got, "cleanup in ") {
+		t.Fatalf("countdown should derive from sidecar kill_not_before, got %q", got)
+	}
+	if strings.Contains(got, "unknown") {
+		t.Fatalf("fresh sidecar countdown should not be unknown, got %q", got)
+	}
+}
+
+func TestCockpitCleanupLineWithoutFreshSidecarSaysCountdownUnknown(t *testing.T) {
+	t.Parallel()
+
+	pane := tmux.Pane{Cockpit: &tmux.CockpitMeta{
+		TeardownMarkedAt: "2026-07-09T22:58:00Z",
+	}}
+	got := cockpitCleanupLine(nil, tmux.Session{Name: "marked-lane"}, pane, time.Now())
+	if !strings.Contains(got, "cleanup countdown unknown") {
+		t.Fatalf("missing/stale sidecar must render a warning, not an invented countdown, got %q", got)
+	}
+	if strings.Contains(got, "cleanup in ") {
+		t.Fatalf("Cockpit must not guess a countdown without janitor facts, got %q", got)
+	}
+}
+
+func TestCockpitCleanupLineHeldMarkedConflictHasNoCountdown(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 7, 9, 23, 0, 0, 0, time.UTC)
+	pane := tmux.Pane{Cockpit: &tmux.CockpitMeta{
+		HoldReason:       "parent review",
+		TeardownMarkedAt: "2026-07-09T22:58:00Z",
+	}}
+	m := modelWithJanitorSidecar(map[string]janitorSessionStatus{
+		"held-marked-lane": {JanitorState: "protected", KillNotBefore: "2026-07-09T23:06:00Z"},
+	})
+	got := cockpitCleanupLine(m, tmux.Session{Name: "held-marked-lane"}, pane, now)
+	if !strings.Contains(got, "hold blocks cleanup: parent review") {
+		t.Fatalf("held+marked must lead with the hold, got %q", got)
+	}
+	if !strings.Contains(got, "hold conflict") {
+		t.Fatalf("held+marked must be labeled a conflict, got %q", got)
+	}
+	if strings.Contains(got, "cleanup in ") {
+		t.Fatalf("held+marked must not render a clean countdown, got %q", got)
+	}
+}
+
+func TestCockpitCleanupLineShowsSidecarBlockedReason(t *testing.T) {
+	t.Parallel()
+
+	pane := tmux.Pane{Cockpit: &tmux.CockpitMeta{CleanupPolicy: "kill_after_ttl"}}
+	m := modelWithJanitorSidecar(map[string]janitorSessionStatus{
+		"blocked-lane": {JanitorState: "cleanup_blocked", LastAction: "refuse", LastRefusal: "evidence_empty"},
+	})
+	got := cockpitCleanupLine(m, tmux.Session{Name: "blocked-lane"}, pane, time.Now())
+	if !strings.Contains(got, "cleanup blocked: evidence_empty") {
+		t.Fatalf("sidecar refusal must render its reason, got %q", got)
 	}
 }
 

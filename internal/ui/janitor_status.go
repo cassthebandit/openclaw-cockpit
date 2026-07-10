@@ -103,12 +103,17 @@ func (m *Model) refreshJanitorStatus() {
 	if m == nil || strings.TrimSpace(m.janitorStatusPath) == "" {
 		return
 	}
-	previous := m.janitorStatus.renderKey()
+	previous := m.janitorStatus
 	m.janitorStatus = loadJanitorStatusFile(m.janitorStatusPath, m.clockNow())
-	if m.janitorStatus.renderKey() != previous {
+	if m.janitorStatus.renderKey() != previous.renderKey() {
 		// External file-backed render input changed its derived rendered
 		// value: dirty the frame even if the triggering message would not.
 		m.markRenderDirty()
+	}
+	// Group classification consumes sidecar session rows, so a new sidecar
+	// generation or a freshness-state change can move cards between groups.
+	if m.janitorStatus.State != previous.State || !m.janitorStatus.Generated.Equal(previous.Generated) {
+		m.invalidateClassifications()
 	}
 }
 

@@ -588,6 +588,8 @@ func bodyHeightConstraintForGroup(group cockpitGroup) bodyHeightConstraint {
 		return bodyHeightConstraint{min: 8, max: 32, weight: 5}
 	case groupInactiveAgents.name:
 		return bodyHeightConstraint{min: 8, max: 32, weight: 5}
+	case groupCleanupBlocked.name:
+		return bodyHeightConstraint{min: 8, max: 32, weight: 5}
 	case groupFailedAgents.name:
 		return bodyHeightConstraint{min: 8, max: 32, weight: 6}
 	case groupOperationalFailures.name:
@@ -736,6 +738,8 @@ func groupAccentColor(group cockpitGroup) string {
 		return groupColorInactive
 	case groupInactiveAgents.name:
 		return groupColorInactive
+	case groupCleanupBlocked.name:
+		return groupColorInactive
 	case groupFailedAgents.name:
 		return groupColorFailed
 	case groupOperationalFailures.name:
@@ -855,7 +859,7 @@ func renderCardBodyBlock(width int, body string, preserveAgentCLIColors bool) st
 
 func agentCLIColorPassthroughGroup(groupName string) bool {
 	switch groupName {
-	case groupActiveAgents.name, groupHeldAgents.name, groupInactiveAgents.name, groupFailedAgents.name:
+	case groupActiveAgents.name, groupHeldAgents.name, groupInactiveAgents.name, groupCleanupBlocked.name, groupFailedAgents.name:
 		return true
 	default:
 		return false
@@ -1000,7 +1004,7 @@ func sessionCockpitState(m *Model, session tmux.Session, pane tmux.Pane, stale b
 	return cockpitStateWithModel(m, pane, stale)
 }
 
-func cockpitInfoLines(width int, pane tmux.Pane, now time.Time) []string {
+func cockpitInfoLines(width int, m *Model, session tmux.Session, pane tmux.Pane, now time.Time) []string {
 	if pane.Cockpit == nil {
 		return nil
 	}
@@ -1009,7 +1013,7 @@ func cockpitInfoLines(width int, pane tmux.Pane, now time.Time) []string {
 	if goal != "" {
 		lines = append(lines, cockpitSubtleLine(width, "goal: "+goal))
 	}
-	if cleanup := cockpitCleanupLine(pane, now); cleanup != "" {
+	if cleanup := cockpitCleanupLine(m, session, pane, now); cleanup != "" {
 		lines = append(lines, cockpitSubtleLine(width, cleanup))
 	}
 	return lines
@@ -1020,7 +1024,7 @@ func cockpitCardInfoLines(width int, m *Model, session tmux.Session, pane tmux.P
 	if attention := cockpitAttentionLine(width, m, session, pane, sessionState); attention != "" {
 		lines = append(lines, attention)
 	}
-	lines = append(lines, cockpitInfoLines(width, pane, now)...)
+	lines = append(lines, cockpitInfoLines(width, m, session, pane, now)...)
 	if m != nil &&
 		m.viewMode == viewModeDetail &&
 		m.detailSession == session.ID &&
@@ -1125,11 +1129,12 @@ func trimTrailingBlankLines(lines []string) []string {
 	return append([]string{}, lines[:end]...)
 }
 
-func cockpitCleanupLine(pane tmux.Pane, now time.Time) string {
+func cockpitCleanupLine(m *Model, session tmux.Session, pane tmux.Pane, now time.Time) string {
 	if pane.Cockpit == nil {
 		return ""
 	}
 	meta := pane.Cockpit
+	row, hasRow := m.janitorSessionRow(session.Name)
 	parts := []string{}
 	if policy := strings.TrimSpace(meta.CleanupPolicy); policy != "" {
 		parts = append(parts, "policy: "+policy)
@@ -1137,25 +1142,35 @@ func cockpitCleanupLine(pane tmux.Pane, now time.Time) string {
 	if ttl := strings.TrimSpace(meta.TTL); ttl != "" && ttl != "never" {
 		parts = append(parts, "ttl: "+ttl)
 	}
-	if hold := strings.TrimSpace(meta.HoldReason); hold != "" {
-		parts = append(parts, "hold blocks cleanup: "+hold)
-	}
-	if marked := strings.TrimSpace(meta.TeardownMarkedAt); marked != "" {
+	hold := strings.TrimSpace(meta.HoldReason)
+	marked := strings.TrimSpace(meta.TeardownMarkedAt)
+	if hold != "" {
+		label := "hold blocks cleanup: " + hold
+		if marked != "" {
+			// Held+marked is a conflict: the mark is inert while the hold
+			// stands, so no countdown may render next to it.
+			label += " · teardown mark inert (hold conflict)"
+		}
+		parts = append(parts, label)
+	} else if marked != "" {
 		label := "marked for teardown"
 		if reason := strings.TrimSpace(meta.TeardownReason); reason != "" {
 			label += ": " + reason
 		}
-		if markedAt := parseCockpitTimestamp(marked); !markedAt.IsZero() {
-			killAt := markedAt.Add(teardownKillDelay)
-			if remaining := killAt.Sub(now); remaining > 0 {
-				label += " · cleanup in " + coarseDuration(remaining)
-			} else {
-				label += " · cleanup pending"
-			}
-		}
+		label += " · " + janitorCountdownText(row, hasRow, now)
 		parts = append(parts, label)
 	} else if strings.EqualFold(strings.TrimSpace(meta.JanitorState), "cleanup_pending") {
 		parts = append(parts, "cleanup pending")
+	}
+	if hasRow && strings.EqualFold(strings.TrimSpace(row.JanitorState), "cleanup_blocked") {
+		reason := strings.TrimSpace(row.LastRefusal)
+		if reason == "" {
+			reason = strings.TrimSpace(row.Reason)
+		}
+		if reason == "" {
+			reason = "janitor refusal"
+		}
+		parts = append(parts, "cleanup blocked: "+reason)
 	}
 	if end := strings.TrimSpace(meta.EndReason); end != "" && end != "expected_exit" {
 		parts = append(parts, "end: "+end)
@@ -1170,6 +1185,22 @@ func cockpitCleanupLine(pane tmux.Pane, now time.Time) string {
 		return ""
 	}
 	return strings.Join(parts, " · ")
+}
+
+// janitorCountdownText renders the janitor-owned mark-to-kill countdown. The
+// sidecar kill_not_before is the only countdown source: when the sidecar is
+// missing, stale, or carries no kill_not_before, Cockpit says so instead of
+// inventing a countdown from a local constant.
+func janitorCountdownText(row janitorSessionStatus, hasRow bool, now time.Time) string {
+	if hasRow {
+		if killAt := parseCockpitTimestamp(row.KillNotBefore); !killAt.IsZero() {
+			if remaining := killAt.Sub(now); remaining > 0 {
+				return "cleanup in " + coarseDuration(remaining)
+			}
+			return "cleanup pending"
+		}
+	}
+	return "cleanup countdown unknown (no fresh janitor status)"
 }
 
 func cockpitGroupBadge(meta *tmux.CockpitMeta) string {
