@@ -46,7 +46,10 @@ type janitorStatusView struct {
 	Cycle     janitorCycleStatus
 }
 
-func loadJanitorStatusFile(path string, now time.Time) janitorStatusView {
+func loadJanitorStatusFile(path string, now time.Time, staleAfter time.Duration) janitorStatusView {
+	if staleAfter <= 0 {
+		staleAfter = janitorStatusStaleAfter
+	}
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return janitorStatusView{State: "disabled"}
@@ -77,7 +80,7 @@ func loadJanitorStatusFile(path string, now time.Time) janitorStatusView {
 	view.Generated = generated
 	view.Sessions = payload.Sessions
 	view.Cycle = payload.LastCycle
-	if now.Sub(generated) > janitorStatusStaleAfter {
+	if now.Sub(generated) > staleAfter {
 		view.State = "stale"
 		view.Detail = coarseDuration(now.Sub(generated)) + " old"
 		return view
@@ -104,7 +107,7 @@ func (m *Model) refreshJanitorStatus() {
 		return
 	}
 	previous := m.janitorStatus
-	m.janitorStatus = loadJanitorStatusFile(m.janitorStatusPath, m.clockNow())
+	m.janitorStatus = loadJanitorStatusFile(m.janitorStatusPath, m.clockNow(), m.janitorStaleAfter)
 	if m.janitorStatus.renderKey() != previous.renderKey() {
 		// External file-backed render input changed its derived rendered
 		// value: dirty the frame even if the triggering message would not.

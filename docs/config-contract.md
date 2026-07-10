@@ -12,13 +12,29 @@ Cockpit needs a durable configuration surface so timers, colors, group policies,
 
 ## Candidate Config File
 
-Preferred future path:
+Implemented first pass (stdlib-parseable, no new dependency):
 
 ```text
-~/.config/openclaw-cockpit/config.toml
+~/.config/openclaw-cockpit/config.json
 ```
 
+overridable with `--config <path>`; `--dump-config` prints the effective
+config. A TOML surface (`config.toml`) remains an allowed future migration once
+a TOML dependency is justified.
+
 Project/test fixtures can use repo-local config files, but the installed wall should read the user config path unless overridden by CLI flag or environment variable.
+
+## Implemented Settings (first pass)
+
+- `footer_max_height` (int, default 4);
+- `janitor_stale_after` (duration string, default "3m") — sidecar freshness display only;
+- `stale_threshold` (duration string, default "1h") — session stale display only;
+- `collapsed_groups` / `expanded_groups` (registry group names) — default accordion state overrides; manual operator toggles still win.
+
+Unknown fields are rejected (strict decoding), so no cleanup-authority setting
+can be introduced through config. Invalid config prints a visible error and
+falls back to built-in defaults. Group policy tables, theme tokens, and layout
+column settings remain future extractions under this contract.
 
 ## Settings To Extract First
 

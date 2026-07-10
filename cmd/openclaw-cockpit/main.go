@@ -47,11 +47,33 @@ func main() {
 		exclude          = flag.String("exclude-session", "", "comma-separated tmux session names to hide from snapshots")
 		simulate         = flag.String("debug-click", "", "simulate a mouse left-click at the given coordinates (x,y)")
 		traceMouse       = flag.Bool("trace-mouse", false, "log mouse hit testing details to stderr")
+		configPath       = flag.String("config", "", "path to wall config JSON (default ~/.config/openclaw-cockpit/config.json)")
+		dumpConfig       = flag.Bool("dump-config", false, "print the effective wall config as JSON and exit")
 	)
 	flag.Parse()
 
 	if *showVer {
 		fmt.Println(productName, version)
+		return
+	}
+
+	wallConfig, configErr := ui.LoadWallConfig(*configPath)
+	if configErr != nil {
+		// Invalid config fails visibly and falls back safely to defaults; it
+		// must never silently change what the wall means.
+		fmt.Fprintf(os.Stderr, "wall config error: %v (using built-in defaults)\n", configErr)
+		wallConfig = ui.DefaultWallConfig()
+	}
+	if *dumpConfig {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(wallConfig); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to encode wall config: %v\n", err)
+			os.Exit(1)
+		}
+		if configErr != nil {
+			os.Exit(1)
+		}
 		return
 	}
 
@@ -108,6 +130,7 @@ func main() {
 	}
 
 	model := ui.NewModel(client, *interval, *captureBudget, debugMsgs, *traceMouse, monitorOnly)
+	model.ApplyWallConfig(wallConfig)
 	model.SetPreferredColumns(*cols)
 	model.SetOrganized(*organize)
 	model.SetJanitorStatusFile(*janitorStatus)

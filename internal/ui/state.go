@@ -304,6 +304,14 @@ func (m *Model) seedGroupCollapse(groups []cockpitGroup) {
 			continue
 		}
 		m.seededGroups[group.name] = struct{}{}
+		// Config may override a group's default accordion state; manual
+		// operator toggles still win afterward because seeding runs once.
+		if override, ok := m.groupCollapseOverride[group.name]; ok {
+			if override {
+				m.collapsedGroups[group.name] = struct{}{}
+			}
+			continue
+		}
 		if _, expanded := defaultExpandedGroups[group.name]; !expanded {
 			m.collapsedGroups[group.name] = struct{}{}
 		}

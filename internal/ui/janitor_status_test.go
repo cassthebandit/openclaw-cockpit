@@ -17,7 +17,7 @@ func TestLoadJanitorStatusFileStates(t *testing.T) {
 
 	now := time.Date(2026, 7, 7, 20, 0, 0, 0, time.UTC)
 	dir := t.TempDir()
-	missing := loadJanitorStatusFile(filepath.Join(dir, "missing.json"), now)
+	missing := loadJanitorStatusFile(filepath.Join(dir, "missing.json"), now, janitorStatusStaleAfter)
 	if missing.State != "missing" {
 		t.Fatalf("missing state = %q", missing.State)
 	}
@@ -26,7 +26,7 @@ func TestLoadJanitorStatusFileStates(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"status_version":1,"generated_at":"2026-07-07T19:59:00Z","sessions":{},"last_cycle":{"mark":1,"refuse":2}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	ok := loadJanitorStatusFile(path, now)
+	ok := loadJanitorStatusFile(path, now, janitorStatusStaleAfter)
 	if ok.State != "ok" || ok.Cycle.Mark != 1 || ok.Cycle.Refuse != 2 {
 		t.Fatalf("ok status = %#v", ok)
 	}
@@ -34,7 +34,7 @@ func TestLoadJanitorStatusFileStates(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"status_version":1,"generated_at":"2026-07-07T19:50:00Z","sessions":{}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	stale := loadJanitorStatusFile(path, now)
+	stale := loadJanitorStatusFile(path, now, janitorStatusStaleAfter)
 	if stale.State != "stale" {
 		t.Fatalf("stale state = %q", stale.State)
 	}
@@ -42,7 +42,7 @@ func TestLoadJanitorStatusFileStates(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"status_version":2}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	invalid := loadJanitorStatusFile(path, now)
+	invalid := loadJanitorStatusFile(path, now, janitorStatusStaleAfter)
 	if invalid.State != "invalid" {
 		t.Fatalf("invalid state = %q", invalid.State)
 	}

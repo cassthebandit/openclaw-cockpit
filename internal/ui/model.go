@@ -236,6 +236,13 @@ type Model struct {
 	janitorStatus     janitorStatusView
 	fastCaptureActive map[string]struct{}
 
+	// Presentation config (WallConfig): footer bound, sidecar stale-after,
+	// session stale threshold, and per-group default-collapse overrides.
+	footerMaxHeight       int
+	janitorStaleAfter     time.Duration
+	staleLimit            time.Duration
+	groupCollapseOverride map[string]bool
+
 	// Single-flight fast watcher state: fastWatchActive is true while exactly
 	// one watcher command is outstanding, and fastWatchGen counts armed
 	// watchers so tests can assert that snapshot ticks never add a lineage.
@@ -371,6 +378,9 @@ func NewModel(client *tmux.Client, poll time.Duration, captureBudget int, debugM
 		client:            client,
 		pollInterval:      poll,
 		captureBudget:     captureBudget,
+		footerMaxHeight:   maxFooterHeight,
+		janitorStaleAfter: janitorStatusStaleAfter,
+		staleLimit:        staleThreshold,
 		zonePrefix:        zone.NewPrefix(),
 		previews:          make(map[string]*sessionPreview),
 		hidden:            make(map[string]struct{}),

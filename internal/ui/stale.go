@@ -31,7 +31,11 @@ func (m *Model) updateStaleSessions() bool {
 		if last.IsZero() {
 			continue
 		}
-		if now.Sub(last) >= staleThreshold {
+		limit := m.staleLimit
+		if limit <= 0 {
+			limit = staleThreshold
+		}
+		if now.Sub(last) >= limit {
 			next[session.ID] = struct{}{}
 		}
 	}

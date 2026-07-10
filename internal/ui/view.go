@@ -54,8 +54,12 @@ func (m *Model) View() tea.View {
 	headerHeight := max(1, countLines(header))
 	m.previewOffset = headerHeight
 
+	footerCap := m.footerMaxHeight
+	if footerCap < 1 {
+		footerCap = maxFooterHeight
+	}
 	status := m.renderStatus()
-	m.footerHeight = max(1, min(countLines(status), maxFooterHeight))
+	m.footerHeight = max(1, min(countLines(status), footerCap))
 	status = clampFooter(status, m.footerHeight)
 	// Compute the filtered/sorted wall once per frame; layout sizing, card
 	// rendering, and cursor selection all reuse this slice instead of
