@@ -122,6 +122,7 @@ func (m *Model) formatCockpitSummary(width int) string {
 		if state == "" {
 			state = "running"
 		}
+		state = m.cockpitSummaryState(session, state)
 		counts[state]++
 		total++
 		for _, window := range session.Windows {
@@ -151,8 +152,9 @@ func (m *Model) formatCockpitSummary(width int) string {
 
 	order := []string{
 		"failed", "route-fail", "safety-fail", "review",
-		"waiting", "blocked", "running", "starting",
+		"waiting", "blocked", "cleanup-blocked", "running", "starting",
 		"done", "pass", "signal", "directional", "null-safe", "held", "stale", "quiet",
+		"marked-for-teardown",
 	}
 	parts := []string{fmt.Sprintf("cockpit items: %d", total)}
 	for _, state := range order {
@@ -201,6 +203,20 @@ func (m *Model) formatCockpitSummary(width int) string {
 		return lipgloss.NewStyle().Width(width).MaxWidth(width).Render(line)
 	}
 	return line
+}
+
+func (m *Model) cockpitSummaryState(session tmux.Session, state string) string {
+	group := agentLifecycleGroup(m, session, state)
+	switch group.name {
+	case groupHeldAgents.name:
+		return "held"
+	case groupCleanupBlocked.name:
+		return "cleanup-blocked"
+	case groupInactiveAgents.name:
+		return "marked-for-teardown"
+	default:
+		return state
+	}
 }
 
 func cockpitGroupedRecordCount(pane tmux.Pane) int {

@@ -122,6 +122,47 @@ func TestFormatCockpitSummaryIncludesAttentionAndSemanticStates(t *testing.T) {
 	}
 }
 
+func TestFormatCockpitSummaryTreatsHeldMarkedAsHeld(t *testing.T) {
+	t.Parallel()
+
+	session := tmux.Session{
+		ID:   "$held-marked-lane",
+		Name: "held-marked-lane",
+		Windows: []tmux.Window{{
+			ID:   "@held-marked-lane",
+			Name: "main",
+			Panes: []tmux.Pane{{
+				ID:      "%held-marked-lane",
+				Session: "held-marked-lane",
+				Cockpit: &tmux.CockpitMeta{
+					Kind:         "agent",
+					Agent:        "fable",
+					State:        "marked-for-teardown",
+					HoldReason:   "parent review",
+					JanitorState: "marked_for_teardown",
+				},
+			}},
+		}},
+	}
+	m := &Model{
+		sessions: []tmux.Session{session},
+		janitorStatus: janitorStatusView{
+			State: "ok",
+			Sessions: map[string]janitorSessionStatus{
+				"held-marked-lane": {JanitorState: "protected", LastRefusal: "hold_reason_active"},
+			},
+		},
+	}
+
+	got := m.formatCockpitSummary(200)
+	if !strings.Contains(got, "held 1") {
+		t.Fatalf("cockpit summary should count held+marked conflict as held, got %q", got)
+	}
+	if strings.Contains(got, "marked-for-teardown") {
+		t.Fatalf("cockpit summary should not report protected held mark as teardown-eligible, got %q", got)
+	}
+}
+
 func TestFormatCockpitSummaryCountsSkeletonsSuppressedAndGrouped(t *testing.T) {
 	t.Parallel()
 
