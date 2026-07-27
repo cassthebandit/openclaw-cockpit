@@ -152,7 +152,8 @@ func computeCockpitGroupFor(m *Model, session tmux.Session) cockpitGroup {
 	if containsAny(chrome, "tmuxwatch", "cass-agents", "dashboard", " mux ") {
 		return groupDashboard
 	}
-	if containsAny(chrome, "-html", "localhost", "http://", "vite", "library-matrix", "daniel-brief") {
+	if sessionHasViewerKind(session) ||
+		containsAny(chrome, "-html", "localhost", "http://", "vite", "library-matrix", "daniel-brief") {
 		return groupViewers
 	}
 
@@ -450,6 +451,21 @@ func sessionIsService(session tmux.Session) bool {
 	for _, window := range session.Windows {
 		for _, pane := range window.Panes {
 			if pane.Cockpit != nil && strings.EqualFold(strings.TrimSpace(pane.Cockpit.Kind), "service") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func sessionHasViewerKind(session tmux.Session) bool {
+	for _, window := range session.Windows {
+		for _, pane := range window.Panes {
+			if pane.Cockpit == nil {
+				continue
+			}
+			kind := strings.ToLower(strings.TrimSpace(pane.Cockpit.Kind))
+			if kind == "viewer" || kind == "detected-viewer" {
 				return true
 			}
 		}

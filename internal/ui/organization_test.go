@@ -56,6 +56,20 @@ func TestCockpitGroupForCurrentFleetShapes(t *testing.T) {
 			want: groupViewers.name,
 		},
 		{
+			name: "explicit detected viewer metadata is viewer",
+			session: func() tmux.Session {
+				session := sessionForGroup("maybrie-paris-site", "Python",
+					"/Users/cass/.openclaw/workspace/projects/paris-family-2026", "")
+				session.Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{
+					Kind:  "detected-viewer",
+					Agent: "",
+					State: "running",
+				}
+				return session
+			}(),
+			want: groupViewers.name,
+		},
+		{
 			name:    "plain shell is idle",
 			session: sessionForGroup("scratch", "zsh", "/tmp", ""),
 			want:    groupIdle.name,
