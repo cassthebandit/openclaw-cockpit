@@ -24,7 +24,14 @@ func (m *Model) renderStatus() string {
 // buildStatusLine assembles the footer lines detailing input helpers, stale
 // sessions, pane variables, toasts, and errors.
 func (m *Model) buildStatusLine(width int) string {
-	helper := fmt.Sprintf("monitor-only · mouse scroll/click · %s/d detail · %s/%s collapse · keys / search, :/v filter, H hidden, q quit", maximizeLabel, collapseLabel, expandLabel)
+	// The footer states the authority the session actually has. Labelling a
+	// key-forwarding session "monitor-only" would let an operator misjudge
+	// whether typing reaches the selected pane.
+	authority := "control mode"
+	if m.monitorOnly {
+		authority = "monitor-only"
+	}
+	helper := fmt.Sprintf("%s · mouse scroll/click · %s/d detail · %s/%s collapse · keys / search, :/v filter, H hidden, q quit", authority, maximizeLabel, collapseLabel, expandLabel)
 	if m.monitorOnly {
 		helper += " · no cleanup/key forwarding"
 	} else {

@@ -121,7 +121,7 @@ Contract:
 
 - Only actually marked sessions may appear in a group named `Marked For Teardown`.
 - The operator should see a countdown or "kill not before" time when available.
-- Current janitor constants are `ACTIVE_IDLE_MARK_SECONDS=120`, `TEARDOWN_GRACE_SECONDS=480`, and `FAILED_VISIBLE_SECONDS=600` — the decided defaults: `2m` stable delivered-idle before marking, `8m` mark-to-kill grace, and `10m` failed-visible grace. The operator rule is that completed work should be gone in about 10 minutes once it is done, assuming valid evidence and no hold/blocker.
+- Current janitor constants in `tools/tmux/session_hygiene.py` are `ACTIVE_IDLE_MARK_SECONDS=180`, `TEARDOWN_GRACE_SECONDS=60`, and `FAILED_VISIBLE_SECONDS=180` — `3m` stable delivered-idle before marking, `1m` mark-to-kill grace, `3m` failed-visible grace. The `120`/`480`/`600` (`2m`/`8m`/`10m`) set is a **recorded but unimplemented target**, not current behavior; see Open Decisions. Do not quote either set as a live countdown — the janitor-provided `kill_not_before` is the only countdown truth.
 - The mark-to-kill window rendered by Cockpit must match janitor policy or display the janitor-provided `kill_not_before`; Cockpit must not guess a countdown that disagrees with hygiene.
 - Mark cancellation should be rare and explainable. It may cancel for real operator prompts or meaningful output, not cosmetic render churn.
 - Mark cancellation must compare against a mark-time normalized baseline, not a stale skip-path observation. A statically completed pane should retain its mark across repeated janitor cycles.
@@ -219,7 +219,7 @@ Reason strings already available from hygiene, such as hold refusal, `evidence_e
 
 ## Open Decisions Before Code
 
-- Timer decision is recorded: `2m` mark delay, `8m` teardown grace, `10m` failed-visible grace, with the completed-path rule that done work should disappear in about 10 minutes when evidence is valid and no hold/blocker applies.
+- Timer target is recorded but **still unimplemented**: `2m` mark delay, `8m` teardown grace, `10m` failed-visible grace, with the completed-path rule that done work should disappear in about 10 minutes when evidence is valid and no hold/blocker applies. The live code runs `3m`/`1m`/`3m`. Whether to implement the target or adopt the live values remains an open product-policy decision and must not be settled inside a correctness fix.
 - Define the exact delivered-idle completion-screen fixtures and normalized-tail hash rules.
 - Resolve `release-hold` authority: either keep hygiene as the only marking authority or document and test a release-time pre-mark exception.
 - Keep `ABSOLUTE_MAX_SECONDS` out of cleanup eligibility. A later implementation may use it only as an operator escalation/relabel threshold, never as evidence-bypass authority.

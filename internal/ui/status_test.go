@@ -21,6 +21,26 @@ func TestBuildStatusLineShowsPaneParseWarnings(t *testing.T) {
 	}
 }
 
+func TestBuildStatusLineLabelsAuthorityTruthfully(t *testing.T) {
+	t.Parallel()
+
+	monitor := (&Model{width: 160, monitorOnly: true}).buildStatusLine(160)
+	if !strings.Contains(monitor, "monitor-only") {
+		t.Fatalf("monitor-only session should be labelled monitor-only, got %q", monitor)
+	}
+	if !strings.Contains(monitor, "no cleanup/key forwarding") {
+		t.Fatalf("monitor-only session should say it forwards no keys, got %q", monitor)
+	}
+
+	control := (&Model{width: 160, monitorOnly: false}).buildStatusLine(160)
+	if !strings.Contains(control, "control mode") {
+		t.Fatalf("key-forwarding session should be labelled control mode, got %q", control)
+	}
+	if strings.Contains(control, "monitor-only") {
+		t.Fatalf("key-forwarding session must not claim monitor-only, got %q", control)
+	}
+}
+
 func TestOverviewStatusDoesNotDumpFocusedPaneVars(t *testing.T) {
 	t.Parallel()
 
