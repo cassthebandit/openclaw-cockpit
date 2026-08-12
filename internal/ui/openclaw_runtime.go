@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -15,7 +17,6 @@ import (
 )
 
 const (
-	defaultOpenClawRuntimeScript  = "/Users/cass/.openclaw/workspace/tools/openclaw_runtime/cockpit_snapshot.py"
 	defaultOpenClawRuntimeTimeout = 20 * time.Second
 	openClawRuntimeCardContract   = "runtime-card.v1"
 	// runtimeOutputCapBytes bounds how much snapshot-script stdout is read
@@ -161,7 +162,11 @@ func openClawRuntimeSessions(source RuntimeSource, now time.Time) []tmux.Session
 func loadOpenClawRuntimeCards(source RuntimeSource) ([]openClawRuntimeCard, error) {
 	script := strings.TrimSpace(source.Script)
 	if script == "" {
-		script = defaultOpenClawRuntimeScript
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("resolve default OpenClaw runtime script: %w", err)
+		}
+		script = filepath.Join(home, ".openclaw", "workspace", "tools", "openclaw_runtime", "cockpit_snapshot.py")
 	}
 	limit := source.Limit
 	if limit <= 0 {

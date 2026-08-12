@@ -18,7 +18,7 @@ const (
 	maxFooterHeight = 4
 )
 
-// View renders the entire tmuxwatch interface, including title bar, search
+// View renders the entire OpenClaw Cockpit interface, including title bar, search
 // state, session previews, status footer, and overlays.
 //
 // F1 frame cache: when no render-affecting state change has been marked since

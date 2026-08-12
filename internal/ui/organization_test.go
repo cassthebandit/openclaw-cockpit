@@ -28,39 +28,39 @@ func TestCockpitGroupForCurrentFleetShapes(t *testing.T) {
 	}{
 		{
 			name: "fable session is a live active agent",
-			session: sessionForGroup("clean-draft-fable-extract", "claude.exe",
-				"/Users/cass/projects/clean-draft", "Implement V1 extract job artifacts"),
+			session: sessionForGroup("example-project-fable-extract", "claude.exe",
+				"/Users/alice/projects/example-project", "Implement V1 extract job artifacts"),
 			want: groupActiveAgents.name,
 		},
 		{
 			name: "camera service stays service",
-			session: sessionForGroup("camera-rtsp", "go2rtc",
-				"/Users/cass/.openclaw/workspace/config/camera-rtsp", ""),
+			session: sessionForGroup("example-monitor", "go2rtc",
+				"/Users/alice/.openclaw/workspace/config/example-monitor", ""),
 			want: groupServices.name,
 		},
 		{
-			name: "pantry claude frontend stays service",
-			session: sessionForGroup("pantry-copilot-claude-front", "node",
-				"/Users/cass/.openclaw/workspace/projects/pantry-copilot-claude-front", ""),
+			name: "notification watcher frontend stays service",
+			session: sessionForGroup("notification-watcher-claude-front", "node",
+				"/Users/alice/.openclaw/workspace/projects/notification-watcher-claude-front", ""),
 			want: groupServices.name,
 		},
 		{
 			name: "wall session is dashboard",
 			session: sessionForGroup("cass-agents", "tmuxwatch-cass",
-				"/Users/cass/.openclaw/workspace", ""),
+				"/Users/alice/.openclaw/workspace", ""),
 			want: groupDashboard.name,
 		},
 		{
 			name: "html helper is viewer",
-			session: sessionForGroup("clean-draft-daniel-brief-html", "Python",
-				"/Users/cass/.openclaw/workspace/memory/runs/fable-daniel-brief-build", ""),
+			session: sessionForGroup("example-project-operator-brief-html", "Python",
+				"/Users/alice/.openclaw/workspace/memory/runs/fable-operator-brief-build", ""),
 			want: groupViewers.name,
 		},
 		{
 			name: "explicit detected viewer metadata is viewer",
 			session: func() tmux.Session {
-				session := sessionForGroup("maybrie-paris-site", "Python",
-					"/Users/cass/.openclaw/workspace/projects/paris-family-2026", "")
+				session := sessionForGroup("demo-travel-site", "Python",
+					"/Users/alice/.openclaw/workspace/projects/demo-travel-2026", "")
 				session.Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{
 					Kind:  "detected-viewer",
 					Agent: "",
@@ -94,10 +94,10 @@ func TestSortSessionsForCockpit(t *testing.T) {
 
 	now := time.Now()
 	sessions := []tmux.Session{
-		withActivity(sessionForGroup("camera-rtsp", "go2rtc", "/camera", ""), now.Add(-time.Minute)),
+		withActivity(sessionForGroup("example-monitor", "go2rtc", "/camera", ""), now.Add(-time.Minute)),
 		withActivity(sessionForGroup("cass-agents", "tmuxwatch-cass", "/workspace", ""), now),
 		withActivity(sessionForGroup("committee-specb-codex", "zsh", "/workspace", ""), now.Add(-5*time.Minute)),
-		withActivity(sessionForGroup("clean-draft-daniel-brief-html", "Python", "/memory/runs/daniel-brief", ""), now.Add(-2*time.Minute)),
+		withActivity(sessionForGroup("example-project-operator-brief-html", "Python", "/memory/runs/operator-brief", ""), now.Add(-2*time.Minute)),
 		withActivity(sessionForGroup("scratch", "zsh", "/tmp", ""), now.Add(-30*time.Second)),
 	}
 
@@ -109,9 +109,9 @@ func TestSortSessionsForCockpit(t *testing.T) {
 	}
 	want := []string{
 		"committee-specb-codex",
-		"camera-rtsp",
+		"example-monitor",
 		"cass-agents",
-		"clean-draft-daniel-brief-html",
+		"example-project-operator-brief-html",
 		"scratch",
 	}
 	for i := range want {
@@ -781,11 +781,11 @@ func TestOrganizedCardBodyHeightsUseVerticalSpace(t *testing.T) {
 	m.preferredCols = 5
 	m.cardInnerWidth = 68
 	m.sessions = []tmux.Session{
-		sessionForGroup("clean-draft-tranche3-fable-code", "claude", "/workspace", "Implement guardrails"),
+		sessionForGroup("example-project-tranche3-fable-code", "claude", "/workspace", "Implement guardrails"),
 		sessionForGroup("AI-Alerts", "Python", "/workspace/config/smonitor", "AI-Alerts"),
 		sessionForGroup("s-apple-detector", "Python", "/workspace/config/camera", "s-apple-detector"),
 		sessionForGroup("smonitor", "go2rtc", "/workspace/config/smonitor", "smonitor"),
-		sessionForGroup("clean-draft-tranche4-fable-code", "claude", "/workspace", "Finished tranche"),
+		sessionForGroup("example-project-tranche4-fable-code", "claude", "/workspace", "Finished tranche"),
 	}
 	m.sessions[4].Windows[0].Panes[0].Dead = true
 	// Actually janitor-marked: only marked sessions render under Marked For
@@ -1315,7 +1315,7 @@ func TestRenderSessionPreviewsAddsOrganizedDividers(t *testing.T) {
 	m.cardInnerHeight = 6
 	m.sessions = []tmux.Session{
 		sessionForGroup("committee-specb-codex", "zsh", "/workspace", ""),
-		sessionForGroup("camera-rtsp", "go2rtc", "/camera", ""),
+		sessionForGroup("example-monitor", "go2rtc", "/camera", ""),
 	}
 	for _, session := range m.sessions {
 		vp := viewportFor(innerDimension{width: 70, height: 6})
@@ -1334,7 +1334,7 @@ func TestRenderSessionPreviewsAddsOrganizedDividers(t *testing.T) {
 // agentSessionForGroup builds a managed agent session (kind=agent, via
 // agent_wall) with the given @oc_state and a neutral name/command.
 func agentSessionForGroup(name, state string) tmux.Session {
-	session := sessionForGroup(name, "claude", "/Users/cass/projects/"+name, "")
+	session := sessionForGroup(name, "claude", "/Users/alice/projects/"+name, "")
 	session.Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{
 		ContractVersion: "1",
 		ManagedBy:       "agent_wall",
@@ -1568,7 +1568,7 @@ func TestAgentIdentityBeatsDashboardAndViewerTheft(t *testing.T) {
 
 	t.Run("goal", func(t *testing.T) {
 		t.Parallel()
-		session := agentSessionForGroup("clean-draft-extract-job", "running")
+		session := agentSessionForGroup("example-project-extract-job", "running")
 		session.Windows[0].Panes[0].Cockpit.Goal = thief
 		if got := cockpitGroupFor(nil, session).name; got != groupActiveAgents.name {
 			t.Fatalf("goal theft: cockpitGroupFor() = %q, want %q", got, groupActiveAgents.name)
@@ -1577,7 +1577,7 @@ func TestAgentIdentityBeatsDashboardAndViewerTheft(t *testing.T) {
 
 	t.Run("preview", func(t *testing.T) {
 		t.Parallel()
-		session := agentSessionForGroup("clean-draft-extract-job", "waiting")
+		session := agentSessionForGroup("example-project-extract-job", "waiting")
 		session.Windows[0].Panes[0].PreviewText = "opening " + thief
 		if got := cockpitGroupFor(nil, session).name; got != groupActiveAgents.name {
 			t.Fatalf("preview theft: cockpitGroupFor() = %q, want %q", got, groupActiveAgents.name)

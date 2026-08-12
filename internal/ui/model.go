@@ -1,5 +1,5 @@
 // File model.go defines the core Bubble Tea model structure and shared
-// constants that govern tmuxwatch behaviour.
+// constants that govern OpenClaw Cockpit behavior.
 package ui
 
 import (

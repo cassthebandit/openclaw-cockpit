@@ -149,7 +149,7 @@ func TestSnapshotExcludesNamedSessions(t *testing.T) {
 		case "list-sessions":
 			return []byte(strings.Join([]string{
 				strings.Join([]string{"$1", "cass-agents", "1", "100", "110"}, tmuxFieldSep),
-				strings.Join([]string{"$2", "camera-rtsp", "0", "100", "120"}, tmuxFieldSep),
+				strings.Join([]string{"$2", "example-monitor", "0", "100", "120"}, tmuxFieldSep),
 			}, "\n") + "\n"), nil
 		case "list-windows":
 			return []byte(strings.Join([]string{
@@ -175,8 +175,8 @@ func TestSnapshotExcludesNamedSessions(t *testing.T) {
 	if len(snap.Sessions) != 1 {
 		t.Fatalf("expected one visible session, got %d", len(snap.Sessions))
 	}
-	if snap.Sessions[0].Name != "camera-rtsp" {
-		t.Fatalf("visible session = %q, want camera-rtsp", snap.Sessions[0].Name)
+	if snap.Sessions[0].Name != "example-monitor" {
+		t.Fatalf("visible session = %q, want example-monitor", snap.Sessions[0].Name)
 	}
 	if len(snap.Sessions[0].Windows) != 1 || len(snap.Sessions[0].Windows[0].Panes) != 1 {
 		t.Fatalf("expected visible session to keep joined windows/panes: %+v", snap.Sessions[0])

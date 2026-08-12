@@ -1,12 +1,10 @@
 # Requirements Matrix
 
-This matrix turns Daniel's 2026-07-09 brain dump and the current bug diagnosis into source-of-truth documentation and future implementation gates.
-
-This is a planning and gate map, not execution approval. Any metadata restamping, hold release, janitor test rewrite, live hygiene apply cycle, tmux session mutation, or Cockpit code change requires a separate explicit implementation approval.
+This matrix connects the product requirements to their owning documents and verification. It is a contributor index, not a second product specification.
 
 ## Product Requirements
 
-| Requirement | Type | Source Of Truth | Next Gate |
+| Requirement | Type | Source Of Truth | Verification |
 | --- | --- | --- | --- |
 | Single terminal pane shows all important CLI/agent work. | Vision | `DESIGN_BRIEF.md` | README usage and layout tests |
 | Active agents are first and visually dominant. | Product/Layout | `DESIGN_BRIEF.md`, `docs/layout-contract.md` | Group/order/height regression tests |
@@ -18,7 +16,7 @@ This is a planning and gate map, not execution approval. Any metadata restamping
 
 ## Lifecycle Requirements
 
-| Requirement | Type | Source Of Truth | Next Gate |
+| Requirement | Type | Source Of Truth | Verification |
 | --- | --- | --- | --- |
 | Holds block automatic cleanup. | Contract | `docs/lifecycle-contract.md` | Janitor and UI grouping tests |
 | Hold release is explicit and evidence-aware. | Contract | `docs/lifecycle-contract.md` | `agent_wall.py release-hold` tests in workspace |
@@ -34,7 +32,7 @@ This is a planning and gate map, not execution approval. Any metadata restamping
 
 ## Layout Requirements
 
-| Requirement | Type | Source Of Truth | Next Gate |
+| Requirement | Type | Source Of Truth | Verification |
 | --- | --- | --- | --- |
 | Terminal expand removes dotted dead space. | Layout/Runtime | `docs/layout-contract.md` | mechanical resize matrix plus tmux attached-client smoke |
 | Terminal shrink preserves borders and rows. | Layout/Runtime | `docs/layout-contract.md` | mechanical resize matrix plus screenshot/snapshot test |
@@ -43,15 +41,15 @@ This is a planning and gate map, not execution approval. Any metadata restamping
 | Agent-focused groups can auto-open by policy. | UX/Config | `docs/group-registry.md`, `docs/layout-contract.md`, `docs/config-contract.md` | edge-event auto-open tests |
 | Services and completed groups compress first. | Layout | `docs/layout-contract.md` | height allocation tests |
 
-## Current Bug Mapping
+## Regression map
 
-| Observed Bug | Classification | Contract Fix | Code Phase Gate |
+| Failure mode | Classification | Contract rule | Verification |
 | --- | --- | --- | --- |
-| Items marked for teardown are not tearing down. | Lifecycle/janitor drift | Distinguish true marked, blocked, held, failed grace, and evidence refusal. | Future implementation gate: plan/apply/status tests with each reason |
-| Active agents appear and disappear. | Grouping/source drift | Signal precedence and managed active identity win over stale/preview/goal/service heuristics. | Future implementation gate: precedence/classification tests |
+| Items marked for teardown do not tear down. | Lifecycle/janitor drift | Distinguish true marked, blocked, held, failed grace, and evidence refusal. | plan/apply/status tests with each reason |
+| Active agents appear and disappear. | Grouping/source drift | Signal precedence and managed active identity win over stale/preview/goal/service heuristics. | precedence and classification tests |
 | Dotted outline/dead space after resize. | Layout/runtime contract gap | Launcher and UI must follow attached terminal geometry. | tmux client resize smoke |
-| Held teardown items stay indefinitely. | Hold/release contract gap | Holds are stop signs; release path is explicit; blocked label explains why. | Future implementation gate: hold release plus UI label tests |
-| Failed items never go away. | Evidence contract gap | Failed grace clears only with non-empty valid evidence; empty artifacts show blocked until remediated. | Future implementation gate: failed evidence tests |
+| Held teardown items stay indefinitely. | Hold/release contract gap | Holds are stop signs; release is explicit; the blocked label explains why. | hold-release and UI-label tests |
+| Failed items never go away. | Evidence contract gap | Failed grace clears only with non-empty valid evidence; empty artifacts show blocked until remediated. | failed-evidence tests |
 | Accordions reopen after operator closes them. | Verified mechanism: collapse state is process-memory only (`state.go` seeds defaults once; nothing persists it) and the launcher's `respawn-pane` restarts the process, resetting every manual collapse; group flicker from janitor mark/cancel oscillation was the other reopen impression (fixed by the janitor baseline + classifier slices). | Manual collapse persists across snapshot/janitor/runtime refresh within a process (tested). Respawn resets to registry defaults — accepted behavior for this arc, recorded here; view-state persistence across respawn is deliberate future scope. | Manual collapse persistence tests (implemented: `TestManualCollapsePersistsAcrossJanitorAndSnapshotRefresh`, `TestGroupCollapseTogglePersistsAcrossSeeding`) |
 | Footer/helper text consumes too much space. | Layout priority bug | Footer max height and wide rendering are configurable. | footer constraint tests |
 | tmux status row consumes bottom space. | Launcher/config decision | Dashboard status row defaults to top, with top/bottom/hidden setting. | launcher/status-row smoke |
@@ -65,6 +63,6 @@ This is a planning and gate map, not execution approval. Any metadata restamping
 - `docs/group-registry.md`: canonical group names, ranks, definitions, and accordion policies.
 - `docs/layout-contract.md`: resize, active priority, accordion, footer, visual contract.
 - `docs/config-contract.md`: settings extraction and validation contract.
-- `docs/spec.md`: implementation architecture and roadmap, subordinate to the above contracts.
+- `docs/spec.md`: implementation architecture, subordinate to the above contracts.
 - `README.md`: operator-facing install/run/usage summary.
 - Workspace `tools/tmux/README.md`: integration runbook for launchers, janitor, and visible model workers.

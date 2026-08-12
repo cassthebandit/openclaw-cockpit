@@ -82,7 +82,7 @@ func benchWallModel(tb testing.TB, agents, runtimes int) *Model {
 		m.sessions = append(m.sessions, s)
 	}
 	for i := 0; i < 2; i++ {
-		s := sessionForGroup(fmt.Sprintf("shell-%02d", i), "zsh", "/Users/cass", "")
+		s := sessionForGroup(fmt.Sprintf("shell-%02d", i), "zsh", "/Users/alice", "")
 		m.sessions = append(m.sessions, s)
 	}
 

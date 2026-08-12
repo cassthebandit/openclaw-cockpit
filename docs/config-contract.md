@@ -134,7 +134,7 @@ Config validation should reject:
 - janitor-derived timers that conflict with status sidecar data without surfacing the conflict;
 - cleanup-affecting settings that Cockpit is not allowed to own.
 
-## Acceptance Tests For Next Code Phase
+## Acceptance test inventory
 
 - Default config reproduces the golden wall fixture in `layout-contract.md` at 120x40.
 - Invalid config returns a visible error and does not corrupt the UI.

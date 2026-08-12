@@ -1,4 +1,4 @@
-// File commands.go defines Bubble Tea command constructors for tmuxwatch.
+// File commands.go defines Bubble Tea command constructors for OpenClaw Cockpit.
 package ui
 
 import (

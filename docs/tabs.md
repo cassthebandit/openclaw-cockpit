@@ -1,10 +1,10 @@
 # Tab Bar Integration
 
-This note records how the new tabbed layout is wired into tmuxwatch.
+This note records how the tabbed layout is wired into OpenClaw Cockpit.
 
 ## BubbleApp component usage
-- We render the strip with `github.com/alexanderbh/bubbleapp/component/tabtitles`. The BubbleApp runtime handles the layout and styling of the tab titles, while tmuxwatch keeps ownership of state and input routing.
-- The component is instantiated on each `View` render through a lightweight helper that calls `app.NewCtx()` and renders `tabtitles.New(...)` for the current tab titles. We treat the BubbleApp output purely as view markup; key and mouse handling stays in tmuxwatch so the existing Bubble Tea model remains unchanged.
+- We render the strip with `github.com/alexanderbh/bubbleapp/component/tabtitles`. The BubbleApp runtime handles the layout and styling of the tab titles, while Cockpit keeps ownership of state and input routing.
+- The component is instantiated on each `View` render through a lightweight helper that calls `app.NewCtx()` and renders `tabtitles.New(...)` for the current tab titles. We treat the BubbleApp output purely as view markup; key and mouse handling stays in Cockpit so the existing Bubble Tea model remains unchanged.
 - BubbleZone IDs emitted by the component are inspected in `handleTabMouse`; clicks on `tab:<n>` now switch tabs (with helper coverage in `handlers_test.go`).
 
 ## Tabs & view modes
@@ -22,4 +22,4 @@ This note records how the new tabbed layout is wired into tmuxwatch.
 - Update the status footer and cheat sheet to describe the new controls.
 - Cover the helper logic with unit tests (`state_test.go`).
 
-With these pieces in place, the tabs integrate cleanly while tmuxwatch retains its single Bubble Tea program and existing bubblezone layouts.
+With these pieces in place, the tabs integrate cleanly while Cockpit retains its single Bubble Tea program and existing bubblezone layouts.

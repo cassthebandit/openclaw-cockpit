@@ -180,7 +180,7 @@ func goldenWallModel(tb testing.TB, now time.Time) *Model {
 	m.sessions = append(m.sessions, marked)
 
 	// Stale non-agent session: detached with old activity crosses staleThreshold.
-	staleSession := sessionForGroup("old-workbench", "vim", "/Users/cass/notes", "notes")
+	staleSession := sessionForGroup("old-workbench", "vim", "/Users/alice/notes", "notes")
 	staleSession = withActivity(staleSession, now.Add(-3*time.Hour))
 	m.sessions = append(m.sessions, staleSession)
 

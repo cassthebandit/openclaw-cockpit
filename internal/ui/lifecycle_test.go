@@ -213,7 +213,7 @@ func TestPaneIdleFinishedRequiresManagedAgentGate(t *testing.T) {
 func TestIdleFinishedAgentRoutesToCompleted(t *testing.T) {
 	t.Parallel()
 
-	session := agentSessionForGroup("clean-draft-fable-extract", "running")
+	session := agentSessionForGroup("example-project-fable-extract", "running")
 	pane := &session.Windows[0].Panes[0]
 	pane.Cockpit.Kind = "visible-agent"
 	pane.Cockpit.Agent = "fable"
@@ -249,7 +249,7 @@ func TestFableBakedReadyForParentReviewRoutesToCompleted(t *testing.T) {
 func TestLiveAgentWithoutFinishedScreenStaysInteractive(t *testing.T) {
 	t.Parallel()
 
-	session := agentSessionForGroup("clean-draft-fable-extract", "running")
+	session := agentSessionForGroup("example-project-fable-extract", "running")
 	pane := &session.Windows[0].Panes[0]
 	pane.Cockpit.Kind = "visible-agent"
 	pane.Cockpit.Agent = "fable"

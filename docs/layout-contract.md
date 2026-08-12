@@ -114,7 +114,7 @@ The wall should use familiar compact controls:
 
 Color is supporting information, not the only state indicator. Group colors and severity colors belong in theme/config tokens.
 
-## Acceptance Tests For Next Code Phase
+## Acceptance test inventory
 
 - Expanding the terminal removes tmux dead space without manual resize. Mechanical gate: after resize to each tested width/height, rendered frame width equals terminal width, every rendered line display-width is <= terminal width, and tmux reports the dashboard window size matches the attached client size.
 - Shrinking the terminal preserves coherent borders and no scattered render rows. Mechanical gate: no orphan ANSI fragments, no line exceeds terminal width, footer and scroll indicators remain inside viewport.

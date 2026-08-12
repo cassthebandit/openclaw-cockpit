@@ -53,7 +53,7 @@ func TestSessionMatchesCockpitMetadata(t *testing.T) {
 					{Cockpit: &tmux.CockpitMeta{
 						Agent:             "fable",
 						Owner:             "workshop-4",
-						Project:           "clean-draft",
+						Project:           "example-project",
 						State:             "waiting",
 						Goal:              "Spec B extraction build",
 						PresentationGroup: "route_health",
@@ -66,7 +66,7 @@ func TestSessionMatchesCockpitMetadata(t *testing.T) {
 		},
 	}
 
-	for _, query := range []string{"fable", "workshop-4", "clean-draft", "waiting", "spec b", "route_health", "route health", "inspect acp"} {
+	for _, query := range []string{"fable", "workshop-4", "example-project", "waiting", "spec b", "route_health", "route health", "inspect acp"} {
 		if !sessionMatches(session, query) {
 			t.Fatalf("sessionMatches(%q) should match cockpit metadata", query)
 		}

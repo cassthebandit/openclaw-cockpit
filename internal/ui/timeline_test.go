@@ -230,14 +230,14 @@ func TestRuntimeTimelineFooterDoesNotLeakEvidencePath(t *testing.T) {
 		Type:   runtimeTimelineAppeared,
 		Key:    "secret-evidence-id",
 		Label:  "Runtime Card",
-		Reason: "/Users/cass/private/evidence",
+		Reason: "/Users/alice/private/evidence",
 	}}}
 
 	got := m.formatRuntimeTimelineLine(200)
 	if !strings.Contains(got, "appeared Runtime Card") {
 		t.Fatalf("timeline footer missing compact event, got %q", got)
 	}
-	for _, forbidden := range []string{"secret-evidence-id", "/Users/cass/private/evidence"} {
+	for _, forbidden := range []string{"secret-evidence-id", "/Users/alice/private/evidence"} {
 		if strings.Contains(got, forbidden) {
 			t.Fatalf("timeline footer leaked %q in %q", forbidden, got)
 		}
@@ -366,9 +366,9 @@ func TestRuntimeTimelineDetailDoesNotLeakKeysOrUnsafeReasonsAcrossEventTypes(t *
 	m := &Model{runtimeTimeline: []runtimeTimelineEvent{
 		{
 			Type:   runtimeTimelineAppeared,
-			Key:    "/Users/cass/private/key-appeared",
+			Key:    "/Users/alice/private/key-appeared",
 			Label:  "Appeared Card",
-			Reason: "/Users/cass/private/reason-appeared",
+			Reason: "/Users/alice/private/reason-appeared",
 			At:     time.Date(2026, 7, 6, 1, 2, 1, 0, time.UTC),
 		},
 		{
@@ -388,8 +388,8 @@ func TestRuntimeTimelineDetailDoesNotLeakKeysOrUnsafeReasonsAcrossEventTypes(t *
 		{
 			Type:   runtimeTimelineHiddenSummary,
 			Key:    "/private/tmp/key-hidden",
-			Label:  "/Users/cass/.openclaw/workspace/memory/runs/private-run/RESULT.md",
-			Reason: "/Users/cass/.openclaw/workspace/memory/runs/private-run/RESULT.md",
+			Label:  "/Users/alice/.openclaw/workspace/memory/runs/private-run/RESULT.md",
+			Reason: "/Users/alice/.openclaw/workspace/memory/runs/private-run/RESULT.md",
 			At:     time.Date(2026, 7, 6, 1, 2, 4, 0, time.UTC),
 		},
 		{
@@ -416,7 +416,7 @@ func TestRuntimeTimelineDetailDoesNotLeakKeysOrUnsafeReasonsAcrossEventTypes(t *
 		"raw-id-1",
 		"raw-id-2",
 		"key-hidden",
-		"/Users/cass",
+		"/Users/alice",
 		"/private/tmp",
 		".openclaw",
 		"workspace/memory/runs",

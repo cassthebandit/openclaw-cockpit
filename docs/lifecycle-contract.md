@@ -224,7 +224,7 @@ Reason strings already available from hygiene, such as hold refusal, `evidence_e
 - Resolve `release-hold` authority: either keep hygiene as the only marking authority or document and test a release-time pre-mark exception.
 - Keep `ABSOLUTE_MAX_SECONDS` out of cleanup eligibility. A later implementation may use it only as an operator escalation/relabel threshold, never as evidence-bypass authority.
 
-## Required Tests For Next Code Phase
+## Required test inventory
 
 - Held completed pane is not marked or killed without release/override.
 - Held already-marked pane is not killed without release/override.

@@ -154,7 +154,7 @@ func computeCockpitGroupFor(m *Model, session tmux.Session) cockpitGroup {
 		return groupDashboard
 	}
 	if sessionHasViewerKind(session) ||
-		containsAny(chrome, "-html", "localhost", "http://", "vite", "library-matrix", "daniel-brief") {
+		containsAny(chrome, "-html", "localhost", "http://", "vite", "library-matrix") {
 		return groupViewers
 	}
 

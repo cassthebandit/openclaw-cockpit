@@ -1,6 +1,6 @@
 # OpenClaw Cockpit Design Brief
 
-OpenClaw Cockpit is a single-pane operator wall for local CLI and agent work. It runs in the terminal, reads tmux and OpenClaw metadata, and gives Daniel a live view of what is actively happening without forcing him to step through panes, logs, sidecars, and helper scripts by hand.
+OpenClaw Cockpit is a single-pane operator wall for local CLI and agent work. It runs in the terminal, reads tmux and optional OpenClaw metadata, and gives an operator a live view of what is actively happening without forcing them to step through panes, logs, sidecars, and helper scripts by hand.
 
 Cockpit is not a general tmux theme, a process supervisor, or the cleanup authority. It is the presentation layer for work that is owned by tmux, OpenClaw launch metadata, runtime cards, and the janitor. Its job is to make the state of the system obvious enough that the operator can trust what is active, what is waiting, what failed, what is held, and what will disappear automatically.
 
@@ -54,7 +54,7 @@ Use this order when docs disagree:
 
 1. Detailed contract docs: lifecycle, group registry, layout, and config.
 2. `DESIGN_BRIEF.md` for product intent and boundary summary.
-3. `docs/spec.md` for current architecture and roadmap.
+3. `docs/spec.md` for current implementation architecture.
 4. `README.md` for operator-facing usage.
 5. Historical diagnosis artifacts and run notes.
 
@@ -64,7 +64,7 @@ If detailed contracts conflict with each other, the owning domain wins: lifecycl
 
 The operator-facing groups are a presentation of lifecycle facts, not independent states. The canonical group names, ranks, definitions, and accordion policies live in [`docs/group-registry.md`](docs/group-registry.md).
 
-The current source does not yet implement every group exactly. That is contract drift for the next code pass, not permission to keep misleading labels.
+The current source implements the registry groups and keeps their labels tied to lifecycle facts. Changes to classification must update the owning contract and its regression tests together.
 
 ## Cleanup Contract
 
@@ -113,6 +113,6 @@ A Cockpit change is not accepted because the code compiles. It is accepted when 
 - manual accordion collapse is respected according to policy;
 - terminal expand and shrink behavior leaves no dead space, cut borders, or corrupted render rows;
 - footer/helper content stays compact;
-- configuration defaults reproduce the current intended Cass wall without hardcoded colors and timings scattered through the UI.
+- configuration defaults reproduce the intended wall without hardcoded colors and timings scattered through the UI.
 
-The next implementation phase should convert the known bugs into regression tests before changing behavior.
+Behavior changes should begin with a regression test that states the operator-visible contract.

@@ -30,4 +30,4 @@ Remote tmux, general HTTP/gRPC APIs, notification systems, and arbitrary plugin 
 
 Changes should preserve supported CLI behavior, include regression coverage when practical, pass formatting, lint, unit and race tests, and exercise the built binary against a real tmux session when runtime behavior changes. Packaging changes must keep Go, Nix, GoReleaser, and Homebrew paths reproducible.
 
-Detailed architecture and roadmap notes live in [`docs/spec.md`](docs/spec.md). If docs disagree, use the source-of-truth order in [`DESIGN_BRIEF.md`](DESIGN_BRIEF.md).
+Detailed architecture notes live in [`docs/spec.md`](docs/spec.md). If docs disagree, use the source-of-truth order in [`DESIGN_BRIEF.md`](DESIGN_BRIEF.md).

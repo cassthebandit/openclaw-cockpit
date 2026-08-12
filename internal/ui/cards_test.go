@@ -418,7 +418,7 @@ func TestCockpitCleanupLineBoundsEvidencePath(t *testing.T) {
 		HoldReason:    "review",
 		EndReason:     "process_exit_nonzero",
 		ProgressPath:  "progress.jsonl",
-		EvidencePath:  "/Users/cass/.openclaw/workspace/memory/runs/secretish/result.txt",
+		EvidencePath:  "/Users/alice/.openclaw/workspace/memory/runs/secretish/result.txt",
 	}}
 
 	got := cockpitCleanupLine(nil, tmux.Session{Name: "secretish"}, pane, time.Now())
@@ -427,7 +427,7 @@ func TestCockpitCleanupLineBoundsEvidencePath(t *testing.T) {
 			t.Fatalf("cleanup line missing %q in %q", want, got)
 		}
 	}
-	if strings.Contains(got, "/Users/cass") {
+	if strings.Contains(got, "/Users/alice") {
 		t.Fatalf("cleanup line should not expose absolute path, got %q", got)
 	}
 }

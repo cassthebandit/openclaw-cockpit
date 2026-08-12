@@ -259,7 +259,7 @@ func TestFormatCockpitSummaryUsesSnapshotRawForGroupedOnlyCards(t *testing.T) {
 func TestRenderTitleBarExcludesQuietServicesFromStaleCount(t *testing.T) {
 	t.Parallel()
 
-	service := sessionForGroup("smonitor", "go2rtc", "/Users/cass/.openclaw/workspace/config/camera-rtsp", "")
+	service := sessionForGroup("smonitor", "go2rtc", "/Users/alice/.openclaw/workspace/config/example-monitor", "")
 	m := &Model{
 		sessions: []tmux.Session{service},
 		stale: map[string]struct{}{

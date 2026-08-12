@@ -1,10 +1,34 @@
 package ui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestOpenClawRuntimeDefaultScriptUsesCurrentHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	script := filepath.Join(home, ".openclaw", "workspace", "tools", "openclaw_runtime", "cockpit_snapshot.py")
+	if err := os.MkdirAll(filepath.Dir(script), 0o755); err != nil {
+		t.Fatalf("create default script directory: %v", err)
+	}
+	if err := os.WriteFile(script, []byte(`import json
+print(json.dumps({"cardContract": "runtime-card.v1", "summary": {}, "cards": []}))
+`), 0o644); err != nil {
+		t.Fatalf("write default runtime script: %v", err)
+	}
+
+	cards, err := loadOpenClawRuntimeCards(RuntimeSource{Enabled: true, Limit: 5, Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("load default runtime script: %v", err)
+	}
+	if len(cards) != 0 {
+		t.Fatalf("cards = %d, want 0", len(cards))
+	}
+}
 
 func TestOpenClawRuntimeSessionMapsAttentionCard(t *testing.T) {
 	t.Parallel()
