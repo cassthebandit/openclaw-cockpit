@@ -113,7 +113,9 @@ func (m *Model) handleMessage(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if preview, ok := m.previews[msg.sessionID]; ok && preview.paneID == msg.paneID {
 			content := strings.TrimRight(msg.text, "\n")
 			if msg.err != nil {
-				content = "Pane capture error: " + msg.err.Error()
+				// The error string is not pane output; strict-sanitize it
+				// before it enters the preview as displayable text.
+				content = "Pane capture error: " + cardSafeLine(msg.err.Error())
 			}
 			if content != preview.lastContent {
 				// Delta-classified dirty: only a real content change reaches
@@ -237,15 +239,53 @@ func (m *Model) hasFastCaptureCandidates() bool {
 	return false
 }
 
-func (m *Model) ensureFastCaptures() tea.Cmd {
+// takeCaptureToken consumes one token from the shared aggregate capture
+// budget. Tokens refill in fixed one-second windows on the injectable clock,
+// so at most aggregateCaptureBudgetPerSecond capture-pane subprocesses start
+// per second across the fast and snapshot paths combined.
+func (m *Model) takeCaptureToken(now time.Time) bool {
+	if m == nil {
+		return false
+	}
+	if m.captureWindowStart.IsZero() || now.Sub(m.captureWindowStart) >= time.Second {
+		m.captureWindowStart = now
+		m.captureTokensSpent = 0
+	}
+	if m.captureTokensSpent >= aggregateCaptureBudgetPerSecond {
+		return false
+	}
+	m.captureTokensSpent++
+	return true
+}
+
+// captureRequest is one planned capture-pane dispatch. planFastCaptures
+// returns these so the deterministic budget/fairness tests can observe
+// exactly which sessions were serviced without running subprocesses.
+type captureRequest struct {
+	sessionID string
+	paneID    string
+	lines     int
+}
+
+// planFastCaptures selects the fast-path capture dispatches for this sweep.
+// It walks sessions round-robin from fastCaptureOffset and draws one shared
+// budget token per dispatch; when the budget runs out mid-sweep the cursor
+// parks on the first unserviced session, so continuously dirty sessions are
+// serviced in strict rotation and service counts can differ by at most one.
+func (m *Model) planFastCaptures() []captureRequest {
 	if m == nil || len(m.sessions) == 0 {
 		return nil
 	}
 	if m.fastCaptureActive == nil {
 		m.fastCaptureActive = make(map[string]struct{})
 	}
-	var cmds []tea.Cmd
-	for _, session := range m.sessions {
+	now := m.clockNow()
+	n := len(m.sessions)
+	start := m.fastCaptureOffset % n
+	var requests []captureRequest
+	exhausted := false
+	for i := 0; i < n; i++ {
+		session := m.sessions[(start+i)%n]
 		if m.isHidden(session.ID) || !m.shouldFastCapture(session) {
 			continue
 		}
@@ -273,11 +313,34 @@ func (m *Model) ensureFastCaptures() tea.Cmd {
 		if !m.fastCaptureSignalChanged(session, pane, preview) {
 			continue
 		}
+		if !m.takeCaptureToken(now) {
+			// Budget exhausted: park the cursor on this session so the next
+			// window resumes exactly where rotation stopped.
+			m.fastCaptureOffset = (start + i) % n
+			exhausted = true
+			break
+		}
 		m.fastCaptureActive[session.ID] = struct{}{}
-		cmds = append(cmds, fetchPaneContentCmd(m.client, session.ID, pane.ID, captureLinesFor(preview.viewport.Height())))
+		requests = append(requests, captureRequest{
+			sessionID: session.ID,
+			paneID:    pane.ID,
+			lines:     captureLinesFor(preview.viewport.Height()),
+		})
 	}
-	if len(cmds) == 0 {
+	if !exhausted {
+		m.fastCaptureOffset = (start + 1) % n
+	}
+	return requests
+}
+
+func (m *Model) ensureFastCaptures() tea.Cmd {
+	requests := m.planFastCaptures()
+	if len(requests) == 0 {
 		return nil
+	}
+	cmds := make([]tea.Cmd, 0, len(requests))
+	for _, request := range requests {
+		cmds = append(cmds, fetchPaneContentCmd(m.client, request.sessionID, request.paneID, request.lines))
 	}
 	return tea.Batch(cmds...)
 }
@@ -414,6 +477,11 @@ func (m *Model) ensurePreviewsAndCapture() tea.Cmd {
 			} else {
 				captureBudget--
 			}
+		}
+		// Snapshot-path captures draw from the same aggregate per-second
+		// budget as the fast path; when it is exhausted nothing dispatches.
+		if shouldCapture && !m.takeCaptureToken(m.clockNow()) {
+			shouldCapture = false
 		}
 		if shouldCapture {
 			lines := captureLinesFor(preview.viewport.Height())

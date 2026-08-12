@@ -104,7 +104,7 @@ func (m *Model) computeNextRenderTransition(now time.Time) time.Time {
 				if markedAt := parseCockpitTimestamp(pane.Cockpit.TeardownMarkedAt); !markedAt.IsZero() {
 					// Countdown transitions come from the janitor sidecar's
 					// kill_not_before — the same source the card renders.
-					if row, ok := m.janitorSessionRow(session.Name); ok {
+					if row, join := m.janitorSessionRow(session); join == janitorJoinOK {
 						if killAt := parseCockpitTimestamp(row.KillNotBefore); !killAt.IsZero() {
 							if remaining := killAt.Sub(now); remaining > 0 {
 								if delta, ok := nextCountdownChange(remaining); ok {

@@ -76,8 +76,9 @@ func (m *Model) titleViewLabel() string {
 		return label
 	}
 	if session, ok := m.sessionByID(m.detailSession); ok {
-		if strings.TrimSpace(session.Name) != "" {
-			return "Detail / " + session.Name
+		// The title bar is terminal chrome: strict-sanitize the untrusted name.
+		if name := cardSafeLine(session.Name); name != "" {
+			return "Detail / " + name
 		}
 	}
 	return "Detail / " + sessionLabel(m.detailSession)
@@ -157,7 +158,10 @@ func (m *Model) titleSummary() string {
 	return strings.Join(parts, " · ")
 }
 
-// formatPaneVariables formats sorted tmux pane variables for display.
+// formatPaneVariables formats sorted tmux pane variables for display. Keys
+// and values are external tmux user options: strict-sanitize both so a
+// hostile @-option cannot inject control sequences or forged lines into the
+// footer/detail chrome.
 func formatPaneVariables(vars map[string]string) string {
 	keys := make([]string, 0, len(vars))
 	for k := range vars {
@@ -166,7 +170,7 @@ func formatPaneVariables(vars map[string]string) string {
 	sort.Strings(keys)
 	parts := make([]string, 0, len(keys))
 	for _, k := range keys {
-		parts = append(parts, fmt.Sprintf("%s=%s", k, vars[k]))
+		parts = append(parts, fmt.Sprintf("%s=%s", cardSafeLine(k), cardSafeLine(vars[k])))
 	}
 	return "vars: " + strings.Join(parts, " ")
 }

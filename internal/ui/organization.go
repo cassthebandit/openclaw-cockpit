@@ -2,6 +2,7 @@ package ui
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
@@ -176,16 +177,78 @@ func computeCockpitGroupFor(m *Model, session tmux.Session) cockpitGroup {
 	return groupWork
 }
 
+// janitorJoinState classifies how a sidecar row relates to the session it is
+// named after. Only janitorJoinOK grants teardown/countdown authority; the
+// mismatch and missing-identity states exist so the UI can say why a row was
+// rejected instead of silently attaching stale cleanup truth by name.
+type janitorJoinState int
+
+const (
+	janitorJoinNone            janitorJoinState = iota // no fresh row for this session name
+	janitorJoinOK                                      // row identity matches a current pane
+	janitorJoinMissingIdentity                         // row carries no pane_id/pane_created
+	janitorJoinMismatch                                // row identity matches no current pane
+)
+
 // janitorSessionRow returns the janitor sidecar row for a session when the
-// sidecar is fresh ("ok"). A missing, stale, or invalid sidecar yields no row:
-// Cockpit renders a janitor-health warning elsewhere and must never infer
-// cleanup eligibility from absent facts.
-func (m *Model) janitorSessionRow(sessionName string) (janitorSessionStatus, bool) {
+// sidecar is fresh ("ok") AND the row's pane identity matches a current pane
+// in that session. A missing, stale, or invalid sidecar yields no row, and a
+// name-only match (identity absent or pointing at a replaced pane) yields the
+// row with a non-OK join state: Cockpit renders a janitor-health or identity
+// warning elsewhere and must never infer cleanup eligibility from absent or
+// stale facts.
+func (m *Model) janitorSessionRow(session tmux.Session) (janitorSessionStatus, janitorJoinState) {
 	if m == nil || m.janitorStatus.State != "ok" || len(m.janitorStatus.Sessions) == 0 {
-		return janitorSessionStatus{}, false
+		return janitorSessionStatus{}, janitorJoinNone
 	}
-	row, ok := m.janitorStatus.Sessions[sessionName]
-	return row, ok
+	row, ok := m.janitorStatus.Sessions[session.Name]
+	if !ok {
+		return janitorSessionStatus{}, janitorJoinNone
+	}
+	return row, janitorRowJoin(row, session)
+}
+
+// janitorRowCarriesCleanupAuthority reports whether an ignored (mismatched or
+// identity-less) sidecar row would have changed cleanup presentation, so the
+// card can warn about exactly the rows whose rejection matters instead of
+// stamping every card that merely has an "active" row.
+func janitorRowCarriesCleanupAuthority(row janitorSessionStatus) bool {
+	switch strings.ToLower(strings.TrimSpace(row.JanitorState)) {
+	case "marked_for_teardown", "cleanup_pending", "cleanup_blocked", "protected":
+		return true
+	}
+	return strings.TrimSpace(row.KillNotBefore) != "" ||
+		strings.TrimSpace(row.MarkedAt) != "" ||
+		strings.TrimSpace(row.LastRefusal) != ""
+}
+
+// janitorRowJoin validates a sidecar row's pane identity against the current
+// snapshot session. pane_id is the primary key; pane_created (which hygiene
+// populates from the primary pane's #{session_created}) guards pane-id
+// recycling across tmux server restarts, so it may match either the pane's or
+// the session's creation time.
+func janitorRowJoin(row janitorSessionStatus, session tmux.Session) janitorJoinState {
+	paneID := strings.TrimSpace(row.PaneID)
+	createdRaw := strings.TrimSpace(row.PaneCreated)
+	if paneID == "" || createdRaw == "" {
+		return janitorJoinMissingIdentity
+	}
+	created, err := strconv.ParseInt(createdRaw, 10, 64)
+	if err != nil {
+		return janitorJoinMissingIdentity
+	}
+	for _, window := range session.Windows {
+		for _, pane := range window.Panes {
+			if pane.ID != paneID {
+				continue
+			}
+			if created == pane.CreatedAt.Unix() || created == session.CreatedAt.Unix() {
+				return janitorJoinOK
+			}
+			return janitorJoinMismatch
+		}
+	}
+	return janitorJoinMismatch
 }
 
 // agentLifecycleGroup places an agent session by the lifecycle-contract
@@ -204,11 +267,18 @@ func (m *Model) janitorSessionRow(sessionName string) (janitorSessionStatus, boo
 // is the fallback signal. Only actually-marked sessions may appear under
 // Marked For Teardown.
 func agentLifecycleGroup(m *Model, session tmux.Session, state string) cockpitGroup {
-	row, hasRow := m.janitorSessionRow(session.Name)
+	row, join := m.janitorSessionRow(session)
+	hasRow := join == janitorJoinOK
 	held := sessionHasHold(session) || state == "held"
 	blocked := hasRow && strings.EqualFold(strings.TrimSpace(row.JanitorState), "cleanup_blocked")
 	marked := state == "marked-for-teardown" ||
 		(hasRow && strings.EqualFold(strings.TrimSpace(row.JanitorState), "marked_for_teardown"))
+	// A validly joined sidecar mark must still lose to genuine live/operator
+	// evidence (Signal Precedence rows 1-2): resumed real work stays active
+	// and the mark renders only as cleanup metadata.
+	if marked && sessionHasLiveEvidence(m, session) {
+		return groupActiveAgents
+	}
 
 	if state == "awaiting-operator" {
 		return groupActiveAgents
@@ -240,6 +310,51 @@ func agentLifecycleGroup(m *Model, session tmux.Session, state string) cockpitGr
 	// Live managed agent: waiting/blocked/review and any unknown sub-state stay
 	// in the active band, never scattered.
 	return groupActiveAgents
+}
+
+// verdictIsGenuineLiveEvidence reports whether a lifecycle verdict is backed
+// by captured pane content (an active marker or a real operator prompt), as
+// opposed to the low-confidence metadata-live fallback. Only evidence-backed
+// verdicts may outrank teardown marks.
+func verdictIsGenuineLiveEvidence(verdict paneLifecycleVerdict) bool {
+	switch verdict.state {
+	case "live-working":
+		for _, reason := range verdict.reasons {
+			if reason == "active-marker" {
+				return true
+			}
+		}
+		return false
+	case "awaiting-operator":
+		return true
+	default:
+		return false
+	}
+}
+
+// sessionHasLiveEvidence reports whether any live pane in the session carries
+// evidence-backed live-working/operator-prompt content. agentLifecycleGroup
+// uses it so a validly joined sidecar mark cannot pull genuinely resumed work
+// out of Active Agents (hygiene should cancel that mark on its next cycle).
+func sessionHasLiveEvidence(m *Model, session tmux.Session) bool {
+	agentLike := sessionHasManagedAgent(session) || containsAny(sessionChromeText(session), agentNameTokens...)
+	for _, window := range session.Windows {
+		for _, pane := range window.Panes {
+			if pane.Dead {
+				continue
+			}
+			var verdict paneLifecycleVerdict
+			if m != nil {
+				verdict = m.cachedLifecycleVerdict(pane, session)
+			} else {
+				verdict = paneLifecycleVerdictFor(pane, agentLike)
+			}
+			if verdictIsGenuineLiveEvidence(verdict) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func sessionHasHold(session tmux.Session) bool {
@@ -287,6 +402,28 @@ func computeSessionAttentionState(m *Model, session tmux.Session) string {
 }
 
 func paneAttentionState(m *Model, session tmux.Session, pane tmux.Pane) string {
+	// Genuine live evidence outranks teardown marks (lifecycle-contract Signal
+	// Precedence rows 1-2): a pane whose captured content proves live work or
+	// an operator prompt stays active even when pane metadata or a sidecar row
+	// still carries a stale mark. The mark itself keeps rendering as
+	// non-authoritative cleanup metadata on the card (cockpitCleanupLine).
+	// Metadata-only live states (@oc_state=running with no content evidence)
+	// and lower-priority verdicts (delivered-idle, failed, ...) do NOT outrank
+	// a mark.
+	var verdict paneLifecycleVerdict
+	if !pane.Dead {
+		if m != nil {
+			verdict = m.cachedLifecycleVerdict(pane, session)
+		} else {
+			verdict = paneLifecycleVerdictFor(pane, sessionHasManagedAgent(session) || containsAny(sessionChromeText(session), agentNameTokens...))
+		}
+		if verdictIsGenuineLiveEvidence(verdict) {
+			if verdict.state == "live-working" {
+				return "running"
+			}
+			return verdict.state
+		}
+	}
 	if pane.Cockpit != nil {
 		switch strings.ToLower(strings.TrimSpace(pane.Cockpit.JanitorState)) {
 		case "marked_for_teardown", "cleanup_pending":
@@ -297,14 +434,9 @@ func paneAttentionState(m *Model, session tmux.Session, pane tmux.Pane) string {
 		}
 	}
 	if !pane.Dead {
-		var verdict paneLifecycleVerdict
-		if m != nil {
-			verdict = m.cachedLifecycleVerdict(pane, session)
-		} else {
-			verdict = paneLifecycleVerdictFor(pane, sessionHasManagedAgent(session) || containsAny(sessionChromeText(session), agentNameTokens...))
-		}
 		switch verdict.state {
 		case "live-working":
+			// Metadata-only live signal: kept, but only after mark checks.
 			return "running"
 		case "awaiting-operator", "delivered-idle", "failed", "terminal-done", "terminal-problem", "stale":
 			return verdict.state

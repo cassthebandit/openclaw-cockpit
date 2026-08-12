@@ -440,10 +440,11 @@ func TestCockpitCleanupLineCountdownComesFromSidecar(t *testing.T) {
 		TeardownMarkedAt: "2026-07-09T22:58:00Z",
 		TeardownReason:   "completed_idle_teardown",
 	}}
+	session := sidecarJoinSession("marked-lane")
 	m := modelWithJanitorSidecar(map[string]janitorSessionStatus{
-		"marked-lane": {JanitorState: "marked_for_teardown", KillNotBefore: "2026-07-09T23:06:00Z"},
+		"marked-lane": sidecarRowFor(session, janitorSessionStatus{JanitorState: "marked_for_teardown", KillNotBefore: "2026-07-09T23:06:00Z"}),
 	})
-	got := cockpitCleanupLine(m, tmux.Session{Name: "marked-lane"}, pane, now)
+	got := cockpitCleanupLine(m, session, pane, now)
 	if !strings.Contains(got, "cleanup in ") {
 		t.Fatalf("countdown should derive from sidecar kill_not_before, got %q", got)
 	}
@@ -494,10 +495,11 @@ func TestCockpitCleanupLineShowsSidecarBlockedReason(t *testing.T) {
 	t.Parallel()
 
 	pane := tmux.Pane{Cockpit: &tmux.CockpitMeta{CleanupPolicy: "kill_after_ttl"}}
+	session := sidecarJoinSession("blocked-lane")
 	m := modelWithJanitorSidecar(map[string]janitorSessionStatus{
-		"blocked-lane": {JanitorState: "cleanup_blocked", LastAction: "refuse", LastRefusal: "evidence_empty"},
+		"blocked-lane": sidecarRowFor(session, janitorSessionStatus{JanitorState: "cleanup_blocked", LastAction: "refuse", LastRefusal: "evidence_empty"}),
 	})
-	got := cockpitCleanupLine(m, tmux.Session{Name: "blocked-lane"}, pane, time.Now())
+	got := cockpitCleanupLine(m, session, pane, time.Now())
 	if !strings.Contains(got, "cleanup blocked: evidence_empty") {
 		t.Fatalf("sidecar refusal must render its reason, got %q", got)
 	}

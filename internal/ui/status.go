@@ -27,7 +27,9 @@ func (m *Model) buildStatusLine(width int) string {
 	// The footer states the authority the session actually has. Labelling a
 	// key-forwarding session "monitor-only" would let an operator misjudge
 	// whether typing reaches the selected pane.
-	authority := "control mode"
+	// Control mode is deliberately partial (dashboard-reserved keys are not
+	// forwarded); the label says so instead of promising transparent typing.
+	authority := "control mode (partial)"
 	if m.monitorOnly {
 		authority = "monitor-only"
 	}
@@ -98,10 +100,12 @@ func (m *Model) buildStatusLine(width int) string {
 	}
 
 	if m.err != nil {
+		// Error text can embed external tmux/runtime output: strict-sanitize
+		// before it becomes footer chrome.
 		errPart := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("203")).
 			Padding(0, 2).
-			Render("Error: " + m.err.Error())
+			Render("Error: " + cardSafeLine(m.err.Error()))
 		lines = append(lines, errPart)
 	}
 	if toast := m.toastView(m.width); toast != "" {

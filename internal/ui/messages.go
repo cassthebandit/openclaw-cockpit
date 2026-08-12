@@ -14,11 +14,13 @@ type toastState struct {
 }
 
 // showToast updates the transient toast message and schedules its expiration.
+// Toast text can embed untrusted session names or command input, so it goes
+// through the strict chrome sanitizer.
 func (m *Model) showToast(msg string) {
 	if m.toast == nil {
 		m.toast = &toastState{}
 	}
-	m.toast.text = msg
+	m.toast.text = cardSafeLine(msg)
 	m.toast.exp = m.clockNow().Add(3 * time.Second)
 }
 

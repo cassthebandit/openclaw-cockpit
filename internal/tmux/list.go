@@ -5,6 +5,7 @@ package tmux
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strconv"
@@ -12,11 +13,68 @@ import (
 	"time"
 )
 
-// Use a printable sentinel instead of an ASCII control separator. When a Go
-// subprocess invokes tmux from inside a tmux-launched process, tmux can rewrite
-// control characters in format strings to underscores, which breaks parsing for
-// real session names like "AI-Alerts".
-const tmuxFieldSep = "::OC_FIELD::"
+// Field framing. A printable separator is required (when a Go subprocess
+// invokes tmux from inside a tmux-launched process, tmux can rewrite control
+// characters in format strings to underscores), but a bare printable sentinel
+// collides with free-text content: window names and pane titles preserve any
+// printable string, and several accepted @oc_* options can carry arbitrary
+// text. Framing is therefore escape-based:
+//
+//   - every field in every list format is wrapped in a tmux substitution that
+//     rewrites "~" to "~e" inside the value (escapedTmuxFormat);
+//   - an escaped value can never contain two adjacent tildes, so the "~~"
+//     separator cannot occur inside any field;
+//   - decodeTmuxField reverses the escape after splitting.
+//
+// The tmux `s` modifier cannot substitute ":" (the format parser cuts the
+// modifier at any colon, even inside alternate delimiters), which rules out
+// escaping a colon-based sentinel; a tilde-only escape needs exactly one
+// substitution per field and was verified against tmux 3.6b.
+const (
+	tmuxFieldSep    = "~~"
+	tmuxFieldEscape = "~e"
+	// tmuxRowCapBytes is the documented hard cap for one list-command output
+	// row. Aggregate valid metadata around 70 KB must parse (several accepted
+	// @oc_* options can legitimately reach that), while a pathological row
+	// above the cap fails visibly instead of silently truncating the wall.
+	tmuxRowCapBytes = 1 << 20 // 1 MiB
+)
+
+// escapedTmuxFormat joins tmux format variables into one row format with
+// every field tilde-escaped so the field separator cannot collide.
+func escapedTmuxFormat(names ...string) string {
+	parts := make([]string, len(names))
+	for i, name := range names {
+		parts[i] = "#{s|~|" + tmuxFieldEscape + "|:" + name + "}"
+	}
+	return strings.Join(parts, tmuxFieldSep)
+}
+
+// splitTmuxRow splits an escaped output row and decodes each field.
+func splitTmuxRow(line string) []string {
+	fields := strings.Split(line, tmuxFieldSep)
+	for i, field := range fields {
+		fields[i] = strings.ReplaceAll(field, tmuxFieldEscape, "~")
+	}
+	return fields
+}
+
+// newRowScanner wraps list-command output in a Scanner with an explicit
+// per-row token cap, so an oversized row surfaces bufio.ErrTooLong instead of
+// failing at the default 64 KB token limit or allocating without bound.
+func newRowScanner(out []byte) *bufio.Scanner {
+	scanner := bufio.NewScanner(strings.NewReader(string(out)))
+	scanner.Buffer(make([]byte, 64*1024), tmuxRowCapBytes)
+	return scanner
+}
+
+// rowScanErr converts a Scanner error into a visible, actionable list error.
+func rowScanErr(command string, err error) error {
+	if errors.Is(err, bufio.ErrTooLong) {
+		return fmt.Errorf("%s: output row exceeds the %d byte cap: %w", command, tmuxRowCapBytes, err)
+	}
+	return fmt.Errorf("%s: %w", command, err)
+}
 
 func acceptedPaneFieldCount(count int) bool {
 	return count == 14 || count == 33 || count == 37 || count == 41 || count == 42
@@ -25,27 +83,27 @@ func acceptedPaneFieldCount(count int) bool {
 // listSessions shells out to tmux to enumerate sessions and translate them
 // into typed Session values.
 func (c *Client) listSessions(ctx context.Context) ([]Session, error) {
-	out, err := c.runTmux(ctx, "list-sessions", "-F", strings.Join([]string{
-		"#{session_id}",
-		"#{session_name}",
-		"#{session_attached}",
-		"#{session_created}",
-		"#{session_activity}",
-	}, tmuxFieldSep))
+	out, err := c.runTmux(ctx, "list-sessions", "-F", escapedTmuxFormat(
+		"session_id",
+		"session_name",
+		"session_attached",
+		"session_created",
+		"session_activity",
+	))
 	if err != nil {
 		if isNoServerError(err) {
 			return []Session{}, nil
 		}
 		return nil, fmt.Errorf("list-sessions: %w", err)
 	}
-	scanner := bufio.NewScanner(strings.NewReader(string(out)))
+	scanner := newRowScanner(out)
 	sessions := []Session{}
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		fields := strings.Split(line, tmuxFieldSep)
+		fields := splitTmuxRow(line)
 		if len(fields) != 5 {
 			return nil, fmt.Errorf("list-sessions: malformed line %q", line)
 		}
@@ -68,7 +126,7 @@ func (c *Client) listSessions(ctx context.Context) ([]Session, error) {
 		sessions = append(sessions, session)
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		return nil, rowScanErr("list-sessions", err)
 	}
 	return sessions, nil
 }
@@ -76,28 +134,28 @@ func (c *Client) listSessions(ctx context.Context) ([]Session, error) {
 // listWindows retrieves every window in every session so we can later nest
 // panes under them.
 func (c *Client) listWindows(ctx context.Context) ([]Window, error) {
-	out, err := c.runTmux(ctx, "list-windows", "-a", "-F", strings.Join([]string{
-		"#{session_id}",
-		"#{window_id}",
-		"#{window_index}",
-		"#{window_name}",
-		"#{window_active}",
-		"#{window_last_flag}",
-	}, tmuxFieldSep))
+	out, err := c.runTmux(ctx, "list-windows", "-a", "-F", escapedTmuxFormat(
+		"session_id",
+		"window_id",
+		"window_index",
+		"window_name",
+		"window_active",
+		"window_last_flag",
+	))
 	if err != nil {
 		if isNoServerError(err) {
 			return []Window{}, nil
 		}
 		return nil, fmt.Errorf("list-windows: %w", err)
 	}
-	scanner := bufio.NewScanner(strings.NewReader(string(out)))
+	scanner := newRowScanner(out)
 	windows := []Window{}
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		fields := strings.Split(line, tmuxFieldSep)
+		fields := splitTmuxRow(line)
 		if len(fields) != 6 {
 			return nil, fmt.Errorf("list-windows: malformed line %q", line)
 		}
@@ -116,7 +174,7 @@ func (c *Client) listWindows(ctx context.Context) ([]Window, error) {
 		windows = append(windows, window)
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		return nil, rowScanErr("list-windows", err)
 	}
 	return windows, nil
 }
@@ -124,50 +182,50 @@ func (c *Client) listWindows(ctx context.Context) ([]Window, error) {
 // listPanes captures metadata for every pane so we can join them to windows
 // and sessions.
 func (c *Client) listPanes(ctx context.Context) ([]Pane, int, error) {
-	format := strings.Join([]string{
-		"#{session_id}",
-		"#{window_id}",
-		"#{pane_id}",
-		"#{pane_active}",
-		"#{pane_current_command}",
-		"#{pane_title}",
-		"#{pane_last_activity}",
-		"#{pane_created}",
-		"#{pane_width}",
-		"#{pane_height}",
-		"#{pane_tty}",
-		"#{pane_current_path}",
-		"#{pane_dead}",
-		"#{pane_dead_status}",
-		"#{@oc_contract_version}",
-		"#{@oc_managed_by}",
-		"#{@oc_kind}",
-		"#{@oc_agent}",
-		"#{@oc_owner}",
-		"#{@oc_project}",
-		"#{@oc_goal}",
-		"#{@oc_state}",
-		"#{@oc_run_root}",
-		"#{@oc_thread_id}",
-		"#{@oc_session_id}",
-		"#{@oc_started_at}",
-		"#{@oc_updated_at}",
-		"#{@oc_completed_at}",
-		"#{@oc_exit_code}",
-		"#{@oc_ttl}",
-		"#{@oc_cleanup_policy}",
-		"#{@oc_evidence_path}",
-		"#{@oc_hold_reason}",
-		"#{@oc_why_headless}",
-		"#{@oc_pane_log}",
-		"#{@oc_progress_path}",
-		"#{@oc_end_reason}",
-		"#{@oc_route_failure_reason}",
-		"#{@oc_teardown_marked_at}",
-		"#{@oc_teardown_reason}",
-		"#{@oc_janitor_state}",
-		"#{@oc_last_meaningful_activity_at}",
-	}, tmuxFieldSep)
+	format := escapedTmuxFormat(
+		"session_id",
+		"window_id",
+		"pane_id",
+		"pane_active",
+		"pane_current_command",
+		"pane_title",
+		"pane_last_activity",
+		"pane_created",
+		"pane_width",
+		"pane_height",
+		"pane_tty",
+		"pane_current_path",
+		"pane_dead",
+		"pane_dead_status",
+		"@oc_contract_version",
+		"@oc_managed_by",
+		"@oc_kind",
+		"@oc_agent",
+		"@oc_owner",
+		"@oc_project",
+		"@oc_goal",
+		"@oc_state",
+		"@oc_run_root",
+		"@oc_thread_id",
+		"@oc_session_id",
+		"@oc_started_at",
+		"@oc_updated_at",
+		"@oc_completed_at",
+		"@oc_exit_code",
+		"@oc_ttl",
+		"@oc_cleanup_policy",
+		"@oc_evidence_path",
+		"@oc_hold_reason",
+		"@oc_why_headless",
+		"@oc_pane_log",
+		"@oc_progress_path",
+		"@oc_end_reason",
+		"@oc_route_failure_reason",
+		"@oc_teardown_marked_at",
+		"@oc_teardown_reason",
+		"@oc_janitor_state",
+		"@oc_last_meaningful_activity_at",
+	)
 
 	out, err := c.runTmux(ctx, "list-panes", "-a", "-F", format)
 	if err != nil {
@@ -176,7 +234,7 @@ func (c *Client) listPanes(ctx context.Context) ([]Pane, int, error) {
 		}
 		return nil, 0, fmt.Errorf("list-panes: %w", err)
 	}
-	scanner := bufio.NewScanner(strings.NewReader(string(out)))
+	scanner := newRowScanner(out)
 	panes := []Pane{}
 	skipped := 0
 	for scanner.Scan() {
@@ -184,7 +242,7 @@ func (c *Client) listPanes(ctx context.Context) ([]Pane, int, error) {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		fields := strings.Split(line, tmuxFieldSep)
+		fields := splitTmuxRow(line)
 		if !acceptedPaneFieldCount(len(fields)) {
 			skipped++
 			continue
@@ -281,7 +339,7 @@ func (c *Client) listPanes(ctx context.Context) ([]Pane, int, error) {
 		panes = append(panes, pane)
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, skipped, err
+		return nil, skipped, rowScanErr("list-panes", err)
 	}
 	if skipped > 0 {
 		log.Printf("tmux list-panes: skipped %d malformed pane row(s)", skipped)

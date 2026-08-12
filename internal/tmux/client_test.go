@@ -354,10 +354,42 @@ func TestControlActionsUseInjectedRunner(t *testing.T) {
 	}
 
 	want := [][]string{
-		{"send-keys", "-t", "%1", "Enter"},
+		{"send-keys", "-t", "%1", "--", "Enter"},
 		{"kill-session", "-t", "$1"},
 	}
 	if !reflect.DeepEqual(commands, want) {
 		t.Fatalf("commands = %#v, want %#v", commands, want)
+	}
+}
+
+func TestSendLiteralKeysUsesLiteralFlag(t *testing.T) {
+	t.Parallel()
+
+	var commands [][]string
+	c := &Client{bin: "tmux", run: func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		commands = append(commands, append([]string(nil), args...))
+		return nil, nil
+	}}
+
+	if err := c.SendLiteralKeys(context.Background(), "%1", "C-c; echo hi"); err != nil {
+		t.Fatalf("SendLiteralKeys returned error: %v", err)
+	}
+	want := [][]string{{"send-keys", "-l", "-t", "%1", "--", "C-c; echo hi"}}
+	if !reflect.DeepEqual(commands, want) {
+		t.Fatalf("commands = %#v, want %#v", commands, want)
+	}
+}
+
+func TestMonitorOnlyRefusesSendLiteralKeys(t *testing.T) {
+	t.Parallel()
+
+	c := &Client{bin: "tmux", run: func(context.Context, string, ...string) ([]byte, error) {
+		t.Fatal("runner should not be called in monitor-only mode")
+		return nil, nil
+	}}
+	c.SetMonitorOnly(true)
+
+	if err := c.SendLiteralKeys(context.Background(), "%1", "x"); err == nil || !strings.Contains(err.Error(), "monitor-only") {
+		t.Fatalf("SendLiteralKeys error = %v, want monitor-only refusal", err)
 	}
 }

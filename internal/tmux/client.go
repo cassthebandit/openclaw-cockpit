@@ -158,8 +158,10 @@ func (c *Client) CapturePane(ctx context.Context, paneID string, lines int) (str
 	return string(out), nil
 }
 
-// SendKeys forwards key sequences to a tmux pane so the user can interact with
-// it through tmuxwatch.
+// SendKeys forwards named tmux key tokens (Enter, Up, C-c, ...) to a pane.
+// Printable text typed by the operator must use SendLiteralKeys instead so it
+// is never interpreted as key names. The "--" guard keeps a token that starts
+// with "-" from being read as a send-keys flag.
 func (c *Client) SendKeys(ctx context.Context, paneID string, keys ...string) error {
 	if paneID == "" {
 		return fmt.Errorf("pane id cannot be empty")
@@ -170,9 +172,29 @@ func (c *Client) SendKeys(ctx context.Context, paneID string, keys ...string) er
 	if c.monitorOnly {
 		return fmt.Errorf("send-keys refused: monitor-only mode is enabled")
 	}
-	args := append([]string{"send-keys", "-t", paneID}, keys...)
+	args := append([]string{"send-keys", "-t", paneID, "--"}, keys...)
 	if _, err := c.runTmux(ctx, args...); err != nil {
 		return fmt.Errorf("send-keys %s: %w", paneID, err)
+	}
+	return nil
+}
+
+// SendLiteralKeys forwards printable operator input verbatim using tmux
+// literal semantics (send-keys -l), so text such as ";", "C-c", or "Enter"
+// typed as characters reaches the pane as those characters, never as key
+// tokens. Monitor-only mode fails closed exactly like SendKeys.
+func (c *Client) SendLiteralKeys(ctx context.Context, paneID string, text string) error {
+	if paneID == "" {
+		return fmt.Errorf("pane id cannot be empty")
+	}
+	if text == "" {
+		return nil
+	}
+	if c.monitorOnly {
+		return fmt.Errorf("send-keys refused: monitor-only mode is enabled")
+	}
+	if _, err := c.runTmux(ctx, "send-keys", "-l", "-t", paneID, "--", text); err != nil {
+		return fmt.Errorf("send-keys -l %s: %w", paneID, err)
 	}
 	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -17,7 +18,33 @@ const (
 	defaultOpenClawRuntimeScript  = "/Users/cass/.openclaw/workspace/tools/openclaw_runtime/cockpit_snapshot.py"
 	defaultOpenClawRuntimeTimeout = 20 * time.Second
 	openClawRuntimeCardContract   = "runtime-card.v1"
+	// runtimeOutputCapBytes bounds how much snapshot-script stdout is read
+	// before JSON decoding; a producer past the cap is killed and reported
+	// instead of being slurped into memory.
+	runtimeOutputCapBytes = 4 << 20 // 4 MiB
+	// runtimeStderrCapBytes bounds captured stderr used for error details.
+	runtimeStderrCapBytes = 64 << 10 // 64 KiB
 )
+
+// cappedBuffer keeps at most limit bytes and silently discards the rest, so
+// a runaway producer cannot grow the error-detail buffer without bound.
+type cappedBuffer struct {
+	limit int
+	buf   bytes.Buffer
+}
+
+func (c *cappedBuffer) Write(p []byte) (int, error) {
+	if remaining := c.limit - c.buf.Len(); remaining > 0 {
+		if len(p) > remaining {
+			c.buf.Write(p[:remaining])
+		} else {
+			c.buf.Write(p)
+		}
+	}
+	return len(p), nil
+}
+
+func (c *cappedBuffer) String() string { return c.buf.String() }
 
 type openClawRuntimeSnapshot struct {
 	CardContract string                 `json:"cardContract"`
@@ -148,16 +175,36 @@ func loadOpenClawRuntimeCards(source RuntimeSource) ([]openClawRuntimeCard, erro
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "python3", script, "--limit", strconv.Itoa(limit), "--format", "json")
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	stderr := &cappedBuffer{limit: runtimeStderrCapBytes}
+	cmd.Stderr = stderr
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("runtime snapshot failed: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("runtime snapshot failed: %w", err)
+	}
+	// Bounded read BEFORE any allocation-heavy decode: stop at cap+1 and kill
+	// an over-cap producer instead of buffering whatever it emits.
+	out, readErr := io.ReadAll(io.LimitReader(stdout, runtimeOutputCapBytes+1))
+	overCap := len(out) > runtimeOutputCapBytes
+	if overCap {
+		cancel()
+	}
+	waitErr := cmd.Wait()
+	if overCap {
+		return nil, fmt.Errorf("runtime snapshot output exceeds the %d byte cap", runtimeOutputCapBytes)
+	}
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("runtime snapshot timed out after %s", timeout)
 	}
-	if err != nil {
+	if readErr != nil {
+		return nil, fmt.Errorf("runtime snapshot failed: %w", readErr)
+	}
+	if waitErr != nil {
 		detail := strings.TrimSpace(stderr.String())
 		if detail == "" {
-			detail = err.Error()
+			detail = waitErr.Error()
 		}
 		return nil, fmt.Errorf("runtime snapshot failed: %s", detail)
 	}
@@ -167,6 +214,11 @@ func loadOpenClawRuntimeCards(source RuntimeSource) ([]openClawRuntimeCard, erro
 	}
 	if err := validateOpenClawRuntimeSnapshot(snapshot); err != nil {
 		return nil, err
+	}
+	// The requested card limit is enforced locally even when the producer
+	// returns more cards than asked for.
+	if len(snapshot.Cards) > limit {
+		snapshot.Cards = snapshot.Cards[:limit]
 	}
 	for i := range snapshot.Cards {
 		snapshot.Cards[i].summary = snapshot.Summary

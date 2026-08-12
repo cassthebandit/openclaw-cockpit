@@ -16,55 +16,60 @@ import (
 )
 
 const (
-	defaultPollInterval   = time.Second
-	minPreviewHeight      = 6
-	maxOverviewBodyLines  = 10
-	maxCapturesPerTick    = 6
-	cardPadding           = 1
-	cardColumnGap         = 1
-	closeLabel            = "[x]"
-	maximizeLabel         = "[^]"
-	restoreLabel          = "[v]"
-	collapseLabel         = "[-]"
-	expandLabel           = "[+]"
-	groupCaretExpanded    = "▾"
-	groupCaretCollapsed   = "▸"
-	scrollStep            = 3
-	pulseDuration         = 1500 * time.Millisecond
-	fastCaptureInterval   = time.Second / 60
-	fastCaptureFallback   = 250 * time.Millisecond
-	fastCaptureIdleTick   = time.Second
-	runtimeCardInterval   = 15 * time.Second
-	quitChordWindow       = 600 * time.Millisecond
-	staleThreshold        = time.Hour
-	minCaptureLines       = 80
-	maxCaptureLines       = 600
-	captureSlackLines     = 40
-	borderColorBase       = "240"
-	borderColorFocus      = "252"
-	borderColorPulse      = "250"
-	borderColorCursor     = "252"
-	borderColorHover      = "245"
-	borderColorExitFail   = "167"
-	borderColorExitOK     = "108"
-	borderColorWaiting    = "179"
-	borderColorBlocked    = "173"
-	borderColorStale      = "244"
-	groupColorActive      = "108"
-	groupColorInactive    = "179"
-	groupColorFailed      = "167"
-	groupColorOperational = "173"
-	groupColorSubsystem   = "67"
-	groupColorServices    = "245"
-	headerColorBase       = "250"
-	headerColorFocus      = "252"
-	headerColorPulse      = "250"
-	headerColorCursor     = "252"
-	headerColorExitFail   = "167"
-	headerColorExitOK     = "108"
-	headerColorWaiting    = "179"
-	headerColorBlocked    = "173"
-	headerColorStale      = "244"
+	defaultPollInterval  = time.Second
+	minPreviewHeight     = 6
+	maxOverviewBodyLines = 10
+	maxCapturesPerTick   = 6
+	cardPadding          = 1
+	cardColumnGap        = 1
+	closeLabel           = "[x]"
+	maximizeLabel        = "[^]"
+	restoreLabel         = "[v]"
+	collapseLabel        = "[-]"
+	expandLabel          = "[+]"
+	groupCaretExpanded   = "▾"
+	groupCaretCollapsed  = "▸"
+	scrollStep           = 3
+	pulseDuration        = 1500 * time.Millisecond
+	fastCaptureInterval  = time.Second / 60
+	// aggregateCaptureBudgetPerSecond caps capture-pane dispatches from the
+	// fast and snapshot paths TOGETHER across all sessions. It is independent
+	// of the Bubble Tea --fps render setting: rendering may run at any rate,
+	// but at most this many capture subprocesses start per one-second window.
+	aggregateCaptureBudgetPerSecond = 60
+	fastCaptureFallback             = 250 * time.Millisecond
+	fastCaptureIdleTick             = time.Second
+	runtimeCardInterval             = 15 * time.Second
+	quitChordWindow                 = 600 * time.Millisecond
+	staleThreshold                  = time.Hour
+	minCaptureLines                 = 80
+	maxCaptureLines                 = 600
+	captureSlackLines               = 40
+	borderColorBase                 = "240"
+	borderColorFocus                = "252"
+	borderColorPulse                = "250"
+	borderColorCursor               = "252"
+	borderColorHover                = "245"
+	borderColorExitFail             = "167"
+	borderColorExitOK               = "108"
+	borderColorWaiting              = "179"
+	borderColorBlocked              = "173"
+	borderColorStale                = "244"
+	groupColorActive                = "108"
+	groupColorInactive              = "179"
+	groupColorFailed                = "167"
+	groupColorOperational           = "173"
+	groupColorSubsystem             = "67"
+	groupColorServices              = "245"
+	headerColorBase                 = "250"
+	headerColorFocus                = "252"
+	headerColorPulse                = "250"
+	headerColorCursor               = "252"
+	headerColorExitFail             = "167"
+	headerColorExitOK               = "108"
+	headerColorWaiting              = "179"
+	headerColorBlocked              = "173"
+	headerColorStale                = "244"
 )
 
 type viewMode int
@@ -248,6 +253,14 @@ type Model struct {
 	// watchers so tests can assert that snapshot ticks never add a lineage.
 	fastWatchActive bool
 	fastWatchGen    uint64
+
+	// Aggregate capture budget (fixed one-second windows on the injectable
+	// clock) shared by the fast and snapshot capture paths, plus the fair
+	// round-robin cursor for fast-path dispatch so an early continuously
+	// changing session cannot starve later ones when the budget binds.
+	captureWindowStart time.Time
+	captureTokensSpent int
+	fastCaptureOffset  int
 
 	// runtimeSessions caches the last OpenClaw runtime card load (including
 	// the source-error card on failure) so 1s snapshots merge cards without

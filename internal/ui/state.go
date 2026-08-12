@@ -35,7 +35,9 @@ func (m *Model) tabTitles() []string {
 		titles[0] = "Pulse"
 		if m.viewMode == viewModeDetail && m.detailSession != "" {
 			if session, ok := m.sessionByID(m.detailSession); ok {
-				label := session.Name
+				// Tab labels are terminal chrome built from untrusted session
+				// names: strict-sanitize them.
+				label := cardSafeLine(session.Name)
 				if label == "" {
 					label = sessionLabel(session.ID)
 				}
@@ -49,7 +51,7 @@ func (m *Model) tabTitles() []string {
 	titles := make([]string, 1, len(sessions)+1)
 	titles[0] = "Pulse"
 	for _, session := range sessions {
-		label := session.Name
+		label := cardSafeLine(session.Name)
 		if label == "" {
 			label = sessionLabel(session.ID)
 		}

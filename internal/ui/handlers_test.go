@@ -13,20 +13,21 @@ import (
 	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
-// TestTmuxKeysFrom ensures Bubble Tea key messages map to tmux key strings.
+// TestTmuxKeysFrom ensures Bubble Tea key messages map to tmux key input:
+// named tokens for special keys, literal text for printable input.
 func TestTmuxKeysFrom(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name   string
 		msg    tea.KeyMsg
-		want   []string
+		want   tmuxKeyInput
 		expect bool
 	}{
-		{name: "enter", msg: tea.KeyPressMsg{Code: tea.KeyEnter}, want: []string{"Enter"}, expect: true},
-		{name: "space", msg: tea.KeyPressMsg{Code: tea.KeySpace}, want: []string{" "}, expect: true},
+		{name: "enter", msg: tea.KeyPressMsg{Code: tea.KeyEnter}, want: tmuxKeyInput{keys: []string{"Enter"}}, expect: true},
+		{name: "space is literal", msg: tea.KeyPressMsg{Code: tea.KeySpace}, want: tmuxKeyInput{text: " ", literal: true}, expect: true},
 		{name: "alt runes rejected", msg: tea.KeyPressMsg{Text: "a", Code: 'a', Mod: tea.ModAlt}, expect: false},
-		{name: "runes ok", msg: tea.KeyPressMsg{Text: "a", Code: 'a'}, want: []string{"a"}, expect: true},
+		{name: "runes are literal", msg: tea.KeyPressMsg{Text: "a", Code: 'a'}, want: tmuxKeyInput{text: "a", literal: true}, expect: true},
 	}
 
 	for _, tt := range tests {
@@ -40,12 +41,15 @@ func TestTmuxKeysFrom(t *testing.T) {
 			if !tt.expect {
 				return
 			}
-			if len(got) != len(tt.want) {
-				t.Fatalf("tmuxKeysFrom len = %d, want %d", len(got), len(tt.want))
+			if got.literal != tt.want.literal || got.text != tt.want.text {
+				t.Fatalf("tmuxKeysFrom = %+v, want %+v", got, tt.want)
 			}
-			for i := range got {
-				if got[i] != tt.want[i] {
-					t.Fatalf("tmuxKeysFrom got[%d] = %q, want %q", i, got[i], tt.want[i])
+			if len(got.keys) != len(tt.want.keys) {
+				t.Fatalf("tmuxKeysFrom keys = %v, want %v", got.keys, tt.want.keys)
+			}
+			for i := range got.keys {
+				if got.keys[i] != tt.want.keys[i] {
+					t.Fatalf("tmuxKeysFrom keys[%d] = %q, want %q", i, got.keys[i], tt.want.keys[i])
 				}
 			}
 		})

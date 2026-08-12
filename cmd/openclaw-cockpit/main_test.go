@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
 	"os"
 	"os/exec"
@@ -33,7 +34,22 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// TestVersionFlag verifies --version outputs the version string and exits cleanly
+// gitOutput runs git with the given args, skipping the test when git or the
+// repository is unavailable (for example a source tarball build).
+func gitOutput(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Skipf("git %v unavailable: %v", args, err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// TestVersionFlag verifies --version reports product and version and states
+// its identity explicitly (either a revision or "revision unknown"), never a
+// bare unqualified banner.
 func TestVersionFlag(t *testing.T) {
 	cmd := exec.Command(testBinPath, "--version")
 	output, err := cmd.CombinedOutput()
@@ -42,9 +58,138 @@ func TestVersionFlag(t *testing.T) {
 	}
 
 	outputStr := strings.TrimSpace(string(output))
-	expected := productName + " " + version
-	if outputStr != expected {
-		t.Errorf("expected version output %q, got %q", expected, outputStr)
+	prefix := productName + " " + version
+	if !strings.HasPrefix(outputStr, prefix) {
+		t.Fatalf("expected version output to start with %q, got %q", prefix, outputStr)
+	}
+	if !strings.Contains(outputStr, "rev ") && !strings.Contains(outputStr, "revision unknown") {
+		t.Fatalf("--version must state revision identity explicitly, got %q", outputStr)
+	}
+}
+
+// identityCloneDir copies the current working tree (including uncommitted
+// repair work) into a fresh temp git repository with a real .git directory
+// and commits it. This toolchain silently skips VCS stamping when .git is a
+// gitdir file (linked worktree), so identity proofs must build from a normal
+// repository — the same mechanism the installer uses; committing the copy
+// gives the build a known clean revision to assert against.
+func identityCloneDir(t *testing.T) (dir, head string) {
+	t.Helper()
+	top := gitOutput(t, "", "rev-parse", "--show-toplevel")
+	dir = filepath.Join(t.TempDir(), "repo")
+	if out, err := exec.Command("cp", "-R", top, dir).CombinedOutput(); err != nil {
+		t.Fatalf("copy working tree: %v\n%s", err, out)
+	}
+	if err := os.RemoveAll(filepath.Join(dir, ".git")); err != nil {
+		t.Fatalf("drop copied gitdir link: %v", err)
+	}
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "--quiet")
+	git("add", "-A")
+	git("-c", "user.email=test@invalid", "-c", "user.name=identity-test", "commit", "--quiet", "-m", "identity fixture")
+	head = gitOutput(t, dir, "rev-parse", "HEAD")
+	return dir, head
+}
+
+func buildIdentityBinary(t *testing.T, cloneDir string) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "cockpit-identity-test")
+	cmd := exec.Command("go", "build", "-o", bin, "./cmd/openclaw-cockpit")
+	cmd.Dir = cloneDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("go build in clone: %v\n%s", err, out)
+	}
+	return bin
+}
+
+func runBuildInfo(t *testing.T, bin string) buildIdentity {
+	t.Helper()
+	out, err := exec.Command(bin, "--build-info").Output()
+	if err != nil {
+		t.Fatalf("--build-info failed: %v", err)
+	}
+	var identity buildIdentity
+	if err := json.Unmarshal(out, &identity); err != nil {
+		t.Fatalf("--build-info is not valid JSON: %v\n%s", err, out)
+	}
+	return identity
+}
+
+// TestBuildInfoIdentityIsTruthful verifies AC9 end to end on a real build:
+// a clean committed build reports the exact revision with modified=false,
+// and an uncommitted edit flips the identity to dirty.
+func TestBuildInfoIdentityIsTruthful(t *testing.T) {
+	cloneDir, head := identityCloneDir(t)
+
+	cleanBin := buildIdentityBinary(t, cloneDir)
+	identity := runBuildInfo(t, cleanBin)
+	if identity.Product != productName || identity.Version != version {
+		t.Fatalf("identity product/version = %q/%q, want %q/%q", identity.Product, identity.Version, productName, version)
+	}
+	if identity.IdentitySource != "go-build-metadata" {
+		t.Fatalf("identity source = %q, want go-build-metadata", identity.IdentitySource)
+	}
+	if identity.VCSRevision != head {
+		t.Fatalf("identity revision = %q, want %q", identity.VCSRevision, head)
+	}
+	if identity.VCSModified == nil || *identity.VCSModified {
+		t.Fatalf("clean committed build must report modified=false, got %+v", identity.VCSModified)
+	}
+
+	// --version carries the same truth in human form.
+	versionOut, err := exec.Command(cleanBin, "--version").CombinedOutput()
+	if err != nil {
+		t.Fatalf("--version on clean build: %v", err)
+	}
+	if !strings.Contains(string(versionOut), "rev "+head[:12]) || !strings.Contains(string(versionOut), "clean") {
+		t.Fatalf("clean --version = %q, want rev %s + clean", strings.TrimSpace(string(versionOut)), head[:12])
+	}
+
+	// Dirty the clone and rebuild: identity must flip to dirty.
+	mainPath := filepath.Join(cloneDir, "cmd", "openclaw-cockpit", "main.go")
+	source, err := os.ReadFile(mainPath)
+	if err != nil {
+		t.Fatalf("read main.go: %v", err)
+	}
+	if err := os.WriteFile(mainPath, append(source, []byte("\n// dirty-marker\n")...), 0o644); err != nil {
+		t.Fatalf("dirty main.go: %v", err)
+	}
+	dirtyBin := buildIdentityBinary(t, cloneDir)
+	dirtyIdentity := runBuildInfo(t, dirtyBin)
+	if dirtyIdentity.VCSModified == nil || !*dirtyIdentity.VCSModified {
+		t.Fatalf("uncommitted edit must report modified=true, got %+v", dirtyIdentity.VCSModified)
+	}
+	dirtyVersion, err := exec.Command(dirtyBin, "--version").CombinedOutput()
+	if err != nil {
+		t.Fatalf("--version on dirty build: %v", err)
+	}
+	if !strings.Contains(string(dirtyVersion), "dirty") {
+		t.Fatalf("dirty --version = %q, want dirty marker", strings.TrimSpace(string(dirtyVersion)))
+	}
+}
+
+// TestBuildIdentityHumanRendering pins the human formats, including the
+// explicit unknown case (never inferring clean parity from a missing fact).
+func TestBuildIdentityHumanRendering(t *testing.T) {
+	unknown := buildIdentity{Product: "OpenClaw Cockpit", Version: "1.0.0"}
+	if got := unknown.human(); !strings.Contains(got, "revision unknown") {
+		t.Fatalf("identity without VCS evidence must say revision unknown, got %q", got)
+	}
+	clean := false
+	known := buildIdentity{Product: "OpenClaw Cockpit", Version: "1.0.0", VCSRevision: "abcdef0123456789", VCSModified: &clean}
+	if got := known.human(); !strings.Contains(got, "rev abcdef012345") || !strings.Contains(got, "clean") {
+		t.Fatalf("identity rendering wrong: %q", got)
+	}
+	dirty := true
+	known.VCSModified = &dirty
+	if got := known.human(); !strings.Contains(got, "dirty") {
+		t.Fatalf("dirty identity must say dirty: %q", got)
 	}
 }
 

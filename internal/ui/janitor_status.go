@@ -3,12 +3,20 @@ package ui
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
 )
 
-const janitorStatusStaleAfter = 3 * time.Minute
+const (
+	janitorStatusStaleAfter = 3 * time.Minute
+	// janitorStatusCapBytes bounds how much of the status sidecar is read
+	// before JSON decoding. A healthy sidecar is a few KB; a runaway or
+	// hostile file past the cap is reported as invalid instead of being
+	// slurped into memory.
+	janitorStatusCapBytes = 4 << 20 // 4 MiB
+)
 
 type janitorStatusFile struct {
 	StatusVersion int                             `json:"status_version"`
@@ -26,6 +34,14 @@ type janitorSessionStatus struct {
 	KillNotBefore string `json:"kill_not_before"`
 	LastAction    string `json:"last_action"`
 	LastRefusal   string `json:"last_refusal"`
+	// PaneID and PaneCreated carry the sidecar's pane identity for the row.
+	// Hygiene writes pane_id from tmux #{pane_id} and pane_created from the
+	// primary pane's #{session_created}; a row may only grant teardown or
+	// countdown authority when this identity matches a current pane
+	// (janitorSessionRow), so a replacement pane reusing the session name never
+	// inherits the old row's cleanup truth.
+	PaneID      string `json:"pane_id"`
+	PaneCreated string `json:"pane_created"`
 }
 
 type janitorCycleStatus struct {
@@ -55,9 +71,21 @@ func loadJanitorStatusFile(path string, now time.Time, staleAfter time.Duration)
 		return janitorStatusView{State: "disabled"}
 	}
 	view := janitorStatusView{Path: path, State: "missing"}
-	data, err := os.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
 		view.Detail = err.Error()
+		return view
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, janitorStatusCapBytes+1))
+	if err != nil {
+		view.State = "invalid"
+		view.Detail = err.Error()
+		return view
+	}
+	if len(data) > janitorStatusCapBytes {
+		view.State = "invalid"
+		view.Detail = fmt.Sprintf("status file exceeds the %d byte cap", janitorStatusCapBytes)
 		return view
 	}
 	var payload janitorStatusFile
@@ -144,5 +172,6 @@ func (m *Model) janitorStatusLine(width int) string {
 		// rune and emit a broken tail into the footer.
 		return truncateSingleLine(line, width)
 	}
-	return line
+	// Detail can carry external error text; sanitize even without truncation.
+	return cardSafeLine(line)
 }

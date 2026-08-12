@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -671,7 +672,6 @@ func TestRuntimeGroupLayoutCanOverrideLiveColsCap(t *testing.T) {
 	if runtimeInner < 30 {
 		t.Fatalf("runtime inner width = %d, want readable 5-across width", runtimeInner)
 	}
-
 }
 
 func TestRuntimeGroupLayoutRejectsCrampedFiveAcross(t *testing.T) {
@@ -1354,12 +1354,161 @@ func modelWithJanitorSidecar(rows map[string]janitorSessionStatus) *Model {
 	return m
 }
 
+// sidecarRowFor stamps a sidecar row with pane identity matching the session's
+// first pane, mirroring what hygiene writes for a current pane.
+func sidecarRowFor(session tmux.Session, row janitorSessionStatus) janitorSessionStatus {
+	pane := session.Windows[0].Panes[0]
+	row.PaneID = pane.ID
+	row.PaneCreated = strconv.FormatInt(pane.CreatedAt.Unix(), 10)
+	return row
+}
+
+// sidecarJoinSession builds a minimal named session with one identified pane
+// for sidecar join tests.
+func sidecarJoinSession(name string) tmux.Session {
+	return tmux.Session{
+		ID:        "$" + name,
+		Name:      name,
+		CreatedAt: time.Unix(1752000000, 0),
+		Windows: []tmux.Window{{
+			ID:      "@1-" + name,
+			Active:  true,
+			Session: "$" + name,
+			Panes: []tmux.Pane{{
+				ID:        "%1-" + name,
+				Active:    true,
+				CreatedAt: time.Unix(1752000000, 0),
+			}},
+		}},
+	}
+}
+
+func TestLiveEvidenceOutranksStaleTeardownMark(t *testing.T) {
+	t.Parallel()
+
+	// AC1: genuine live/operator evidence beats stale teardown marks. The pane
+	// carries both a mark (metadata + sidecar) and unmistakable live-working
+	// output; it must classify as running / Active Agents, never Marked For
+	// Teardown.
+	session := agentSessionForGroup("resumed-worker", "running")
+	pane := &session.Windows[0].Panes[0]
+	pane.Cockpit.TeardownMarkedAt = "2026-08-12T10:00:00Z"
+	pane.Cockpit.JanitorState = "marked_for_teardown"
+	pane.PreviewText = "building plan\nesc to interrupt\n"
+	m := modelWithJanitorSidecar(map[string]janitorSessionStatus{
+		"resumed-worker": sidecarRowFor(session, janitorSessionStatus{JanitorState: "marked_for_teardown", KillNotBefore: "2099-01-01T00:00:00Z"}),
+	})
+	if got := paneAttentionState(m, session, *pane); got != "running" {
+		t.Fatalf("paneAttentionState() = %q, want running (live evidence must outrank stale mark)", got)
+	}
+	if got := cockpitGroupFor(m, session).name; got != groupActiveAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupActiveAgents.name)
+	}
+	// The stale mark still shows as non-authoritative cleanup metadata.
+	if line := cockpitCleanupLine(m, session, *pane, time.Unix(1752000100, 0)); !strings.Contains(line, "marked for teardown") {
+		t.Fatalf("stale mark must remain visible as cleanup metadata, got %q", line)
+	}
+}
+
+func TestOperatorPromptOutranksStaleTeardownMark(t *testing.T) {
+	t.Parallel()
+
+	session := agentSessionForGroup("prompting-worker", "running")
+	pane := &session.Windows[0].Panes[0]
+	pane.Cockpit.TeardownMarkedAt = "2026-08-12T10:00:00Z"
+	pane.PreviewText = "Apply changes?\n1. approve\n2. reject\n"
+	m := modelWithJanitorSidecar(nil)
+	if got := paneAttentionState(m, session, *pane); got != "awaiting-operator" {
+		t.Fatalf("paneAttentionState() = %q, want awaiting-operator", got)
+	}
+	if got := cockpitGroupFor(m, session).name; got != groupActiveAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupActiveAgents.name)
+	}
+}
+
+func TestDeliveredIdleDoesNotOutrankTeardownMark(t *testing.T) {
+	t.Parallel()
+
+	// Precedence guard: only live-working/awaiting-operator outrank a mark.
+	// A delivered-idle completion screen stays marked-for-teardown.
+	session := agentSessionForGroup("finished-worker", "running")
+	pane := &session.Windows[0].Panes[0]
+	pane.Cockpit.TeardownMarkedAt = "2026-08-12T10:00:00Z"
+	pane.PreviewText = "worked for 5m\n› \n"
+	m := modelWithJanitorSidecar(nil)
+	if got := paneAttentionState(m, session, *pane); got != "marked-for-teardown" {
+		t.Fatalf("paneAttentionState() = %q, want marked-for-teardown", got)
+	}
+}
+
+func TestSidecarRowPaneIdentityMismatchGrantsNoTeardown(t *testing.T) {
+	t.Parallel()
+
+	// AC2: a marked sidecar row whose pane identity does not match the current
+	// pane (name reuse / replacement pane) must not attach teardown grouping or
+	// a countdown, and the mismatch must be visible on the card.
+	session := agentSessionForGroup("reused-name", "done")
+	row := janitorSessionStatus{
+		JanitorState:  "marked_for_teardown",
+		KillNotBefore: "2099-01-01T00:00:00Z",
+		PaneID:        "%dead-previous-pane",
+		PaneCreated:   "1700000000",
+	}
+	m := modelWithJanitorSidecar(map[string]janitorSessionStatus{"reused-name": row})
+	if got := cockpitGroupFor(m, session).name; got != groupDoneHeld.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q (mismatched row must not mark)", got, groupDoneHeld.name)
+	}
+	line := cockpitCleanupLine(m, session, session.Windows[0].Panes[0], time.Unix(1752000100, 0))
+	if !strings.Contains(line, "pane identity mismatch") {
+		t.Fatalf("mismatch must be visible on the card, got %q", line)
+	}
+	if strings.Contains(line, "cleanup in ") {
+		t.Fatalf("mismatched row must not render a countdown, got %q", line)
+	}
+}
+
+func TestSidecarRowWithoutIdentityGrantsNoTeardown(t *testing.T) {
+	t.Parallel()
+
+	// An older status payload without pane_id/pane_created must not grant
+	// teardown truth by session name alone.
+	session := agentSessionForGroup("legacy-payload", "done")
+	m := modelWithJanitorSidecar(map[string]janitorSessionStatus{
+		"legacy-payload": {JanitorState: "marked_for_teardown", KillNotBefore: "2099-01-01T00:00:00Z"},
+	})
+	if got := cockpitGroupFor(m, session).name; got != groupDoneHeld.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q (identity-less row must not mark)", got, groupDoneHeld.name)
+	}
+	line := cockpitCleanupLine(m, session, session.Windows[0].Panes[0], time.Unix(1752000100, 0))
+	if !strings.Contains(line, "no pane identity") {
+		t.Fatalf("identity-less row must be visibly ignored, got %q", line)
+	}
+}
+
+func TestSidecarRowJoinsOnSessionCreatedIdentity(t *testing.T) {
+	t.Parallel()
+
+	// Hygiene populates pane_created from the primary pane's
+	// #{session_created}; a row carrying the session creation time for the
+	// matching pane_id must join.
+	session := sidecarJoinSession("hygiene-created")
+	session.Windows[0].Panes[0].CreatedAt = time.Unix(1752000555, 0)
+	row := janitorSessionStatus{
+		JanitorState: "marked_for_teardown",
+		PaneID:       "%1-hygiene-created",
+		PaneCreated:  "1752000000", // session_created, not pane_created
+	}
+	if got := janitorRowJoin(row, session); got != janitorJoinOK {
+		t.Fatalf("janitorRowJoin() = %v, want janitorJoinOK for session_created identity", got)
+	}
+}
+
 func TestSidecarCleanupBlockedRoutesToCleanupBlocked(t *testing.T) {
 	t.Parallel()
 
 	session := agentSessionForGroup("evidence-empty-lane", "done")
 	m := modelWithJanitorSidecar(map[string]janitorSessionStatus{
-		"evidence-empty-lane": {JanitorState: "cleanup_blocked", LastAction: "refuse", LastRefusal: "evidence_empty"},
+		"evidence-empty-lane": sidecarRowFor(session, janitorSessionStatus{JanitorState: "cleanup_blocked", LastAction: "refuse", LastRefusal: "evidence_empty"}),
 	})
 	if got := cockpitGroupFor(m, session).name; got != groupCleanupBlocked.name {
 		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupCleanupBlocked.name)
@@ -1373,7 +1522,7 @@ func TestSidecarMarkRoutesToMarkedForTeardown(t *testing.T) {
 	// has not caught up: sidecar facts route the card.
 	session := agentSessionForGroup("marked-by-sidecar", "done")
 	m := modelWithJanitorSidecar(map[string]janitorSessionStatus{
-		"marked-by-sidecar": {JanitorState: "marked_for_teardown", KillNotBefore: "2026-07-09T23:59:00Z"},
+		"marked-by-sidecar": sidecarRowFor(session, janitorSessionStatus{JanitorState: "marked_for_teardown", KillNotBefore: "2026-07-09T23:59:00Z"}),
 	})
 	if got := cockpitGroupFor(m, session).name; got != groupInactiveAgents.name {
 		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupInactiveAgents.name)

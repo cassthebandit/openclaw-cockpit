@@ -277,17 +277,19 @@ func (m *Model) handleFocusedKey(msg tea.KeyMsg) (bool, tea.Cmd) {
 			m.resetCtrlC()
 			return true, tea.Quit
 		}
-		now := time.Now()
 		if !paneOK || pane.Dead || preview.paneID == "" {
 			return true, tea.Quit
 		}
-		cmd := sendKeysCmd(m.client, preview.paneID, "C-c")
+		// First press: forward exactly one C-c and arm the quit chord.
+		// Second press inside the window: quit Cockpit WITHOUT forwarding a
+		// second interrupt to the pane.
+		now := time.Now()
 		if !m.lastCtrlC.IsZero() && now.Sub(m.lastCtrlC) < quitChordWindow {
 			m.resetCtrlC()
-			return true, tea.Batch(cmd, tea.Quit)
+			return true, tea.Quit
 		}
 		m.lastCtrlC = now
-		return true, cmd
+		return true, sendKeysCmd(m.client, preview.paneID, "C-c")
 	case "ctrl+m":
 		target := m.focusedSession
 		if target == "" {
@@ -310,7 +312,7 @@ func (m *Model) handleFocusedKey(msg tea.KeyMsg) (bool, tea.Cmd) {
 		return true, nil
 	}
 
-	keys, ok := tmuxKeysFrom(msg)
+	input, ok := tmuxKeysFrom(msg)
 	if !ok || preview.paneID == "" {
 		m.resetCtrlC()
 		return false, nil
@@ -320,37 +322,61 @@ func (m *Model) handleFocusedKey(msg tea.KeyMsg) (bool, tea.Cmd) {
 		return true, showStatusMessage("monitor-only: key forwarding disabled")
 	}
 	m.resetCtrlC()
-	return true, sendKeysCmd(m.client, preview.paneID, keys...)
+	if input.literal {
+		return true, sendLiteralKeysCmd(m.client, preview.paneID, input.text)
+	}
+	return true, sendKeysCmd(m.client, preview.paneID, input.keys...)
 }
 
-// tmuxKeysFrom converts Bubble Tea key messages into tmux key strings.
-func tmuxKeysFrom(msg tea.KeyMsg) ([]string, bool) {
+// tmuxKeyInput separates the two send-keys grammars: named tmux key tokens
+// (Enter, arrows, C-c, ...) versus printable text that must be forwarded with
+// literal semantics so it can never be parsed as key names.
+type tmuxKeyInput struct {
+	keys    []string
+	text    string
+	literal bool
+}
+
+// tmuxKeysFrom converts Bubble Tea key messages into tmux key input. Named
+// special keys map to key tokens; printable input (including space) maps to
+// literal text. Ordinary keys reserved by the dashboard never reach this
+// function — control mode is deliberately partial, not a transparent
+// terminal.
+func tmuxKeysFrom(msg tea.KeyMsg) (tmuxKeyInput, bool) {
 	press, ok := msg.(tea.KeyPressMsg)
 	if !ok {
-		return nil, false
+		return tmuxKeyInput{}, false
 	}
 	key := press.Key()
 	switch key.Code {
 	case tea.KeyEnter:
-		return []string{"Enter"}, true
+		return tmuxKeyInput{keys: []string{"Enter"}}, true
 	case tea.KeyTab:
-		return []string{"Tab"}, true
+		return tmuxKeyInput{keys: []string{"Tab"}}, true
 	case tea.KeySpace:
-		return []string{" "}, true
+		return tmuxKeyInput{text: " ", literal: true}, true
 	case tea.KeyBackspace:
-		return []string{"BSpace"}, true
+		return tmuxKeyInput{keys: []string{"BSpace"}}, true
 	case tea.KeyDelete:
-		return []string{"Delete"}, true
+		return tmuxKeyInput{keys: []string{"Delete"}}, true
 	case tea.KeyEsc:
-		return []string{"Escape"}, true
+		return tmuxKeyInput{keys: []string{"Escape"}}, true
+	case tea.KeyUp:
+		return tmuxKeyInput{keys: []string{"Up"}}, true
+	case tea.KeyDown:
+		return tmuxKeyInput{keys: []string{"Down"}}, true
+	case tea.KeyLeft:
+		return tmuxKeyInput{keys: []string{"Left"}}, true
+	case tea.KeyRight:
+		return tmuxKeyInput{keys: []string{"Right"}}, true
 	}
 	if key.Mod&tea.ModAlt != 0 {
-		return nil, false
+		return tmuxKeyInput{}, false
 	}
 	if key.Text == "" {
-		return nil, false
+		return tmuxKeyInput{}, false
 	}
-	return []string{key.Text}, true
+	return tmuxKeyInput{text: key.Text, literal: true}, true
 }
 
 // handleMouse wires up focus toggles, pane hiding, and scroll gestures.

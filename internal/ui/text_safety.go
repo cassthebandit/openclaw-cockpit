@@ -8,10 +8,21 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
+// cardSafeLine is the single strict sanitizer for every untrusted string that
+// reaches terminal chrome as one line: session/window/pane names and titles,
+// detail/tab labels, pane-variable keys and values, tmux and runtime errors,
+// janitor details, and external path/reason text. It removes whole terminal
+// escape sequences (OSC including OSC 8/52, CSI, other ESC-introduced forms),
+// C0/C1 controls, BEL and CR, collapses injected newlines/tabs into single
+// spaces, and drops emoji and ambiguous/wide runes per the card-safety policy.
+// Pane bodies deliberately do NOT go through this: they keep the existing
+// normalized-SGR path (normalizeAgentCLIANSI / stripANSI).
 func cardSafeLine(value string) string {
 	return strings.Join(strings.Fields(cardSafeText(value)), " ")
 }
 
+// cardSafeBlock applies the strict sanitizer per line, preserving intentional
+// line structure (multi-line Cockpit-composed preview text).
 func cardSafeBlock(value string) string {
 	lines := strings.Split(value, "\n")
 	for i, line := range lines {
@@ -24,11 +35,15 @@ func cardSafeText(value string) string {
 	if value == "" {
 		return ""
 	}
+	value = stripEscapeSequences(value)
 	var b strings.Builder
 	lastSpace := false
 	for _, r := range value {
 		switch r {
-		case '\t', '\r':
+		case '\t', '\r', '\n':
+			// Injected line breaks and tabs collapse to a single space in
+			// single-line chrome (cardSafeBlock splits on \n first, so real
+			// multi-line content never reaches this case with \n).
 			if !lastSpace {
 				b.WriteByte(' ')
 				lastSpace = true
@@ -42,6 +57,66 @@ func cardSafeText(value string) string {
 		lastSpace = unicode.IsSpace(r)
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// stripEscapeSequences removes complete ESC-introduced terminal sequences —
+// CSI (with parameters and final byte), OSC (payload through BEL/ST, or to
+// end-of-string when unterminated), DCS/SOS/PM/APC strings, and two-byte
+// escapes — so no printable payload residue (for example an OSC 8 URL)
+// survives as forged chrome text. Stray C0/C1 controls that remain are
+// dropped by the per-rune filter in cardSafeText.
+func stripEscapeSequences(value string) string {
+	if !strings.ContainsRune(value, 0x1b) {
+		return value
+	}
+	var b strings.Builder
+	b.Grow(len(value))
+	for i := 0; i < len(value); {
+		if value[i] != 0x1b {
+			b.WriteByte(value[i])
+			i++
+			continue
+		}
+		i++ // consume ESC
+		if i >= len(value) {
+			break
+		}
+		switch value[i] {
+		case '[': // CSI: parameters/intermediates, then one final byte @-~
+			i++
+			for i < len(value) && (value[i] < '@' || value[i] > '~') {
+				i++
+			}
+			if i < len(value) {
+				i++
+			}
+		case ']', 'P', 'X', '^', '_': // OSC / DCS / SOS / PM / APC strings
+			i++
+			for i < len(value) {
+				if value[i] == 0x07 { // BEL terminator
+					i++
+					break
+				}
+				if value[i] == 0x1b {
+					if i+1 < len(value) && value[i+1] == '\\' { // ST terminator
+						i += 2
+					}
+					// Bare ESC ends the string sequence; leave it for the
+					// outer loop so a following sequence is still stripped.
+					break
+				}
+				i++
+			}
+		default: // ESC c, ESC 7, charset selection (ESC ( B), ...
+			for i < len(value) && value[i] >= 0x20 && value[i] <= 0x2f {
+				i++ // intermediate bytes
+			}
+			if i < len(value) {
+				i++ // final byte
+			}
+		}
+	}
+	return b.String()
 }
 
 func isEmojiRune(r rune) bool {

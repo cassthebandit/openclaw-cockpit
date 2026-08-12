@@ -1134,7 +1134,8 @@ func cockpitCleanupLine(m *Model, session tmux.Session, pane tmux.Pane, now time
 		return ""
 	}
 	meta := pane.Cockpit
-	row, hasRow := m.janitorSessionRow(session.Name)
+	row, join := m.janitorSessionRow(session)
+	hasRow := join == janitorJoinOK
 	parts := []string{}
 	if policy := strings.TrimSpace(meta.CleanupPolicy); policy != "" {
 		parts = append(parts, "policy: "+policy)
@@ -1157,10 +1158,20 @@ func cockpitCleanupLine(m *Model, session tmux.Session, pane tmux.Pane, now time
 		if reason := strings.TrimSpace(meta.TeardownReason); reason != "" {
 			label += ": " + reason
 		}
-		label += " · " + janitorCountdownText(row, hasRow, now)
+		label += " · " + janitorCountdownText(row, join, now)
 		parts = append(parts, label)
 	} else if strings.EqualFold(strings.TrimSpace(meta.JanitorState), "cleanup_pending") {
 		parts = append(parts, "cleanup pending")
+	}
+	if janitorRowCarriesCleanupAuthority(row) {
+		switch join {
+		case janitorJoinMismatch:
+			// A fresh sidecar row exists under this session's name but describes
+			// a different pane: say so instead of attaching its cleanup truth.
+			parts = append(parts, "janitor row ignored: pane identity mismatch (stale row for a previous pane)")
+		case janitorJoinMissingIdentity:
+			parts = append(parts, "janitor row ignored: no pane identity (older status payload, treated as stale)")
+		}
 	}
 	if hasRow && strings.EqualFold(strings.TrimSpace(row.JanitorState), "cleanup_blocked") {
 		reason := strings.TrimSpace(row.LastRefusal)
@@ -1189,18 +1200,25 @@ func cockpitCleanupLine(m *Model, session tmux.Session, pane tmux.Pane, now time
 
 // janitorCountdownText renders the janitor-owned mark-to-kill countdown. The
 // sidecar kill_not_before is the only countdown source: when the sidecar is
-// missing, stale, or carries no kill_not_before, Cockpit says so instead of
-// inventing a countdown from a local constant.
-func janitorCountdownText(row janitorSessionStatus, hasRow bool, now time.Time) string {
-	if hasRow {
+// missing, stale, identity-mismatched, or carries no kill_not_before, Cockpit
+// says so instead of inventing a countdown from a local constant.
+func janitorCountdownText(row janitorSessionStatus, join janitorJoinState, now time.Time) string {
+	switch join {
+	case janitorJoinOK:
 		if killAt := parseCockpitTimestamp(row.KillNotBefore); !killAt.IsZero() {
 			if remaining := killAt.Sub(now); remaining > 0 {
 				return "cleanup in " + coarseDuration(remaining)
 			}
 			return "cleanup pending"
 		}
+		return "cleanup countdown unknown (no fresh janitor status)"
+	case janitorJoinMismatch:
+		return "cleanup countdown unavailable (janitor row is for a previous pane)"
+	case janitorJoinMissingIdentity:
+		return "cleanup countdown unavailable (janitor row has no pane identity)"
+	default:
+		return "cleanup countdown unknown (no fresh janitor status)"
 	}
-	return "cleanup countdown unknown (no fresh janitor status)"
 }
 
 func cockpitGroupBadge(meta *tmux.CockpitMeta) string {

@@ -71,7 +71,8 @@ func (m *Model) staleSessionNames() []string {
 			continue
 		}
 		if m.isStale(session.ID) {
-			names = append(names, session.Name)
+			// Names land in the footer stale line: strict-sanitize them.
+			names = append(names, cardSafeLine(session.Name))
 		}
 	}
 	sort.Strings(names)

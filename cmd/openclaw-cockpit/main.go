@@ -18,8 +18,10 @@ import (
 	"github.com/cassthebandit/openclaw-cockpit/internal/ui"
 )
 
-const productName = "OpenClaw Cockpit"
-const defaultOpenClawRuntimeLimit = 80
+const (
+	productName                 = "OpenClaw Cockpit"
+	defaultOpenClawRuntimeLimit = 80
+)
 
 var version = "0.9.5"
 
@@ -34,6 +36,7 @@ func main() {
 		captureBudget    = flag.Int("capture-budget", 0, "maximum unfocused pane captures per tick (default 6)")
 		tmuxBin          = flag.String("tmux", "", "path to tmux binary (defaults to PATH lookup)")
 		showVer          = flag.Bool("version", false, "print version and exit")
+		showBuildInfo    = flag.Bool("build-info", false, "print machine-readable build identity JSON and exit")
 		dump             = flag.Bool("dump", false, "print current tmux snapshot as JSON and exit")
 		monitor          = flag.Bool("monitor-only", true, "compatibility flag; monitor-only is always enabled unless --control is set")
 		control          = flag.Bool("control", false, "enable interactive control actions such as key forwarding")
@@ -53,7 +56,16 @@ func main() {
 	flag.Parse()
 
 	if *showVer {
-		fmt.Println(productName, version)
+		fmt.Println(readBuildIdentity().human())
+		return
+	}
+	if *showBuildInfo {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(readBuildIdentity()); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to encode build identity: %v\n", err)
+			os.Exit(1)
+		}
 		return
 	}
 

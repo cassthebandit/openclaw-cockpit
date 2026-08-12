@@ -161,8 +161,9 @@ func TestConfigCannotOverrideSidecarCountdown(t *testing.T) {
 	// Even with aggressive presentation config applied, the rendered
 	// countdown still derives from the sidecar kill_not_before.
 	now := time.Date(2026, 7, 9, 23, 0, 0, 0, time.UTC)
+	session := sidecarJoinSession("marked-lane")
 	m := modelWithJanitorSidecar(map[string]janitorSessionStatus{
-		"marked-lane": {JanitorState: "marked_for_teardown", KillNotBefore: "2026-07-09T23:06:00Z"},
+		"marked-lane": sidecarRowFor(session, janitorSessionStatus{JanitorState: "marked_for_teardown", KillNotBefore: "2026-07-09T23:06:00Z"}),
 	})
 	m.ApplyWallConfig(WallConfig{
 		FooterMaxHeight:   1,
@@ -170,7 +171,7 @@ func TestConfigCannotOverrideSidecarCountdown(t *testing.T) {
 		StaleThreshold:    configDuration(time.Minute),
 	})
 	pane := tmux.Pane{Cockpit: &tmux.CockpitMeta{TeardownMarkedAt: "2026-07-09T22:58:00Z"}}
-	got := cockpitCleanupLine(m, tmux.Session{Name: "marked-lane"}, pane, now)
+	got := cockpitCleanupLine(m, session, pane, now)
 	if !strings.Contains(got, "cleanup in ") {
 		t.Fatalf("countdown must still come from sidecar kill_not_before, got %q", got)
 	}

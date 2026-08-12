@@ -34,13 +34,17 @@ jobs:
 
       - name: Checkout release tag
         if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: git checkout ${{ inputs.tag }}
+        env:
+          # Passed through the environment, never interpolated into shell
+          # source; the script validates shape and existence before checkout.
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: bash .github/scripts/checkout-release-tag.sh
 
       - name: GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
-          version: latest
+          version: "~> v2"
           args: release --clean --config /tmp/.goreleaser.yaml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

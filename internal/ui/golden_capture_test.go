@@ -110,7 +110,8 @@ func TestCaptureGoldens(t *testing.T) {
 				"\x1b[38;5;114m宽字符测试\x1b[0m 🚀 emoji row ✅\n" +
 					"日本語のテキスト mixed with ascii\n" +
 					"\x1b[38;5;179mmalformed escape \x1b[9 dangling\x1b[0m\n" +
-					"tail line"))
+					"tail line",
+			))
 			return m
 		}},
 	}
@@ -164,10 +165,10 @@ func goldenWallModel(tb testing.TB, now time.Time) *Model {
 			*s = withActivity(*s, now.Add(-32*time.Second)) // "last 30s"
 		case strings.HasPrefix(s.Name, "agent-idle-"):
 			*s = withActivity(*s, now.Add(-7*time.Minute)) // "last 7m"
-			s.Windows[0].Panes[0].Cockpit.StartedAt = now.Add(-42*time.Minute).UTC().Format(time.RFC3339)
+			s.Windows[0].Panes[0].Cockpit.StartedAt = now.Add(-42 * time.Minute).UTC().Format(time.RFC3339)
 		case strings.HasPrefix(s.Name, "agent-fail-"):
 			*s = withActivity(*s, now.Add(-2*time.Hour+-90*time.Second)) // "last 2h"
-			s.Windows[0].Panes[0].Cockpit.CompletedAt = now.Add(-11*time.Minute).UTC().Format(time.RFC3339)
+			s.Windows[0].Panes[0].Cockpit.CompletedAt = now.Add(-11 * time.Minute).UTC().Format(time.RFC3339)
 		}
 	}
 

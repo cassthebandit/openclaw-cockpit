@@ -39,6 +39,28 @@ jobs:
       - name: Race test
         run: go test -race ./...
 
+  cross-build:
+    name: cross-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Every advertised release target from .goreleaser.yaml must compile.
+      # Cross-build proves compilation only, not native runtime behavior.
+      - name: Cross-build advertised targets
+        run: |
+          for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
+            echo "building $target"
+            GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0 go build ./cmd/openclaw-cockpit
+          done
+
   lint:
     name: lint
     runs-on: ubuntu-latest

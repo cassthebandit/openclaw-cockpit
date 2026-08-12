@@ -147,12 +147,26 @@ func showStatusMessage(msg string) tea.Cmd {
 	}
 }
 
-// sendKeysCmd forwards keystrokes to a tmux pane within a context deadline.
+// sendKeysCmd forwards named key tokens to a tmux pane within a context
+// deadline.
 func sendKeysCmd(client *tmux.Client, paneID string, keys ...string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		if err := client.SendKeys(ctx, paneID, keys...); err != nil {
+			return errMsg{err: err}
+		}
+		return nil
+	}
+}
+
+// sendLiteralKeysCmd forwards printable text to a tmux pane with literal-key
+// semantics within a context deadline.
+func sendLiteralKeysCmd(client *tmux.Client, paneID string, text string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := client.SendLiteralKeys(ctx, paneID, text); err != nil {
 			return errMsg{err: err}
 		}
 		return nil
