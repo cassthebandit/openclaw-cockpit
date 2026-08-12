@@ -103,16 +103,6 @@ func scheduleFastCaptureWatch(signals []fastCaptureSignal, fallback, deadline ti
 	}
 }
 
-func scheduleFastCaptureTick(interval time.Duration) tea.Cmd {
-	if interval <= 0 {
-		interval = fastCaptureInterval
-	}
-	return func() tea.Msg {
-		time.Sleep(interval)
-		return fastTickMsg{}
-	}
-}
-
 // emitMsg replays the provided message during the next update cycle.
 func emitMsg(msg tea.Msg) tea.Cmd {
 	return func() tea.Msg {

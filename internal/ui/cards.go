@@ -777,7 +777,7 @@ func formatHeader(now time.Time, width int, session tmux.Session, window tmux.Wi
 		state = cockpitState(pane, stale)
 	}
 	runtimeHeader := isOpenClawRuntimePane(pane)
-	if state != "" && state != "running" && state != "starting" && state != "quiet" && !(state == "done" && hasDoneTiming) && !runtimeHeader {
+	if state != "" && state != "running" && state != "starting" && state != "quiet" && (state != "done" || !hasDoneTiming) && !runtimeHeader {
 		meta = append(meta, attentionStateLabel(state))
 	}
 	titleParts := cockpitTitleParts(session, window, pane, host)

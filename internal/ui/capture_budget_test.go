@@ -44,7 +44,9 @@ func appendAll(t *testing.T, paths []string) {
 		if _, err := f.WriteString("x"); err != nil {
 			t.Fatalf("append log: %v", err)
 		}
-		_ = f.Close()
+		if err := f.Close(); err != nil {
+			t.Fatalf("close log: %v", err)
+		}
 	}
 }
 

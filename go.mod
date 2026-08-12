@@ -10,6 +10,7 @@ require (
 	github.com/golangci/golangci-lint/v2 v2.12.2
 	github.com/mattn/go-runewidth v0.0.24
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6
+	golang.org/x/sys v0.46.0
 	mvdan.cc/gofumpt v0.10.0
 )
 
@@ -69,7 +70,7 @@ require (
 	github.com/daixiang0/gci v0.14.0 // indirect
 	github.com/dave/dst v0.27.4 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/denis-tingaikin/go-header v1.0.0 // indirect
+	github.com/denis-tingaikin/go-header v0.5.0 // indirect
 	github.com/dlclark/regexp2 v1.12.0 // indirect
 	github.com/ettle/strcase v0.2.0 // indirect
 	github.com/fatih/color v1.19.0 // indirect
@@ -210,7 +211,6 @@ require (
 	golang.org/x/exp/typeparams v0.0.0-20260508232706-74f9aab9d74a // indirect
 	golang.org/x/mod v0.36.0 // indirect
 	golang.org/x/sync v0.21.0 // indirect
-	golang.org/x/sys v0.46.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
 	golang.org/x/tools v0.45.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect

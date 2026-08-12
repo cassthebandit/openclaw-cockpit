@@ -31,7 +31,12 @@ func disposableTmux(t *testing.T) string {
 		t.Fatalf("write tmux wrapper: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = exec.Command(real, "-L", socket, "kill-server").Run()
+		// An already-exited server is the normal case, so this must never fail
+		// the test; log it so an abnormal failure that leaks a private tmux
+		// server past the run is visible instead of silent.
+		if err := exec.Command(real, "-L", socket, "kill-server").Run(); err != nil {
+			t.Logf("kill-server on socket %s: %v", socket, err)
+		}
 	})
 	return wrapper
 }

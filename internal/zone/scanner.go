@@ -6,8 +6,6 @@ import (
 	"github.com/muesli/ansi"
 )
 
-const eof = 1
-
 type scanner struct {
 	manager   *Manager
 	enabled   bool

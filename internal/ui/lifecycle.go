@@ -426,7 +426,7 @@ func hasErrorMarker(lowered string) bool {
 // stripPromptBorder removes leading box-drawing glyphs and whitespace so a
 // bordered input line like "│ › " is recognised as a "›" prompt.
 func stripPromptBorder(line string) string {
-	return strings.TrimLeft(line, " \t│|╭╰╮╯─┌└┐┘▏▕▎▐ ")
+	return strings.TrimLeft(line, " \t│|╭╰╮╯─┌└┐┘▏▕▎▐")
 }
 
 // stripANSI removes CSI/OSC escape sequences and stray C0 control characters

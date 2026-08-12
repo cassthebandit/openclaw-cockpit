@@ -16,10 +16,17 @@ import (
 // OSC 52 clipboard write, OSC 8 hyperlink, cursor-moving CSI, BEL, C1 CSI,
 // CR, newline, and tab, each wrapped around identifiable markers.
 const (
-	hostileOSC52   = "\x1b]52;c;ZXZpbA==\x07clip"
-	hostileOSC8    = "\x1b]8;;http://evil.example\x1b\\link-text\x1b]8;;\x1b\\"
-	hostileCSI     = "\x1b[2Aup\x1b[10;10Hjump"
-	hostileC1      = "31mred"
+	hostileOSC52 = "\x1b]52;c;ZXZpbA==\x07clip"
+	hostileOSC8  = "\x1b]8;;http://evil.example\x1b\\link-text\x1b]8;;\x1b\\"
+	hostileCSI   = "\x1b[2Aup\x1b[10;10Hjump"
+	// hostileC1 leads with U+009B, the C1 CSI control (UTF-8 bytes c2 9b).
+	// Written as an escape rather than the raw rune so the adversarial
+	// payload stays visible in editors and diffs; compiled bytes are unchanged.
+	hostileC1 = "\u009b31mred"
+	// hostileBareC1 leads with the bare 0x9b byte - the 8-bit C1 CSI form,
+	// which is invalid UTF-8 rather than an encoded U+009B. It pins that a
+	// byte-oriented sanitizer rewrite cannot let the raw control byte through.
+	hostileBareC1  = "\x9b31mred"
 	hostileNewline = "line1\nFORGEDLINE"
 	hostileTabCR   = "a\tb\rc"
 	hostileBEL     = "ding\x07dong"
@@ -37,7 +44,8 @@ func TestCardSafeLineStripsControlSequencesWholesale(t *testing.T) {
 		{"osc52", hostileOSC52, "clip", []string{"52;c", "ZXZpbA"}},
 		{"osc8", hostileOSC8, "link-text", []string{"http://evil.example", "8;;"}},
 		{"cursor-csi", hostileCSI, "upjump", []string{"[2A", "10;10"}},
-		{"c1-csi", hostileC1, "31mred", []string{""}},
+		{"c1-csi", hostileC1, "31mred", []string{"\u009b"}},
+		{"bare-c1-byte", hostileBareC1, "\uFFFD31mred", []string{"\x9b"}},
 		{"newline", hostileNewline, "line1 FORGEDLINE", []string{"\n"}},
 		{"tab-cr", hostileTabCR, "a b c", []string{"\t", "\r"}},
 		{"bel", hostileBEL, "dingdong", []string{"\x07"}},

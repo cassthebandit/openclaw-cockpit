@@ -29,6 +29,10 @@ func disableHardTabOptimization() func() {
 	}
 
 	return func() {
-		_ = setTermios(fd, original)
+		// Best-effort restore on the way out: the process is exiting, there is
+		// no recovery path, and reporting here would race the TUI releasing the
+		// screen. A failure leaves only the tab-expansion bit set on a terminal
+		// we are about to stop using.
+		_ = setTermios(fd, original) //nolint:errcheck // justified exit-path discard, rationale above
 	}
 }

@@ -76,7 +76,11 @@ func loadJanitorStatusFile(path string, now time.Time, staleAfter time.Duration)
 		view.Detail = err.Error()
 		return view
 	}
-	defer file.Close()
+	// Read-only handle: the capped io.ReadAll below is the only consumer and
+	// its error already decides validity, so a close error cannot invalidate
+	// data already read and must not reach view state. The fd is released
+	// either way. This is a narrowly sanctioned errcheck discard.
+	defer func() { _ = file.Close() }() //nolint:errcheck // justified read-only discard, rationale above
 	data, err := io.ReadAll(io.LimitReader(file, janitorStatusCapBytes+1))
 	if err != nil {
 		view.State = "invalid"

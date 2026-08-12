@@ -134,10 +134,6 @@ func isEmojiRune(r rune) bool {
 	}
 }
 
-func stripANSIBackgrounds(value string) string {
-	return normalizeANSIForCard(value, false)
-}
-
 func normalizeAgentCLIANSI(value string) string {
 	return normalizeANSIForCard(value, true)
 }
@@ -187,10 +183,6 @@ func normalizeANSIForCard(value string, readableDarkForeground bool) string {
 		b.WriteRune(r)
 	}
 	return b.String()
-}
-
-func stripSGRBackgroundParams(params string) string {
-	return normalizeSGRCardParams(params, false)
 }
 
 func normalizeSGRCardParams(params string, readableDarkForeground bool) string {

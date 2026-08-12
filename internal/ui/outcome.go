@@ -237,15 +237,16 @@ func artifactJSONOutcome(path string) string {
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return ""
 	}
-	if status, _ := payload["status"].(string); strings.EqualFold(status, "FAIL") {
+	status, hasStatus := payload["status"].(string)
+	if hasStatus && strings.EqualFold(status, "FAIL") {
 		return "failed"
 	}
 	for _, key := range []string{"result_classification", "classification"} {
-		if value, _ := payload[key].(string); value != "" {
+		if value, ok := payload[key].(string); ok && value != "" {
 			return classificationState(value)
 		}
 	}
-	if status, _ := payload["status"].(string); strings.EqualFold(status, "PASS") {
+	if hasStatus && strings.EqualFold(status, "PASS") {
 		return "pass"
 	}
 	return ""
@@ -334,7 +335,7 @@ func stateNeedsAttention(state string) bool {
 }
 
 // stateIsLiveAgentState reports the sub-states that keep a managed agent in the
-// Active Agents band. It is deliberately broader than stateIsActiveRun so
+// Active Agents band. It is deliberately broader than just running/starting so
 // waiting/blocked/review agents are not inherited from stateNeedsAttention and
 // pushed into Sub-System Failures.
 func stateIsLiveAgentState(state string) bool {
@@ -356,8 +357,4 @@ func stateIsTerminalProblem(state string) bool {
 	default:
 		return false
 	}
-}
-
-func stateIsActiveRun(state string) bool {
-	return state == "running" || state == "starting"
 }

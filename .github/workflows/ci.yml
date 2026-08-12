@@ -33,6 +33,17 @@ jobs:
             exit 1
           fi
 
+      # The live tmux tests t.Skip when tmux is absent, so a green test job
+      # would not prove the AC4/AC5 live semantics actually ran. Fail here
+      # instead of skipping silently.
+      - name: Require tmux
+        run: |
+          if ! command -v tmux >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y tmux
+          fi
+          tmux -V
+
       - name: Test
         run: go test ./...
 
@@ -78,4 +89,5 @@ jobs:
         uses: golangci/golangci-lint-action@v9.3.0
         with:
           version: v2.12.2
-          args: --timeout=5m
+          # Disable output caps so repeated findings cannot hide later sites.
+          args: --timeout=5m --max-issues-per-linter=0 --max-same-issues=0
