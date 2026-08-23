@@ -21,6 +21,12 @@ import (
 const (
 	productName                 = "OpenClaw Cockpit"
 	defaultOpenClawRuntimeLimit = 80
+	// The runtime snapshot adapter reads OpenClaw's SQLite control plane
+	// read-only in a few tens of milliseconds, so the cards can refresh far
+	// more often than the retired three-subprocess acquisition allowed. This
+	// is independent of --interval, which stays at the one-second tmux
+	// sampling cadence.
+	defaultOpenClawRuntimeInterval = 5 * time.Second
 )
 
 var version = "0.9.5"
@@ -44,7 +50,7 @@ func main() {
 		openclaw         = flag.Bool("openclaw-runtime", false, "include read-only OpenClaw runtime cards")
 		openclawScript   = flag.String("openclaw-runtime-script", "", "path to OpenClaw runtime snapshot script")
 		openclawLimit    = flag.Int("openclaw-runtime-limit", defaultOpenClawRuntimeLimit, "maximum OpenClaw runtime cards to show")
-		openclawInterval = flag.Duration("openclaw-runtime-interval", 15*time.Second, "OpenClaw runtime card refresh interval (cards load off the tmux snapshot path and merge from cache)")
+		openclawInterval = flag.Duration("openclaw-runtime-interval", defaultOpenClawRuntimeInterval, "OpenClaw runtime card refresh interval (cards load off the tmux snapshot path and merge from cache)")
 		janitorStatus    = flag.String("janitor-status", "", "path to tmux janitor status JSON")
 		colors           = flag.Bool("preserve-colors", false, "preserve ANSI colours in captured pane previews")
 		exclude          = flag.String("exclude-session", "", "comma-separated tmux session names to hide from snapshots")

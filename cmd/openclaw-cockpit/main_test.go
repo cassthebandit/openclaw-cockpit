@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 var testBinPath string
@@ -269,6 +270,58 @@ func TestHelpFlag(t *testing.T) {
 	if strings.Contains(outputStr, "session kills") {
 		t.Errorf("--control help should not advertise session kills, got: %s", outputStr)
 	}
+}
+
+// TestOpenClawRuntimeIntervalDefault pins the runtime-card refresh cadence at
+// five seconds and keeps it independent of the one-second tmux poll interval.
+// Both defaults are read back out of the built binary's own flag help so the
+// test fails if either constant drifts.
+func TestOpenClawRuntimeIntervalDefault(t *testing.T) {
+	if defaultOpenClawRuntimeInterval != 5*time.Second {
+		t.Fatalf("defaultOpenClawRuntimeInterval = %s, want 5s", defaultOpenClawRuntimeInterval)
+	}
+
+	cmd := exec.Command(testBinPath, "-h")
+	output, _ := cmd.CombinedOutput()
+	help := string(output)
+
+	if !strings.Contains(help, "-openclaw-runtime-interval duration") {
+		t.Fatalf("help does not document -openclaw-runtime-interval, got: %s", help)
+	}
+	runtimeDefault := flagDefaultFromHelp(t, help, "openclaw-runtime-interval")
+	if runtimeDefault != "5s" {
+		t.Errorf("-openclaw-runtime-interval default = %q, want %q", runtimeDefault, "5s")
+	}
+	tmuxDefault := flagDefaultFromHelp(t, help, "interval")
+	if tmuxDefault != "1s" {
+		t.Errorf("-interval default = %q, want %q (tmux sampling must stay independent)", tmuxDefault, "1s")
+	}
+}
+
+// flagDefaultFromHelp extracts the "(default X)" value flag prints for the
+// named flag.
+func flagDefaultFromHelp(t *testing.T, help, name string) string {
+	t.Helper()
+	lines := strings.Split(help, "\n")
+	for i, line := range lines {
+		if strings.TrimSpace(line) != "-"+name+" duration" {
+			continue
+		}
+		for _, following := range lines[i+1:] {
+			if strings.HasPrefix(strings.TrimSpace(following), "-") {
+				break
+			}
+			_, after, found := strings.Cut(following, "(default ")
+			if !found {
+				continue
+			}
+			value, _, _ := strings.Cut(after, ")")
+			return strings.TrimSpace(value)
+		}
+		t.Fatalf("no default reported for -%s in help: %s", name, help)
+	}
+	t.Fatalf("flag -%s not found in help: %s", name, help)
+	return ""
 }
 
 func TestParseSessionList(t *testing.T) {
