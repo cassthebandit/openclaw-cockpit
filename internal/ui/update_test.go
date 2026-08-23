@@ -148,6 +148,20 @@ func TestFastCaptureTickDoesNotFetchFullRuntimeSnapshot(t *testing.T) {
 	}
 }
 
+func TestOpenClawRuntimeSourceUsesFiveSecondFallback(t *testing.T) {
+	t.Parallel()
+
+	client, err := tmux.NewClient("/bin/echo")
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	m := NewModel(client, time.Second, 1, nil, false, true)
+	m.SetOpenClawRuntimeSource("/tmp/runtime-snapshot.py", 10, time.Second)
+	if got := m.runtime.Interval; got != 5*time.Second {
+		t.Fatalf("runtime fallback interval = %s, want 5s", got)
+	}
+}
+
 func TestFastCaptureSkipsPaneAlreadyInFlight(t *testing.T) {
 	t.Parallel()
 

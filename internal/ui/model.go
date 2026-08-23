@@ -39,7 +39,7 @@ const (
 	aggregateCaptureBudgetPerSecond = 60
 	fastCaptureFallback             = 250 * time.Millisecond
 	fastCaptureIdleTick             = time.Second
-	runtimeCardInterval             = 15 * time.Second
+	runtimeCardInterval             = 5 * time.Second
 	quitChordWindow                 = 600 * time.Millisecond
 	staleThreshold                  = time.Hour
 	minCaptureLines                 = 80
