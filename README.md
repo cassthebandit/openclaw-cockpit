@@ -142,3 +142,18 @@ The code is split into a small CLI entry point, a tmux client under `internal/tm
 ## License
 
 Released under the [MIT License](LICENSE).
+
+### macOS Dock launcher
+
+After installing Cockpit and tmux, run `python3 scripts/install-macos-launcher.py --dock`.
+This installs a script-backed **OpenClaw Cockpit.app** in `~/Applications`, with an
+original artificial-horizon icon (source: `assets/cockpit.svg`, same license as this
+project). Clicking it opens or focuses its Terminal tab and attaches to the existing
+`cass-agents` dashboard. If absent, it starts the dashboard; it does not restart
+workers. An existing OpenClaw workspace launcher is used when available.
+The optional Dock pin preserves other tiles and saves the previous Dock preferences
+under `~/Library/Application Support/OpenClaw Cockpit/dock-before.plist`.
+
+Card age uses the recorded runtime launch time, falling back to clearly labeled
+native tmux **session** age. Viewer/service kinds override incidental agent labels;
+quiet live previews are not failures. Cleanup remains the external janitor's job.

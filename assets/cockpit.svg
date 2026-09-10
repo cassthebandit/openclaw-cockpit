@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<defs><linearGradient id="case" x2="0" y2="1"><stop stop-color="#243c53"/><stop offset="1" stop-color="#091420"/></linearGradient><clipPath id="dial"><circle cx="512" cy="480" r="300"/></clipPath></defs>
+<rect x="32" y="32" width="960" height="960" rx="216" fill="url(#case)"/>
+<circle cx="512" cy="480" r="338" fill="#050e18" stroke="#52687b" stroke-width="14"/>
+<g clip-path="url(#dial)"><path d="M150 150H874V480H150Z" fill="#278ab1"/><path d="M150 480H874V810H150Z" fill="#b46d3d"/><path d="M170 480H854" stroke="#eff9ff" stroke-width="10"/><path d="M420 330h184m-144 70h104m-104 160h104m-144 70h184" stroke="#e0f5ff" stroke-width="8"/></g>
+<path d="M267 480h154l34 35h114l34-35h154" fill="none" stroke="#ffce55" stroke-width="24" stroke-linejoin="round"/><circle cx="512" cy="480" r="14" fill="#ffce55"/>
+<path d="m512 176-22 38h44z" fill="#fff"/>
+<g fill="#78f5cd"><circle cx="330" cy="874" r="20"/><rect x="392" y="860" width="238" height="28" rx="14"/><circle cx="694" cy="874" r="20"/></g>
+<g fill="#617486"><circle cx="158" cy="158" r="14"/><circle cx="866" cy="158" r="14"/><circle cx="158" cy="866" r="14"/><circle cx="866" cy="866" r="14"/></g>
+</svg>

@@ -758,6 +758,7 @@ func groupAccentColor(group cockpitGroup) string {
 func formatHeader(now time.Time, width int, session tmux.Session, window tmux.Window, pane tmux.Pane, focused, pulsing, stale, cursor bool, attentionState string, controls string, host string) string {
 	var meta []string
 	hasDoneTiming := false
+	ageLabel := ""
 	if pane.Dead {
 		meta = append(meta, pane.StatusString())
 	}
@@ -769,8 +770,11 @@ func formatHeader(now time.Time, width int, session tmux.Session, window tmux.Wi
 			meta = append(meta, fmt.Sprintf("done %s", coarseDuration(now.Sub(doneAt))))
 			hasDoneTiming = true
 		} else if startedAt := parseCockpitTimestamp(pane.Cockpit.StartedAt); !startedAt.IsZero() {
-			meta = append(meta, fmt.Sprintf("launched %s", coarseDuration(now.Sub(startedAt))))
+			ageLabel = fmt.Sprintf("launched %s", coarseDuration(now.Sub(startedAt)))
 		}
+	}
+	if ageLabel == "" && !session.CreatedAt.IsZero() {
+		ageLabel = fmt.Sprintf("session %s", coarseDuration(now.Sub(session.CreatedAt)))
 	}
 	state := attentionState
 	if state == "" {
@@ -796,6 +800,11 @@ func formatHeader(now time.Time, width int, session tmux.Session, window tmux.Wi
 	spaceForLabel := width - lipgloss.Width(controls)
 	if spaceForLabel < 1 {
 		spaceForLabel = 1
+	}
+	if ageLabel != "" {
+		// Reserve age before truncating verbose titles and metadata.
+		suffix := " · " + ageLabel
+		label = truncateSingleLine(label, max(1, spaceForLabel-lipgloss.Width(suffix))) + suffix
 	}
 	label = truncateSingleLine(label, spaceForLabel)
 	padding := spaceForLabel - lipgloss.Width(label)

@@ -146,6 +146,9 @@ func computeCockpitGroupFor(m *Model, session tmux.Session) cockpitGroup {
 
 	// 3. Non-agent sessions: genuine services, dashboards, and viewers match on
 	//    chrome text (name/window/title/command) only — never goal or preview.
+	if sessionHasViewerKind(session) {
+		return groupViewers
+	}
 	if sessionIsService(session) {
 		return groupServices
 	}
@@ -562,7 +565,7 @@ func sessionHasManagedAgent(session tmux.Session) bool {
 				continue
 			}
 			kind := strings.ToLower(strings.TrimSpace(pane.Cockpit.Kind))
-			if kind == "service" || kind == "runtime" {
+			if kind == "service" || kind == "detected-service" || kind == "runtime" || kind == "viewer" || kind == "detected-viewer" {
 				continue
 			}
 			agent := strings.TrimSpace(pane.Cockpit.Agent)
@@ -649,7 +652,7 @@ func sessionRuntimePresentationGroup(session tmux.Session) string {
 }
 
 func isQuietLiveServiceSession(session tmux.Session) bool {
-	return isServiceSession(session) && !sessionAllPanesDead(session)
+	return (sessionIsService(session) || sessionHasViewerKind(session)) && !sessionAllPanesDead(session)
 }
 
 func isShellOnly(session tmux.Session) bool {
