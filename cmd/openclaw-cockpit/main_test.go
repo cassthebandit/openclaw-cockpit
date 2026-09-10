@@ -282,7 +282,10 @@ func TestOpenClawRuntimeIntervalDefault(t *testing.T) {
 	}
 
 	cmd := exec.Command(testBinPath, "-h")
-	output, _ := cmd.CombinedOutput()
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("-h flag failed: %v, output: %s", err, output)
+	}
 	help := string(output)
 
 	if !strings.Contains(help, "-openclaw-runtime-interval duration") {

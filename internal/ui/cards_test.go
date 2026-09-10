@@ -698,3 +698,27 @@ func TestCockpitAttentionLineSurfacesHiddenPaneState(t *testing.T) {
 		t.Fatalf("attention line should surface hidden failure, got %q", got)
 	}
 }
+
+func TestHeaderKeepsNativeAgeForLongRawName(t *testing.T) {
+	now := time.Now()
+	session := tmux.Session{Name: strings.Repeat("long-name-", 12), CreatedAt: now.Add(-2 * time.Hour)}
+	got := formatHeader(now, 48, session, tmux.Window{}, tmux.Pane{}, false, false, false, false, "", "[x]", "")
+	if !strings.Contains(got, "session 2h") {
+		t.Fatalf("missing native age: %q", got)
+	}
+}
+
+func TestViewerKindOverridesAgentLabelAndQuietOutput(t *testing.T) {
+	pane := tmux.Pane{Cockpit: &tmux.CockpitMeta{Kind: "viewer", Agent: "shell", State: "running"}}
+	session := tmux.Session{Name: "claude-preview", Windows: []tmux.Window{{Panes: []tmux.Pane{pane}}}}
+	if sessionHasManagedAgent(session) {
+		t.Fatal("viewer classified as agent")
+	}
+	if got := sessionCockpitState(nil, session, pane, true); got == "stale" {
+		t.Fatal("quiet viewer labeled stale")
+	}
+	session.Windows[0].Panes[0].Dead = true
+	if isQuietLiveServiceSession(session) {
+		t.Fatal("dead viewer classified as live")
+	}
+}
