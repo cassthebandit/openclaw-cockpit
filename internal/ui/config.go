@@ -146,25 +146,6 @@ func (c WallConfig) Validate() error {
 	return nil
 }
 
-// allCockpitGroups is the full canonical registry (docs/group-registry.md).
-func allCockpitGroups() []cockpitGroup {
-	return []cockpitGroup{
-		groupActiveAgents,
-		groupHeldAgents,
-		groupInactiveAgents,
-		groupCleanupBlocked,
-		groupFailedAgents,
-		groupOperationalFailures,
-		groupSubsystemFailures,
-		groupServices,
-		groupDoneHeld,
-		groupWork,
-		groupDashboard,
-		groupViewers,
-		groupIdle,
-	}
-}
-
 func knownGroupNames() map[string]struct{} {
 	names := make(map[string]struct{})
 	for _, group := range allCockpitGroups() {

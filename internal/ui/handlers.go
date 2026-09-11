@@ -529,7 +529,7 @@ func (m *Model) handleTabMouse(msg tea.MouseMsg) (bool, tea.Cmd) {
 }
 
 // tabIndexFromZoneIDs inspects zone identifiers and extracts the tab index
-// encoded by BubbleApp's `tabtitles` component.
+// encoded by the local Lip Gloss tab renderer.
 func tabIndexFromZoneIDs(ids []string) (int, bool) {
 	for _, rawID := range ids {
 		child := rawID

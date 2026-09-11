@@ -80,7 +80,7 @@ func TestLoadWallConfigParsesAndValidates(t *testing.T) {
 	if !m.isGroupCollapsed(groupServices.name) {
 		t.Fatalf("config collapsed_groups override not applied to Services")
 	}
-	if m.isGroupCollapsed(groupDoneHeld.name) {
+	if m.isGroupCollapsed(groupCompletedAgents.name) {
 		t.Fatalf("config expanded_groups override not applied to Completed Agent Runs")
 	}
 	// Manual toggles still win after seeding.

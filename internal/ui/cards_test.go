@@ -611,7 +611,7 @@ func TestNonAgentCardsStripCLIColors(t *testing.T) {
 func TestAgentCLIColorPassthroughGroups(t *testing.T) {
 	t.Parallel()
 
-	for _, group := range []cockpitGroup{groupActiveAgents, groupInactiveAgents, groupFailedAgents} {
+	for _, group := range []cockpitGroup{groupActiveAgents, groupMarkedForTeardown, groupFailedAgents} {
 		if !agentCLIColorPassthroughGroup(group.name) {
 			t.Fatalf("%s should preserve agent CLI foreground colors", group.name)
 		}

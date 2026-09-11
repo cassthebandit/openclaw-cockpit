@@ -255,19 +255,6 @@ func (m *Model) clearCollapsed() {
 	m.collapsed = make(map[string]struct{})
 }
 
-// defaultExpandedGroups are the accordion sections that start expanded. Every
-// other group defaults collapsed. Problem groups only appear when non-empty, so
-// "expanded when non-empty" falls out of a plain expanded default.
-var defaultExpandedGroups = map[string]struct{}{
-	groupActiveAgents.name:        {},
-	groupHeldAgents.name:          {},
-	groupInactiveAgents.name:      {},
-	groupCleanupBlocked.name:      {},
-	groupFailedAgents.name:        {},
-	groupOperationalFailures.name: {},
-	groupSubsystemFailures.name:   {},
-}
-
 // isGroupCollapsed reports whether an accordion group is collapsed.
 func (m *Model) isGroupCollapsed(name string) bool {
 	_, ok := m.collapsedGroups[name]

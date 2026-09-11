@@ -228,7 +228,7 @@ func (m *Model) cockpitSummaryState(session tmux.Session, state string) string {
 		return "held"
 	case groupCleanupBlocked.name:
 		return "cleanup-blocked"
-	case groupInactiveAgents.name:
+	case groupMarkedForTeardown.name:
 		return "marked-for-teardown"
 	default:
 		return state
