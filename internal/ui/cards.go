@@ -769,7 +769,8 @@ func formatHeader(now time.Time, width int, session tmux.Session, window tmux.Wi
 		if doneAt := parseCockpitTimestamp(pane.Cockpit.CompletedAt); !doneAt.IsZero() {
 			meta = append(meta, fmt.Sprintf("done %s", coarseDuration(now.Sub(doneAt))))
 			hasDoneTiming = true
-		} else if startedAt := parseCockpitTimestamp(pane.Cockpit.StartedAt); !startedAt.IsZero() {
+		}
+		if startedAt := parseCockpitTimestamp(pane.Cockpit.StartedAt); !startedAt.IsZero() {
 			ageLabel = fmt.Sprintf("launched %s", coarseDuration(now.Sub(startedAt)))
 		}
 	}
@@ -900,9 +901,9 @@ func cockpitTitleParts(session tmux.Session, window tmux.Window, pane tmux.Pane,
 			return dedupeTitleParts([]string{runtime, status, title})
 		}
 		if strings.EqualFold(strings.TrimSpace(meta.Kind), "service") {
-			return dedupeTitleParts([]string{"SERVICE", session.Name})
+			return dedupeTitleParts([]string{session.Name, "SERVICE"})
 		}
-		parts := []string{}
+		parts := []string{session.Name}
 		if meta.DisplayOnly() {
 			parts = append(parts, "ADOPTED")
 		}

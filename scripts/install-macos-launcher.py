@@ -27,13 +27,16 @@ launcher = macos / "launch"
 launcher.write_text('''#!/bin/bash
 set -euo pipefail
 resource_dir="$(cd "$(dirname "$0")/../Resources" && pwd)"
-exec /usr/bin/osascript - "$resource_dir/cockpit.command" <<'APPLESCRIPT'
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+"$resource_dir/cockpit.command" --ensure
+client_ttys="$(tmux list-clients -t '=cass-agents' -F '#{client_tty}')"
+exec /usr/bin/osascript - "$resource_dir/cockpit.command" "$client_ttys" <<'APPLESCRIPT'
 on run argv
   tell application "Terminal"
     activate
     repeat with w in windows
       repeat with t in tabs of w
-        if custom title of t is "OpenClaw Cockpit" and processes of t contains "tmux" then
+        if (paragraphs of item 2 of argv) contains (tty of t) then
           set selected of t to true
           set index of w to 1
           return

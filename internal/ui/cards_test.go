@@ -66,8 +66,8 @@ func TestFormatHeaderUsesCockpitMetadata(t *testing.T) {
 			t.Fatalf("formatHeader missing %q in %q", want, got)
 		}
 	}
-	if strings.Contains(got, "raw-session") {
-		t.Fatalf("formatHeader should prefer cockpit metadata over raw session name, got %q", got)
+	if !strings.Contains(got, "raw-session") {
+		t.Fatalf("formatHeader must preserve session identity, got %q", got)
 	}
 }
 

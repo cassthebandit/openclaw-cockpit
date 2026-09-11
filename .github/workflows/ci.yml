@@ -47,6 +47,9 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Launcher regression
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
+
       - name: Race test
         run: go test -race ./...
 
