@@ -40,6 +40,7 @@ type janitorSessionStatus struct {
 	// countdown authority when this identity matches a current pane
 	// (janitorSessionRow), so a replacement pane reusing the session name never
 	// inherits the old row's cleanup truth.
+	PanePID     string `json:"pane_pid"`
 	PaneID      string `json:"pane_id"`
 	PaneCreated string `json:"pane_created"`
 }

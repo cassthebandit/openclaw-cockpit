@@ -178,7 +178,7 @@ func artifactOutcomeState(pane tmux.Pane) string {
 	}
 	root, err := filepath.EvalSymlinks(runRoot)
 	if err != nil {
-		return ""
+		return "review"
 	}
 	evidencePath := evidence
 	if !filepath.IsAbs(evidencePath) {
@@ -202,16 +202,16 @@ func artifactOutcomeState(pane tmux.Pane) string {
 			if err != nil || !pathIsInside(root, resolved) {
 				return "review"
 			}
-			if state := artifactFileOutcome(resolved, false); state != "" {
+			if state := artifactFileOutcomeAs(resolved, candidate, false); state != "" {
 				return state
 			}
 		}
 		return ""
 	}
-	return artifactFileOutcome(evidencePath, true)
+	return artifactFileOutcomeAs(evidencePath, evidence, true)
 }
 
-func artifactFileOutcome(path string, required bool) string {
+func artifactFileOutcomeAs(path, declared string, required bool) string {
 	info, err := os.Stat(path)
 	if err != nil {
 		if required {
@@ -222,7 +222,7 @@ func artifactFileOutcome(path string, required bool) string {
 	if !info.Mode().IsRegular() || info.Size() > 1_000_000 {
 		return "review"
 	}
-	switch strings.ToLower(filepath.Ext(path)) {
+	switch strings.ToLower(filepath.Ext(declared)) {
 	case ".json":
 		return artifactJSONOutcome(path)
 	default:

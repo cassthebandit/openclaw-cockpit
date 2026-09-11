@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
@@ -245,6 +246,12 @@ func janitorRowJoin(row janitorSessionStatus, session tmux.Session) janitorJoinS
 			if pane.ID != paneID {
 				continue
 			}
+			if pane.PID != "" && row.PanePID == "" {
+				return janitorJoinMissingIdentity
+			}
+			if pane.PID != row.PanePID {
+				return janitorJoinMismatch
+			}
 			if created == pane.CreatedAt.Unix() || created == session.CreatedAt.Unix() {
 				return janitorJoinOK
 			}
@@ -272,7 +279,7 @@ func janitorRowJoin(row janitorSessionStatus, session tmux.Session) janitorJoinS
 func agentLifecycleGroup(m *Model, session tmux.Session, state string) cockpitGroup {
 	row, join := m.janitorSessionRow(session)
 	hasRow := join == janitorJoinOK
-	held := sessionHasHold(session) || state == "held"
+	held := sessionHasHold(session, m.clockNow()) || (state == "held" && !sessionAllPanesDead(session))
 	blocked := hasRow && strings.EqualFold(strings.TrimSpace(row.JanitorState), "cleanup_blocked")
 	marked := state == "marked-for-teardown" ||
 		(hasRow && strings.EqualFold(strings.TrimSpace(row.JanitorState), "marked_for_teardown"))
@@ -360,10 +367,24 @@ func sessionHasLiveEvidence(m *Model, session tmux.Session) bool {
 	return false
 }
 
-func sessionHasHold(session tmux.Session) bool {
+// Presentation only: an expired dead-worker lease is no longer a hold.
+// Live work remains conservatively retained pending the janitor's checks.
+func paneHasDisplayHold(pane tmux.Pane, now time.Time) bool {
+	if pane.Cockpit == nil || strings.TrimSpace(pane.Cockpit.HoldReason) == "" {
+		return false
+	}
+	switch pane.Cockpit.Kind {
+	case "service", "viewer", "runtime":
+		return true
+	}
+	until := parseCockpitTimestamp(pane.Cockpit.HoldUntil)
+	return until.IsZero() || now.Before(until) || !pane.Dead
+}
+
+func sessionHasHold(session tmux.Session, now time.Time) bool {
 	for _, window := range session.Windows {
 		for _, pane := range window.Panes {
-			if pane.Cockpit != nil && strings.TrimSpace(pane.Cockpit.HoldReason) != "" {
+			if paneHasDisplayHold(pane, now) {
 				return true
 			}
 		}

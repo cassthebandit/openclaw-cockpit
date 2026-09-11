@@ -245,6 +245,10 @@ func (m *Model) renderSessionCards(sessions []tmux.Session) string {
 		if viewportHeight < 0 {
 			viewportHeight = 0
 		}
+		if pane.AlternateScreen && pane.Height > 0 {
+			viewportHeight = min(viewportHeight, pane.Height)
+			bodyBudget = min(bodyBudget, viewportHeight+len(infoLines))
+		}
 		resizePreviewViewport(preview, innerWidth, viewportHeight)
 
 		header := lipgloss.NewStyle().Render(formatHeader(now, innerWidth, session, window, pane, focused, pulsing, stale, cursor, sessionState, controls, m.hostname))
@@ -457,6 +461,26 @@ func (m *Model) cardBodyHeightsByGroup(sessions []tmux.Session) map[string]int {
 		}
 		fixedRows += rows * frameHeight
 		c := bodyHeightConstraintForGroup(group)
+		// A group consisting entirely of alternate-screen panes cannot use
+		// more rows than its tallest native screen plus card information.
+		capHeight, allNative := 0, true
+		for _, session := range sessions {
+			if cockpitGroupFor(m, session).name != group.name {
+				continue
+			}
+			for _, window := range session.Windows {
+				for _, pane := range window.Panes {
+					if !pane.AlternateScreen || pane.Height <= 0 {
+						allNative = false
+					}
+					capHeight = max(capHeight, pane.Height+6)
+				}
+			}
+		}
+		if allNative && capHeight > 0 {
+			c.max = min(c.max, capHeight)
+			c.min = min(c.min, c.max)
+		}
 		sections = append(sections, section{
 			group:    group,
 			rows:     rows,
@@ -1181,6 +1205,14 @@ func cockpitCleanupLine(m *Model, session tmux.Session, pane tmux.Pane, now time
 	row, join := m.janitorSessionRow(session)
 	hasRow := join == janitorJoinOK
 	parts := []string{}
+	if !pane.Dead {
+		if verdict := m.cachedLifecycleVerdict(pane, session); verdict.state == "delivered-idle" {
+			parts = append(parts, "assignment appears complete · CLI open")
+		}
+	}
+	if pane.AlternateScreen {
+		parts = append(parts, fmt.Sprintf("native screen %d×%d · open detail to inspect", pane.Width, pane.Height))
+	}
 	if policy := strings.TrimSpace(meta.CleanupPolicy); policy != "" {
 		parts = append(parts, "policy: "+policy)
 	}
@@ -1191,7 +1223,19 @@ func cockpitCleanupLine(m *Model, session tmux.Session, pane tmux.Pane, now time
 	marked := strings.TrimSpace(meta.TeardownMarkedAt)
 	if hold != "" {
 		label := "hold blocks cleanup: " + hold
-		if marked != "" {
+		if until := parseCockpitTimestamp(meta.HoldUntil); !until.IsZero() {
+			if !now.Before(until) {
+				switch meta.Kind {
+				case "service", "viewer", "runtime":
+					label = "hold remains active for " + meta.Kind + ": " + hold
+				default:
+					label = "hold expired; cleanup rechecked by janitor: " + hold
+				}
+			} else {
+				label += " · until " + until.Local().Format("Jan 2 15:04 MST")
+			}
+		}
+		if marked != "" && (parseCockpitTimestamp(meta.HoldUntil).IsZero() || now.Before(parseCockpitTimestamp(meta.HoldUntil))) {
 			// Held+marked is a conflict: the mark is inert while the hold
 			// stands, so no countdown may render next to it.
 			label += " · teardown mark inert (hold conflict)"

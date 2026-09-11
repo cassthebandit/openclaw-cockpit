@@ -32,21 +32,23 @@ type Window struct {
 
 // Pane represents a tmux pane.
 type Pane struct {
-	ID            string
-	Title         string
-	Active        bool
-	Window        string
-	Session       string
-	CurrentCmd    string
-	CurrentPath   string
-	TTY           string
-	LastActivity  time.Time
-	CreatedAt     time.Time
-	Width, Height int
-	Dead          bool
-	DeadStatus    int
-	Cockpit       *CockpitMeta `json:",omitempty"`
-	PreviewText   string       `json:",omitempty"`
+	ID              string
+	Title           string
+	Active          bool
+	Window          string
+	Session         string
+	CurrentCmd      string
+	CurrentPath     string
+	TTY             string
+	LastActivity    time.Time
+	CreatedAt       time.Time
+	Width, Height   int
+	PID             string
+	AlternateScreen bool
+	Dead            bool
+	DeadStatus      int
+	Cockpit         *CockpitMeta `json:",omitempty"`
+	PreviewText     string       `json:",omitempty"`
 }
 
 // Snapshot contains the state of the tmux server.
@@ -106,6 +108,7 @@ type CockpitMeta struct {
 	TTL                  string `json:",omitempty"`
 	CleanupPolicy        string `json:",omitempty"`
 	EvidencePath         string `json:",omitempty"`
+	HoldUntil            string `json:",omitempty"`
 	HoldReason           string `json:",omitempty"`
 	WhyHeadless          string `json:",omitempty"`
 	PaneLog              string `json:",omitempty"`
