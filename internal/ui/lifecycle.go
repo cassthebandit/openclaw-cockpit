@@ -506,6 +506,7 @@ func isAgentKind(kind string) bool {
 	}
 	return false
 }
+
 func sessionIsAgentLike(session tmux.Session) bool {
 	return sessionHasManagedAgent(session) || containsAny(sessionChromeText(session), agentNameTokens...)
 }

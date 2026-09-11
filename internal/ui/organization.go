@@ -820,6 +820,7 @@ func assignmentTerminalState(meta *tmux.CockpitMeta) string {
 	}
 	return ""
 }
+
 func retainedUntilExit(row janitorSessionStatus) bool {
 	return row.JanitorState == "retained_until_exit" || row.LastRefusal == "live_session_requires_explicit_retirement" || row.Reason == "live_session_requires_explicit_retirement"
 }
