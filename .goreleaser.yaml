@@ -26,6 +26,7 @@ archives:
       - LICENSE*
       - README.md
       - helpers/**/*.py
+      - helpers/openclaw_runtime/tests/fixtures/*.json
       - helpers/README.md
       - examples/**/*
       - docs/lifecycle-contract.md
