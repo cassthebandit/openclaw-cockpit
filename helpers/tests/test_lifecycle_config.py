@@ -121,3 +121,38 @@ def test_real_disposable_jobs_use_file_retention(tmp_path):
             assert run("has-session", "-t", "=short", check=False).returncode != 0
         finally:
             run("kill-server", check=False)
+
+
+@pytest.mark.parametrize("policy", ["manual", "kill_after_ttl"])
+def test_batch_contract_preserves_explicit_policy_and_never_ttl(tmp_path, policy):
+    argv = ["spawn", "--name", "batch", "--kind", "batch-worker", "--why-headless", "test batch",
+            "--run-root", str(tmp_path), "--progress-path", str(tmp_path / "progress.json"),
+            "--cleanup-policy", policy, "--ttl", "never", "--", "true"]
+    args = agent_wall.build_parser().parse_args(argv)
+    agent_wall.configure_lifecycle_args(args, argv)
+    agent_wall.validate_launch_contract(args, generic=True)
+    agent_wall.ensure_cleanup_defaults(args, pane_log=str(tmp_path / "pane.log"), run_root=tmp_path)
+    assert args.cleanup_policy == policy
+    assert args.ttl == "never"
+
+
+@pytest.mark.parametrize("path", ["/tmp/bad\0path", "/tmp/bad\npath", "~cockpit-user-that-does-not-exist/path"])
+def test_invalid_config_paths_are_named_validation_errors(path):
+    with pytest.raises(ValueError, match="archive_dir"):
+        lifecycle.validate({"archive_dir": path})
+
+
+def test_child_command_flags_do_not_override_launcher_hold_configuration(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text('{"temporary_hold_hours":4}')
+    argv = ["--lifecycle-config", str(path), "spawn", "--name", "job", "--hold-reason", "review", "--", "program", "--hold-hours", "99"]
+    args = agent_wall.build_parser().parse_args(argv)
+    agent_wall.configure_lifecycle_args(args, argv)
+    assert args.hold_hours == 4
+
+
+def test_signaled_service_child_is_not_reported_as_success(tmp_path):
+    import subprocess
+    config, _ = lifecycle.load(environ={}, overrides={"log_dir": str(tmp_path)})
+    with patch.object(services.subprocess, "run", return_value=subprocess.CompletedProcess([], -15)):
+        assert services.cycle("hygiene", config, None) == 143

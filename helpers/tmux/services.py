@@ -35,7 +35,8 @@ def cycle(service: str, config: dict, config_path: str | None) -> int:
             stream.flush()
             if service == "hygiene" and config_path:
                 command.extend(["--lifecycle-config", config_path])
-            status = max(status, subprocess.run(command, stdout=stream, stderr=stream).returncode)
+            code = subprocess.run(command, stdout=stream, stderr=stream).returncode
+            status = max(status, code if code >= 0 else 128 - code)
     return status
 
 

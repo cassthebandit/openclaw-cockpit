@@ -42,7 +42,13 @@ def validate(values: dict) -> None:
         elif key in PATHS:
             if not isinstance(value, str) or (key == "state_dir" and not value):
                 raise ValueError(f"{key}: expected a nonempty path string")
-            if value and not Path(value).expanduser().is_absolute():
+            if any(ord(character) < 32 or ord(character) == 127 for character in value):
+                raise ValueError(f"{key}: path must not contain control characters")
+            try:
+                absolute = not value or Path(value).expanduser().is_absolute()
+            except RuntimeError as error:
+                raise ValueError(f"{key}: home directory cannot be resolved") from error
+            if not absolute:
                 raise ValueError(f"{key}: path must be absolute or start with ~/")
         elif key == "closeout_default":
             if value not in ("close", "keep_open"):

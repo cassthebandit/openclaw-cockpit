@@ -463,9 +463,9 @@ def validate_launch_contract(args: argparse.Namespace, *, generic: bool) -> None
         if not getattr(args, "why_headless", "").strip():
             raise SystemExit("batch-worker requires --why-headless")
         require_path_under_run_root(getattr(args, "progress_path", ""), args.run_root, "--progress-path")
-        if getattr(args, "cleanup_policy", "") in {"", "manual"}:
+        if not getattr(args, "cleanup_policy", "") or (args.cleanup_policy == "manual" and not getattr(args, "_cleanup_policy_explicit", False)):
             args.cleanup_policy = "kill_on_done"
-        if args.cleanup_policy == "kill_after_ttl" and (not getattr(args, "ttl", "") or args.ttl == "never"):
+        if args.cleanup_policy == "kill_after_ttl" and (not getattr(args, "ttl", "") or args.ttl == "never") and not getattr(args, "_ttl_explicit", False):
             args.ttl = "5m"
         return
 
@@ -2034,13 +2034,13 @@ def configure_lifecycle_args(args: argparse.Namespace, actual_argv: list[str]) -
     config, _ = lifecycle.load(getattr(args, "lifecycle_config", None))
     global STATE_DIR
     STATE_DIR = Path(config["state_dir"]) / "agent-wall"
-    if hasattr(args, "hold_hours") and not any(a == "--hold-hours" or a.startswith("--hold-hours=") for a in actual_argv):
+    option_argv = actual_argv[:actual_argv.index("--")] if "--" in actual_argv else actual_argv
+    if hasattr(args, "hold_hours") and not any(a == "--hold-hours" or a.startswith("--hold-hours=") for a in option_argv):
         args.hold_hours = config["temporary_hold_hours"]
     if hasattr(args, "keep_open") and args.keep_open is None:
         args.keep_open = config["closeout_default"] == "keep_open"
     args.completed_retention_seconds = config["completed_retention_seconds"]
     args.failed_retention_seconds = config["failed_retention_seconds"]
-    option_argv = actual_argv[:actual_argv.index("--")] if "--" in actual_argv else actual_argv
     args._ttl_explicit = any(a == "--ttl" or a.startswith("--ttl=") for a in option_argv)
     args._cleanup_policy_explicit = any(a == "--cleanup-policy" or a.startswith("--cleanup-policy=") for a in option_argv)
 
