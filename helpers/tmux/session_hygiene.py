@@ -22,6 +22,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+try:
+    from . import lifecycle
+except ImportError:
+    import lifecycle
+
 STATE_ROOT = Path(os.environ.get("OPENCLAW_COCKPIT_STATE_DIR", "~/.local/state/openclaw-cockpit")).expanduser()
 
 OC_FIELDS = [
@@ -53,6 +58,9 @@ OC_FIELDS = [
     "teardown_reason",
     "janitor_state",
     "last_meaningful_activity_at",
+    "keep_open",
+    "completed_retention_seconds",
+    "failed_retention_seconds",
 ]
 
 VALID_SESSION_RE = re.compile(r"^[A-Za-z0-9_.:@%+=,/-]+$")
@@ -1031,6 +1039,15 @@ def eligible_managed(
     cleanup = meta.get("cleanup_policy", "").strip() or "manual"
     kind = meta.get("kind", "").strip()
     state = effective_state(pane)
+    if meta.get("keep_open") == "1":
+        return result(session=session, action="refuse", reason="explicit_keep_open", panes=panes, policy_source="managed")
+    try:
+        grace = int(meta.get("completed_retention_seconds") or grace)
+        failed_retention = int(meta.get("failed_retention_seconds") or FAILED_VISIBLE_SECONDS)
+        if grace < 0 or failed_retention < 0:
+            raise ValueError("negative retention")
+    except ValueError:
+        return result(session=session, action="refuse", reason="invalid_job_retention", panes=panes, policy_source="managed")
     has_hold = hold_is_active(pane, now)
 
     if cleanup in {"manual", "hide", ""}:
@@ -1214,10 +1231,10 @@ def eligible_managed(
 
     age = (now - completed_at).total_seconds()
     if state in {"failed", "blocked"}:
-        if age < FAILED_VISIBLE_SECONDS:
+        if age < failed_retention:
             item = result(session=session, action="skip", reason="failed_visible_grace_active", panes=panes, policy_source="managed")
             item["janitor_state"] = "cleanup_pending"
-            item["kill_not_before"] = isoformat(completed_at + timedelta_seconds(FAILED_VISIBLE_SECONDS))
+            item["kill_not_before"] = isoformat(completed_at + timedelta_seconds(failed_retention))
             return item
         return evidence_warning(result(
             session=session,
@@ -1478,6 +1495,8 @@ def revalidate_target(item: dict[str, Any], *, allow_hold: bool, args: argparse.
         return panes, "pane_identity_changed_at_apply"
     if str(item.get("pane_created") or "") != primary.created:
         return panes, "pane_identity_changed_at_apply"
+    if any(p.meta.get("keep_open") == "1" for p in panes):
+        return panes, "explicit_keep_open_at_apply"
     if not allow_hold and any(hold_is_active(p, utc_now()) for p in panes):
         return panes, "hold_reason_active_at_apply"
     if item.get("action") != "cancel_mark":
@@ -1689,6 +1708,7 @@ def cmd_apply(args: argparse.Namespace) -> int:
 
 
 def add_common(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--lifecycle-config", default=argparse.SUPPRESS)
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--include-unowned", action="store_true", help="Compatibility flag; unowned sessions are included by default.")
     parser.add_argument("--policy", choices=["kill-safe", "smoke"], default="kill-safe")
@@ -1735,12 +1755,35 @@ def build_parser() -> argparse.ArgumentParser:
     add_common(apply)
     apply.set_defaults(func=cmd_apply)
 
+    # Subcommand defaults must not erase options explicitly given before it.
+    for child in (list_p, plan, apply):
+        for action in child._actions:
+            if action.dest != "help":
+                action.default = argparse.SUPPRESS
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    actual_argv = list(sys.argv[1:] if argv is None else argv)
+    args = parser.parse_args(actual_argv)
+    mapping = {"grace": "completed_retention_seconds", "adopted_grace": "adopted_grace_seconds", "max_kills": "max_kills", "archive_root": "archive_dir", "status_file": "status_file", "interval": "cleanup_interval_seconds"}
+    overrides = {}
+    for field, key in mapping.items():
+        flag = "--" + field.replace("_", "-")
+        if any(arg == flag or arg.startswith(flag + "=") for arg in actual_argv):
+            overrides[key] = getattr(args, field)
+    try:
+        config, _ = lifecycle.load(getattr(args, "lifecycle_config", None), overrides=overrides)
+    except ValueError as error:
+        parser.error(str(error))
+    global STATE_ROOT, ACTIVE_IDLE_MARK_SECONDS, TEARDOWN_GRACE_SECONDS, FAILED_VISIBLE_SECONDS
+    STATE_ROOT = Path(config["state_dir"])
+    ACTIVE_IDLE_MARK_SECONDS = config["active_idle_mark_seconds"]
+    TEARDOWN_GRACE_SECONDS = config["teardown_grace_seconds"]
+    FAILED_VISIBLE_SECONDS = config["failed_retention_seconds"]
+    for field, key in mapping.items():
+        setattr(args, field, config[key])
     if args.subcommand is None:
         args.subcommand = "plan"
         args.func = cmd_plan

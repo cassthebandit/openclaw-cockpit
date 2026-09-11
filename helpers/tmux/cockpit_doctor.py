@@ -252,6 +252,18 @@ def check_janitor_command(session: str, runner: Runner = run_command) -> Check:
     if cp.returncode != 0:
         return fail("janitor_command", cp.stderr.strip() or f"ps failed for pid {pid}")
     text = cp.stdout
+    try:
+        argv = shlex.split(text)
+    except ValueError:
+        argv = []
+    # The public foreground service owns both apply cycles. Recognize its
+    # executable/module position, not a coincidental substring in an argument.
+    is_python = bool(argv) and Path(argv[0]).name.startswith("python")
+    direct = is_python and len(argv) > 2 and Path(argv[1]).name == "services.py" and argv[2] == "hygiene"
+    module = is_python and argv[1:4] == ["-m", "helpers.tmux.services", "hygiene"]
+    forwarded = is_python and len(argv) > 4 and Path(argv[1]).name == "cockpit_public.py" and argv[2:5] == ["--helper", "tmux.services", "hygiene"]
+    if direct or module or forwarded:
+        return ok("janitor_command", "public hygiene service owns smoke and kill-safe cycles")
     required = [
         "session_hygiene.py apply --policy smoke --json",
         "session_hygiene.py apply --policy kill-safe --json",

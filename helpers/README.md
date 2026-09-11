@@ -137,3 +137,9 @@ python3 -m pytest helpers/tests -q
 
 Live tests create isolated tmux servers. Runtime smoke results and minimum hook
 compatibility are recorded with the change; never infer them from mocked tests.
+
+## User configuration
+
+See [lifecycle configuration](../docs/lifecycle-configuration.md) for supported
+retention, closeout, hold, interval and path settings, validation and environment
+compatibility. `lifecycle.py --dump-config` reports effective values and sources.

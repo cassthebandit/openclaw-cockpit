@@ -29,6 +29,7 @@ archives:
       - helpers/README.md
       - examples/**/*
       - docs/lifecycle-contract.md
+      - docs/lifecycle-configuration.md
     formats:
       - tar.gz
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"

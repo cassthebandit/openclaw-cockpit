@@ -1,0 +1,20 @@
+{
+  "inspector_protected_sessions": [],
+  "closeout_default": "close",
+  "completed_retention_seconds": 60,
+  "failed_retention_seconds": 180,
+  "teardown_grace_seconds": 60,
+  "active_idle_mark_seconds": 180,
+  "adopted_grace_seconds": 3600,
+  "temporary_hold_hours": 24,
+  "cleanup_interval_seconds": 60,
+  "inspector_interval_seconds": 5,
+  "inspector_stale_seconds": 1800,
+  "max_kills": 10,
+  "log_max_bytes": 5242880,
+  "state_dir": "~/.local/state/openclaw-cockpit",
+  "archive_dir": "",
+  "status_file": "",
+  "log_dir": "",
+  "inspector_log_dir": ""
+}
