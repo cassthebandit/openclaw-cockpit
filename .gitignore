@@ -36,3 +36,7 @@ pnpm-debug.log
 
 # Logs
 *.log
+
+__pycache__/
+*.py[cod]
+.pytest_cache/

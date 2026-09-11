@@ -19,7 +19,7 @@ This matrix connects the product requirements to their owning documents and veri
 | Requirement | Type | Source Of Truth | Verification |
 | --- | --- | --- | --- |
 | Holds block automatic cleanup. | Contract | `docs/lifecycle-contract.md` | Janitor and UI grouping tests |
-| Hold release is explicit and evidence-aware. | Contract | `docs/lifecycle-contract.md` | `agent_wall.py release-hold` tests in workspace |
+| Hold release is explicit and evidence-aware. | Contract | `docs/lifecycle-contract.md` | `helpers/tests/test_launcher.py` release-hold tests |
 | Actually marked panes show teardown countdown. | Contract/UI | `docs/lifecycle-contract.md`, `docs/layout-contract.md` | Countdown render tests |
 | Cleanup-blocked panes show blocker reason. | Contract/UI | `docs/lifecycle-contract.md` | Evidence/refusal mapping tests |
 | Failed panes clear after visible grace only when evidence is valid. | Contract | `docs/lifecycle-contract.md` | Failed grace/evidence tests |
@@ -38,7 +38,7 @@ This matrix connects the product requirements to their owning documents and veri
 | Terminal shrink preserves borders and rows. | Layout/Runtime | `docs/layout-contract.md` | mechanical resize matrix plus screenshot/snapshot test |
 | Footer/helper text uses full width and stays compact. | Layout | `docs/layout-contract.md`, `docs/config-contract.md` | footer max-height tests |
 | Manual accordion collapse is respected. | UX | `docs/layout-contract.md` | collapse persistence tests |
-| Agent-focused groups can auto-open by policy. | UX/Config | `docs/group-registry.md`, `docs/layout-contract.md`, `docs/config-contract.md` | edge-event auto-open tests |
+| Urgent-event auto-open is future behavior, not shipped. | Future UX | `docs/group-registry.md`, `docs/layout-contract.md`, `docs/config-contract.md` | Documentation only; no acceptance claim |
 | Services and completed groups compress first. | Layout | `docs/layout-contract.md` | height allocation tests |
 
 ## Regression map
@@ -65,4 +65,4 @@ This matrix connects the product requirements to their owning documents and veri
 - `docs/config-contract.md`: settings extraction and validation contract.
 - `docs/spec.md`: implementation architecture, subordinate to the above contracts.
 - `README.md`: operator-facing install/run/usage summary.
-- Workspace `tools/tmux/README.md`: integration runbook for launchers, janitor, and visible model workers.
+- `helpers/README.md`: public installation/runbook for launchers, janitor and runtime bridge.

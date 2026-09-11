@@ -116,3 +116,11 @@ A Cockpit change is not accepted because the code compiles. It is accepted when 
 - configuration defaults reproduce the intended wall without hardcoded colors and timings scattered through the UI.
 
 Behavior changes should begin with a regression test that states the operator-visible contract.
+
+## Runtime helper delivery
+
+The optional public `helpers/` suite supplies launch, assignment closeout and safe
+exited-session retirement. The Go monitor remains read-only. Example environments
+and configurations ship publicly; private adoption contains only installation
+choices and private experimental profiles. See `helpers/README.md` and the lifecycle
+contract for the executable boundary.
