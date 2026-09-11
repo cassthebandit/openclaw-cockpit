@@ -97,7 +97,7 @@ def test_real_disposable_jobs_use_file_retention(tmp_path):
     with tempfile.TemporaryDirectory(prefix="lc-", dir="/tmp") as directory:
         sock = str(Path(directory) / "s")
         def run(*args, check=True):
-            return subprocess.run(["tmux", "-S", sock, *args], capture_output=True, text=True, check=check)
+            return subprocess.run(["tmux", "-u", "-S", sock, *args], capture_output=True, text=True, check=check)
         try:
             for name, retention in (("short", 60), ("long", 600)):
                 config_file = tmp_path / (name + ".json")
