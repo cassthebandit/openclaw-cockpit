@@ -77,7 +77,7 @@ func rowScanErr(command string, err error) error {
 }
 
 func acceptedPaneFieldCount(count int) bool {
-	return count == 14 || count == 33 || count == 37 || count == 41 || count == 42
+	return count == 14 || count == 33 || count == 37 || count == 41 || count == 42 || count == 45
 }
 
 // listSessions shells out to tmux to enumerate sessions and translate them
@@ -225,6 +225,9 @@ func (c *Client) listPanes(ctx context.Context) ([]Pane, int, error) {
 		"@oc_teardown_reason",
 		"@oc_janitor_state",
 		"@oc_last_meaningful_activity_at",
+		"@oc_hold_until",
+		"pane_pid",
+		"alternate_on",
 	)
 
 	out, err := c.runTmux(ctx, "list-panes", "-a", "-F", format)
@@ -331,6 +334,11 @@ func (c *Client) listPanes(ctx context.Context) ([]Pane, int, error) {
 				meta.TeardownReason = strings.TrimSpace(fields[39])
 				meta.JanitorState = strings.TrimSpace(fields[40])
 				meta.LastMeaningfulAt = strings.TrimSpace(fields[41])
+			}
+			if len(fields) >= 45 {
+				meta.HoldUntil = strings.TrimSpace(fields[42])
+				pane.PID = strings.TrimSpace(fields[43])
+				pane.AlternateScreen = fields[44] == "1"
 			}
 			if meta.HasData() {
 				pane.Cockpit = &meta

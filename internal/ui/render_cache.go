@@ -98,9 +98,11 @@ func (m *Model) computeNextRenderTransition(now time.Time) time.Time {
 				}
 				if doneAt := parseCockpitTimestamp(pane.Cockpit.CompletedAt); !doneAt.IsZero() {
 					earlier(now.Add(nextCoarseDurationChange(now.Sub(doneAt))))
-				} else if startedAt := parseCockpitTimestamp(pane.Cockpit.StartedAt); !startedAt.IsZero() {
+				}
+				if startedAt := parseCockpitTimestamp(pane.Cockpit.StartedAt); !startedAt.IsZero() {
 					earlier(now.Add(nextCoarseDurationChange(now.Sub(startedAt))))
 				}
+				earlier(parseCockpitTimestamp(pane.Cockpit.HoldUntil))
 				if markedAt := parseCockpitTimestamp(pane.Cockpit.TeardownMarkedAt); !markedAt.IsZero() {
 					// Countdown transitions come from the janitor sidecar's
 					// kill_not_before — the same source the card renders.

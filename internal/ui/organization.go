@@ -245,6 +245,12 @@ func janitorRowJoin(row janitorSessionStatus, session tmux.Session) janitorJoinS
 			if pane.ID != paneID {
 				continue
 			}
+			if pane.PID != "" && row.PanePID == "" {
+				return janitorJoinMissingIdentity
+			}
+			if pane.PID != row.PanePID {
+				return janitorJoinMismatch
+			}
 			if created == pane.CreatedAt.Unix() || created == session.CreatedAt.Unix() {
 				return janitorJoinOK
 			}
