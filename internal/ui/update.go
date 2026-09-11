@@ -82,23 +82,9 @@ func (m *Model) handleMessage(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshJanitorStatus()
 		// Runtime cards merge from the async loader's cache; the snapshot
 		// itself carries tmux sessions only (see fetchRuntimeCardsCmd).
-		m.sessions = append(msg.snapshot.Sessions, m.runtimeSessions...)
-		m.refreshArtifactOutcomes()
-		m.refreshLifecycleVerdicts()
+		m.tmuxSessions = msg.snapshot.Sessions
 		m.paneParseWarnings = msg.snapshot.PaneParseWarnings
-		m.pruneHiddenRuntimeSessions()
-		if m.detailSession != "" && !m.sessionExists(m.detailSession) {
-			m.leaveDetail(true)
-		}
-		for id := range m.collapsed {
-			if !m.sessionExists(id) {
-				delete(m.collapsed, id)
-			}
-		}
-		m.updateStaleSessions()
-		m.invalidateClassifications()
-		cmd := m.ensurePreviewsAndCapture()
-		m.updatePreviewDimensions(m.filteredSessionCount())
+		cmd := m.refreshMergedSessions()
 		return m, tea.Batch(scheduleTick(m.pollInterval), m.scheduleFastCaptureWatch(), cmd)
 	case errMsg:
 		m.inflight = false
@@ -190,7 +176,8 @@ func (m *Model) handleMessage(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// must run here, not on snapshotMsg, now that snapshots do not carry
 		// runtime cards.
 		m.updateRuntimeTimeline(tmux.Snapshot{Timestamp: msg.loadedAt, Sessions: msg.sessions})
-		return m, scheduleRuntimeTick(m.runtime.Interval)
+		cmd := m.refreshMergedSessions()
+		return m, tea.Batch(scheduleRuntimeTick(m.runtime.Interval), cmd)
 	case runtimeTickMsg:
 		if !m.runtime.Enabled || m.runtimeInflight {
 			return m, nil
@@ -703,4 +690,25 @@ func captureLinesFor(height int) int {
 		lines = maxCaptureLines
 	}
 	return lines
+}
+
+// refreshMergedSessions applies either source independently without rescheduling polls.
+func (m *Model) refreshMergedSessions() tea.Cmd {
+	m.sessions = append(append([]tmux.Session(nil), m.tmuxSessions...), m.runtimeSessions...)
+	m.refreshArtifactOutcomes()
+	m.refreshLifecycleVerdicts()
+	m.pruneHiddenRuntimeSessions()
+	if m.detailSession != "" && !m.sessionExists(m.detailSession) {
+		m.leaveDetail(true)
+	}
+	for id := range m.collapsed {
+		if !m.sessionExists(id) {
+			delete(m.collapsed, id)
+		}
+	}
+	m.updateStaleSessions()
+	m.invalidateClassifications()
+	cmd := m.ensurePreviewsAndCapture()
+	m.updatePreviewDimensions(m.filteredSessionCount())
+	return cmd
 }

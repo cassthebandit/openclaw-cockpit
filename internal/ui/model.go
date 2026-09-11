@@ -179,7 +179,8 @@ type Model struct {
 	width  int
 	height int
 
-	sessions []tmux.Session
+	sessions     []tmux.Session
+	tmuxSessions []tmux.Session
 
 	captureOffset int
 

@@ -111,7 +111,7 @@ func artifactStatKey(pane tmux.Pane) string {
 	if runRoot == "" || evidence == "" {
 		return ""
 	}
-	root, err := filepath.Abs(filepath.Clean(runRoot))
+	root, err := filepath.EvalSymlinks(runRoot)
 	if err != nil {
 		return ""
 	}
@@ -119,12 +119,17 @@ func artifactStatKey(pane tmux.Pane) string {
 	if !filepath.IsAbs(evidencePath) {
 		evidencePath = filepath.Join(root, evidencePath)
 	}
-	evidencePath, err = filepath.Abs(filepath.Clean(evidencePath))
-	if err != nil {
+	evidencePath, err = filepath.EvalSymlinks(evidencePath)
+	if err != nil || !pathIsInside(root, evidencePath) {
 		return ""
 	}
 	var b strings.Builder
 	appendStat := func(path string) os.FileInfo {
+		resolved, resolveErr := filepath.EvalSymlinks(path)
+		if resolveErr != nil || !pathIsInside(root, resolved) {
+			return nil
+		}
+		path = resolved
 		info, statErr := os.Stat(path)
 		if statErr != nil {
 			b.WriteString(path)
@@ -171,7 +176,7 @@ func artifactOutcomeState(pane tmux.Pane) string {
 	if runRoot == "" || evidence == "" {
 		return ""
 	}
-	root, err := filepath.Abs(filepath.Clean(runRoot))
+	root, err := filepath.EvalSymlinks(runRoot)
 	if err != nil {
 		return ""
 	}
@@ -179,7 +184,7 @@ func artifactOutcomeState(pane tmux.Pane) string {
 	if !filepath.IsAbs(evidencePath) {
 		evidencePath = filepath.Join(root, evidencePath)
 	}
-	evidencePath, err = filepath.Abs(filepath.Clean(evidencePath))
+	evidencePath, err = filepath.EvalSymlinks(evidencePath)
 	if err != nil || !pathIsInside(root, evidencePath) {
 		return "review"
 	}
@@ -189,7 +194,15 @@ func artifactOutcomeState(pane tmux.Pane) string {
 	}
 	if info.IsDir() {
 		for _, name := range []string{"verification.json", "analysis.json", "summary.json", "RESULT.md"} {
-			if state := artifactFileOutcome(filepath.Join(evidencePath, name), false); state != "" {
+			candidate := filepath.Join(evidencePath, name)
+			resolved, err := filepath.EvalSymlinks(candidate)
+			if os.IsNotExist(err) {
+				continue
+			}
+			if err != nil || !pathIsInside(root, resolved) {
+				return "review"
+			}
+			if state := artifactFileOutcome(resolved, false); state != "" {
 				return state
 			}
 		}
@@ -206,7 +219,7 @@ func artifactFileOutcome(path string, required bool) string {
 		}
 		return ""
 	}
-	if info.IsDir() || info.Size() > 1_000_000 {
+	if !info.Mode().IsRegular() || info.Size() > 1_000_000 {
 		return "review"
 	}
 	switch strings.ToLower(filepath.Ext(path)) {

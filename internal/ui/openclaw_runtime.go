@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -182,29 +181,21 @@ func loadOpenClawRuntimeCards(source RuntimeSource) ([]openClawRuntimeCard, erro
 	cmd := exec.CommandContext(ctx, "python3", script, "--limit", strconv.Itoa(limit), "--format", "json")
 	stderr := &cappedBuffer{limit: runtimeStderrCapBytes}
 	cmd.Stderr = stderr
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("runtime snapshot failed: %w", err)
-	}
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("runtime snapshot failed: %w", err)
-	}
-	// Bounded read BEFORE any allocation-heavy decode: stop at cap+1 and kill
-	// an over-cap producer instead of buffering whatever it emits.
-	out, readErr := io.ReadAll(io.LimitReader(stdout, runtimeOutputCapBytes+1))
+	// Let os/exec own copying and pipe closure. WaitDelay bounds inherited
+	// descriptors even when the direct child has already exited.
+	cmd.WaitDelay = 100 * time.Millisecond
+	cleanupProcess := configureRuntimeProcess(cmd)
+	defer cleanupProcess()
+	stdout := &runtimeOutputBuffer{cappedBuffer: cappedBuffer{limit: runtimeOutputCapBytes + 1}, cancel: cancel}
+	cmd.Stdout = stdout
+	waitErr := cmd.Run()
+	out := stdout.buf.Bytes()
 	overCap := len(out) > runtimeOutputCapBytes
-	if overCap {
-		cancel()
-	}
-	waitErr := cmd.Wait()
 	if overCap {
 		return nil, fmt.Errorf("runtime snapshot output exceeds the %d byte cap", runtimeOutputCapBytes)
 	}
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("runtime snapshot timed out after %s", timeout)
-	}
-	if readErr != nil {
-		return nil, fmt.Errorf("runtime snapshot failed: %w", readErr)
 	}
 	if waitErr != nil {
 		detail := strings.TrimSpace(stderr.String())
@@ -650,4 +641,19 @@ func boolString(value bool) string {
 		return "true"
 	}
 	return ""
+}
+
+// runtimeOutputBuffer cancels an over-cap producer while keeping os/exec's
+// writer contract. Only its copy goroutine writes; Run joins before inspection.
+type runtimeOutputBuffer struct {
+	cappedBuffer
+	cancel context.CancelFunc
+}
+
+func (b *runtimeOutputBuffer) Write(p []byte) (int, error) {
+	n, err := b.cappedBuffer.Write(p)
+	if b.buf.Len() > runtimeOutputCapBytes {
+		b.cancel()
+	}
+	return n, err
 }

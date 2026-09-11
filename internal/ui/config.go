@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -100,6 +101,9 @@ func LoadWallConfig(path string) (WallConfig, error) {
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&cfg); err != nil {
 		return DefaultWallConfig(), fmt.Errorf("parse %s: %w", path, err)
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return DefaultWallConfig(), fmt.Errorf("parse %s: expected EOF after config object", path)
 	}
 	if err := cfg.Validate(); err != nil {
 		return DefaultWallConfig(), fmt.Errorf("invalid config %s: %w", path, err)
