@@ -60,7 +60,7 @@ class DoctorTests(unittest.TestCase):
 
     def test_dashboard_requires_cockpit_command(self) -> None:
         def runner(args: list[str]) -> subprocess.CompletedProcess[str]:
-            return subprocess.CompletedProcess(args, 0, "zsh\t0\t123\n", "")
+            return subprocess.CompletedProcess(args, 0, doctor.TMUX_FIELD_SEP.join(['zsh', '0', '123']) + "\n", "")
 
         check = doctor.check_dashboard("cockpit:dashboard.0", runner)
         self.assertEqual(check.status, "fail")
@@ -68,7 +68,7 @@ class DoctorTests(unittest.TestCase):
 
     def test_dashboard_accepts_openclaw_cockpit_command(self) -> None:
         def runner(args: list[str]) -> subprocess.CompletedProcess[str]:
-            return subprocess.CompletedProcess(args, 0, "openclaw-cockpit\t0\t123\n", "")
+            return subprocess.CompletedProcess(args, 0, doctor.TMUX_FIELD_SEP.join(['openclaw-cockpit', '0', '123']) + "\n", "")
 
         check = doctor.check_dashboard("cockpit:dashboard.0", runner)
         self.assertEqual(check.status, "ok")
@@ -548,10 +548,10 @@ class DoctorTests(unittest.TestCase):
                     if args[4] == "cockpit:dashboard.0":
                         if args[5] == "#{pane_pid}":
                             return subprocess.CompletedProcess(args, 0, "11\n", "")
-                        return subprocess.CompletedProcess(args, 0, "openclaw-cockpit\t0\t11\n", "")
+                        return subprocess.CompletedProcess(args, 0, doctor.TMUX_FIELD_SEP.join(['openclaw-cockpit', '0', '11']) + "\n", "")
                     if args[5] == "#{pane_pid}":
                         return subprocess.CompletedProcess(args, 0, "22\n", "")
-                    return subprocess.CompletedProcess(args, 0, "bash\t0\t22\n", "")
+                    return subprocess.CompletedProcess(args, 0, doctor.TMUX_FIELD_SEP.join(['bash', '0', '22']) + "\n", "")
                 if args[:2] == ["ps", "-p"]:
                     if args[2] == "11":
                         return subprocess.CompletedProcess(

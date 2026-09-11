@@ -27,7 +27,8 @@ DEFAULT_INSPECTOR_LOG = STATE_ROOT / "inspector/inspector.log"
 DEFAULT_LEDGER_ROOT = STATE_ROOT / "cleanup-ledger"
 DEFAULT_RUNTIME_SNAPSHOT_SCRIPT = HELPERS / "openclaw_runtime/cockpit_snapshot.py"
 COCKPIT_COMMANDS = {"openclaw-cockpit", "openclaw-cockpi"}
-TMUX_FIELD_SEP = "\x1f"
+# Printable across tmux versions; reject delimiter collisions by exact field count.
+TMUX_FIELD_SEP = "|:oc:|"
 SERVICE_SESSIONS: set[str] = set()
 EDITOR_VIEWER_COMMANDS = {"vim", "nvim", "nano", "cat", "less", "tail", "head", "grep", "rg", "sed", "awk"}
 STRONG_RUNTIME_TOKENS = {"codex", "claude", "claude-code", "fable", "opus", "agy", "antigravity"}
@@ -52,8 +53,7 @@ class Check:
 
 
 def run_command(args: list[str]) -> subprocess.CompletedProcess[str]:
-    # Preserve tab/unit-separator framing and Unicode when invoked outside tmux
-    # under a C locale, just like the managed helper transport.
+    # Preserve Unicode metadata outside tmux under a C locale.
     if args and args[0] == "tmux":
         args = [args[0], "-u", *args[1:]]
     return subprocess.run(args, text=True, encoding="utf-8", stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -157,10 +157,10 @@ def tmux_display(target: str, fmt: str, runner: Runner = run_command) -> subproc
 
 
 def check_dashboard(target: str, runner: Runner = run_command) -> Check:
-    cp = tmux_display(target, "#{pane_current_command}\t#{pane_dead}\t#{pane_pid}", runner)
+    cp = tmux_display(target, TMUX_FIELD_SEP.join(["#{pane_current_command}", "#{pane_dead}", "#{pane_pid}"]), runner)
     if cp.returncode != 0:
         return fail("dashboard_pane", cp.stderr.strip() or f"missing {target}")
-    fields = cp.stdout.strip().split("\t")
+    fields = cp.stdout.strip().split(TMUX_FIELD_SEP)
     if len(fields) != 3:
         return fail("dashboard_pane", f"malformed tmux response: {cp.stdout!r}")
     command, dead, pid = fields
@@ -229,10 +229,10 @@ def check_janitor_session(session: str, runner: Runner = run_command) -> Check:
     cp = runner(["tmux", "has-session", "-t", "=" + session])
     if cp.returncode != 0:
         return fail("janitor_session", cp.stderr.strip() or f"missing {session}")
-    pane = tmux_display(session + ":0.0", "#{pane_current_command}\t#{pane_dead}\t#{pane_pid}", runner)
+    pane = tmux_display(session + ":0.0", TMUX_FIELD_SEP.join(["#{pane_current_command}", "#{pane_dead}", "#{pane_pid}"]), runner)
     if pane.returncode != 0:
         return fail("janitor_session", pane.stderr.strip() or "janitor pane missing")
-    fields = pane.stdout.strip().split("\t")
+    fields = pane.stdout.strip().split(TMUX_FIELD_SEP)
     if len(fields) != 3:
         return fail("janitor_session", f"malformed tmux response: {pane.stdout!r}")
     command, dead, pid = fields
@@ -267,10 +267,10 @@ def check_inspector_session(session: str, runner: Runner = run_command) -> Check
     cp = runner(["tmux", "has-session", "-t", "=" + session])
     if cp.returncode != 0:
         return fail("inspector_session", cp.stderr.strip() or f"missing {session}")
-    pane = tmux_display(session + ":0.0", "#{pane_current_command}\t#{pane_dead}\t#{pane_pid}", runner)
+    pane = tmux_display(session + ":0.0", TMUX_FIELD_SEP.join(["#{pane_current_command}", "#{pane_dead}", "#{pane_pid}"]), runner)
     if pane.returncode != 0:
         return fail("inspector_session", pane.stderr.strip() or "inspector pane missing")
-    fields = pane.stdout.strip().split("\t")
+    fields = pane.stdout.strip().split(TMUX_FIELD_SEP)
     if len(fields) != 3:
         return fail("inspector_session", f"malformed tmux response: {pane.stdout!r}")
     command, dead, pid = fields

@@ -57,7 +57,8 @@ OC_FIELDS = [
 
 VALID_SESSION_RE = re.compile(r"^[A-Za-z0-9_.:@%+=,/-]+$")
 STATE_CLEANABLE = {"done", "failed", "stale", "blocked"}
-TMUX_FIELD_SEP = "\x1f"
+# Printable across tmux versions; reject delimiter collisions by exact field count.
+TMUX_FIELD_SEP = "|:oc:|"
 SMOKE_PREFIX = "oc-vis-smoke-"
 STATUS_VERSION = 1
 DEFAULT_STATUS_FILE = STATE_ROOT / "hygiene/status.json"
@@ -163,7 +164,7 @@ def utc_now() -> datetime:
 
 
 def run_tmux(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    # tmux otherwise replaces framing controls with underscores in a C locale.
+    # Preserve Unicode metadata even when called outside tmux in a C locale.
     return subprocess.run(
         ["tmux", "-u", *args],
         check=check,

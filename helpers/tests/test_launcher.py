@@ -868,7 +868,7 @@ class AgentWallClaudeTests(unittest.TestCase):
                 agent_wall.run_tmux = lambda *args, **kwargs: subprocess.CompletedProcess(
                     args,
                     0,
-                    "\x1f".join(["0", "100", "run-codex_tui.sh", "1", "agent_wall", "visible-agent", "codex", "kill_after_ttl", "logs/pane.log"])
+                    agent_wall.TMUX_FIELD_SEP.join(["0", "100", "run-codex_tui.sh", "1", "agent_wall", "visible-agent", "codex", "kill_after_ttl", "logs/pane.log"])
                     + "\n",
                     "",
                 )
@@ -899,7 +899,7 @@ class AgentWallClaudeTests(unittest.TestCase):
                 agent_wall.run_tmux = lambda *args, **kwargs: subprocess.CompletedProcess(
                     args,
                     0,
-                    "\x1f".join(["0", "100", "zsh", "1", "agent_wall", "visible-agent", "codex", "kill_after_ttl", "logs/pane.log"])
+                    agent_wall.TMUX_FIELD_SEP.join(["0", "100", "zsh", "1", "agent_wall", "visible-agent", "codex", "kill_after_ttl", "logs/pane.log"])
                     + "\n",
                     "",
                 )
@@ -931,7 +931,7 @@ class AgentWallClaudeTests(unittest.TestCase):
                 agent_wall.run_tmux = lambda *args, **kwargs: subprocess.CompletedProcess(
                     args,
                     0,
-                    "\x1f".join(["0", "100", "bash", "1", "agent_wall", "visible-agent", "codex", "kill_after_ttl", "logs/pane.log"])
+                    agent_wall.TMUX_FIELD_SEP.join(["0", "100", "bash", "1", "agent_wall", "visible-agent", "codex", "kill_after_ttl", "logs/pane.log"])
                     + "\n",
                     "",
                 )
@@ -961,7 +961,7 @@ class AgentWallClaudeTests(unittest.TestCase):
                 agent_wall.run_tmux = lambda *args, **kwargs: subprocess.CompletedProcess(
                     args,
                     0,
-                    "\x1f".join(["0", "101", "claude", "1", "tmux_inspector", "detected-agent", "claude", "manual", "logs/pane.log"])
+                    agent_wall.TMUX_FIELD_SEP.join(["0", "101", "claude", "1", "tmux_inspector", "detected-agent", "claude", "manual", "logs/pane.log"])
                     + "\n",
                     "",
                 )
@@ -990,7 +990,7 @@ class AgentWallClaudeTests(unittest.TestCase):
                 agent_wall.run_tmux = lambda *args, **kwargs: subprocess.CompletedProcess(
                     args,
                     0,
-                    "\x1f".join(["0", "100", "codex", "display-only", "manual_adopt", "visible-agent", "codex", "manual", "logs/pane.log"])
+                    agent_wall.TMUX_FIELD_SEP.join(["0", "100", "codex", "display-only", "manual_adopt", "visible-agent", "codex", "manual", "logs/pane.log"])
                     + "\n",
                     "",
                 )
@@ -1019,7 +1019,7 @@ class AgentWallClaudeTests(unittest.TestCase):
                 agent_wall.run_tmux = lambda *args, **kwargs: subprocess.CompletedProcess(
                     args,
                     0,
-                    "\x1f".join(["0", "100", "run-claude_tui.sh", "1", "agent_wall", "visible-agent", "fable", "kill_after_ttl", "logs/pane.log"])
+                    agent_wall.TMUX_FIELD_SEP.join(["0", "100", "run-claude_tui.sh", "1", "agent_wall", "visible-agent", "fable", "kill_after_ttl", "logs/pane.log"])
                     + "\n",
                     "",
                 )
@@ -1049,7 +1049,7 @@ class AgentWallClaudeTests(unittest.TestCase):
                 agent_wall.run_tmux = lambda *args, **kwargs: subprocess.CompletedProcess(
                     args,
                     0,
-                    "\x1f".join(["0", "100", "run-agy_tui.sh", "1", "agent_wall", "visible-agent", "agy", "kill_after_ttl", "logs/pane.log"])
+                    agent_wall.TMUX_FIELD_SEP.join(["0", "100", "run-agy_tui.sh", "1", "agent_wall", "visible-agent", "agy", "kill_after_ttl", "logs/pane.log"])
                     + "\n",
                     "",
                 )
@@ -1821,7 +1821,7 @@ class RuntimePositionMatchingTests(unittest.TestCase):
                 agent_wall.run_tmux = lambda *args, **kwargs: subprocess.CompletedProcess(
                     args,
                     0,
-                    "\x1f".join(["0", "100", "claude", "1", "agent_wall", "visible-agent", "codex", "kill_on_done", "logs/pane.log"])
+                    agent_wall.TMUX_FIELD_SEP.join(["0", "100", "claude", "1", "agent_wall", "visible-agent", "codex", "kill_on_done", "logs/pane.log"])
                     + "\n",
                     "",
                 )

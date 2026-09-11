@@ -15,7 +15,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-TMUX_FIELD_SEP = "\x1f"
+# Printable across tmux versions; reject delimiter collisions by exact field count.
+TMUX_FIELD_SEP = "|:oc:|"
 INSPECTOR_MANAGED_BY = "tmux_inspector"
 DISPLAY_CONTRACT_VERSION = "display-only"
 SERVICE_CONTRACT_VERSION = "service-card.v1"
@@ -94,7 +95,7 @@ def utc_now() -> str:
 
 
 def run_tmux(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    # tmux otherwise replaces framing controls with underscores in a C locale.
+    # Preserve Unicode metadata even when called outside tmux in a C locale.
     return subprocess.run(["tmux", "-u", *args], check=check, text=True, encoding="utf-8", stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 

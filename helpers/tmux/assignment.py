@@ -24,6 +24,8 @@ import uuid
 
 ACTIVITY = {"UserPromptSubmit", "PreToolUse", "PermissionRequest", "Interrupt", "StopFailure"}
 MAX_RESULT = 16 * 1024 * 1024
+# Printable across tmux versions; exact field counts refuse delimiter collisions.
+TMUX_FIELD_SEP = "|:oc:|"
 
 
 def _write(path: Path, value: dict) -> None:
@@ -255,9 +257,9 @@ class TmuxGuard:
     def inspect(self) -> list[str]:
         if not self.pane.startswith("%") or not self.pane[1:].isdigit():
             raise ValueError("supervisor requires an exact TMUX_PANE")
-        template = "#{pane_id}|#{pane_pid}|#{session_id}|#{window_id}|#{@oc_launch_id}|#{@oc_hold_reason}|#{pane_dead}"
-        output = subprocess.check_output(["tmux", "display-message", "-p", "-t", self.pane, template], text=True).strip()
-        fields = output.split("|")
+        template = TMUX_FIELD_SEP.join(["#{pane_id}", "#{pane_pid}", "#{session_id}", "#{window_id}", "#{@oc_launch_id}", "#{@oc_hold_reason}", "#{pane_dead}"])
+        output = subprocess.check_output(["tmux", "-u", "display-message", "-p", "-t", self.pane, template], text=True, encoding="utf-8").strip()
+        fields = output.split(TMUX_FIELD_SEP)
         if len(fields) != 7 or fields[0] != self.pane or fields[6] != "0":
             raise ValueError("pane is missing, replaced or dead")
         return fields
@@ -282,13 +284,13 @@ class TmuxGuard:
             condition = "#{&&:#{==:#{@oc_launch_id}," + self.run_id + "},#{==:#{pane_pid}," + self.initial[1] + "}}"
             command = shlex.join(["set-option", "-p", "-t", self.pane, "@oc_" + key, value])
             failure = "display-message -p COCKPIT_IDENTITY_CHANGED"
-            output = subprocess.check_output(["tmux", "if-shell", "-F", "-t", self.pane, condition, command, failure], text=True)
+            output = subprocess.check_output(["tmux", "-u", "if-shell", "-F", "-t", self.pane, condition, command, failure], text=True, encoding="utf-8")
             if "COCKPIT_IDENTITY_CHANGED" in output:
                 raise ValueError("pane ownership changed during metadata write")
         if state == "running":
             for key in ("completed_at", "exit_code"):
                 command = shlex.join(["set-option", "-pu", "-t", self.pane, "@oc_" + key])
-                output = subprocess.check_output(["tmux", "if-shell", "-F", "-t", self.pane, condition, command, failure], text=True)
+                output = subprocess.check_output(["tmux", "-u", "if-shell", "-F", "-t", self.pane, condition, command, failure], text=True, encoding="utf-8")
                 if "COCKPIT_IDENTITY_CHANGED" in output:
                     raise ValueError("pane ownership changed while clearing completion")
 

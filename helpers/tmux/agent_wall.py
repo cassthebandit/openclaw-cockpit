@@ -43,7 +43,8 @@ DEFAULT_TUI_COLS = 160
 DEFAULT_TUI_ROWS = 45
 TUI_TERM = "xterm-256color"
 # Filled from the locally built, pinned Linux/arm64 image and verified before launch.
-TMUX_FIELD_SEP = "\x1f"
+# Printable across tmux versions; reject delimiter collisions by exact field count.
+TMUX_FIELD_SEP = "|:oc:|"
 VISIBLE_AGENT_RUNTIMES = {"claude", "fable", "codex", "agy", "antigravity", "omp"}
 GENERIC_VISIBLE_RUNTIME_ALLOW_KINDS = {"smoke", "batch-worker"}
 RUNTIME_PROCESS_TOKENS = {
@@ -191,7 +192,7 @@ def utc_now() -> str:
 
 
 def run_tmux(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    # tmux otherwise replaces framing controls with underscores in a C locale.
+    # Preserve Unicode metadata even when called outside tmux in a C locale.
     return subprocess.run(
         ["tmux", "-u", *args],
         check=check,
