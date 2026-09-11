@@ -287,58 +287,101 @@ func (m *Model) ensureCursor(sessions []tmux.Session) {
 	m.cursorSession = sessions[0].ID
 }
 
-// moveCursorLeft shifts the cursor one column to the left when possible.
-func (m *Model) moveCursorLeft() bool {
-	return m.moveCursorByDelta(-1, true)
+// cursorCells uses the same group column/width policy as rendering. Row
+// boundaries restart at group dividers; collapsed and pane-less entries are
+// absent. Recomputing here also handles navigation immediately after resize.
+type cursorCell struct {
+	id          string
+	row, center int
 }
 
-// moveCursorRight shifts the cursor one column to the right when possible.
-func (m *Model) moveCursorRight() bool {
-	return m.moveCursorByDelta(1, true)
+func (m *Model) cursorCells() []cursorCell {
+	sessions := m.filteredSessions()
+	counts := sessionGroupCounts(m, sessions)
+	organized := m.organized && m.viewMode == viewModeOverview
+	if organized {
+		m.seedGroupCollapse(orderedCockpitGroups(m, sessions))
+	}
+	row, col, cols, width := 0, 0, max(1, m.cardCols), max(1, m.cardInnerWidth)+cardPadding*2+2
+	groupName := ""
+	var cells []cursorCell
+	for _, session := range sessions {
+		window, ok := activeWindow(session)
+		if !ok {
+			continue
+		}
+		if _, ok := activePane(window); !ok {
+			continue
+		}
+		if organized {
+			group := cockpitGroupFor(m, session)
+			if m.isGroupCollapsed(group.name) {
+				continue
+			}
+			if group.name != groupName {
+				if col > 0 {
+					row++
+				}
+				col = 0
+				cols, width = m.cardLayoutForGroup(group, max(1, counts[group.name]))
+				width += cardPadding*2 + 2
+				groupName = group.name
+			}
+		}
+		cells = append(cells, cursorCell{id: session.ID, row: row, center: col*(width+cardColumnGap) + width/2})
+		col++
+		if col == cols {
+			row++
+			col = 0
+		}
+	}
+	return cells
 }
 
-// moveCursorUp moves the cursor up one row in the card grid.
-func (m *Model) moveCursorUp() bool {
-	cols := max(1, m.cardCols)
-	return m.moveCursorByDelta(-cols, false)
-}
+func (m *Model) moveCursorLeft() bool  { return m.moveCursor(-1, 0) }
+func (m *Model) moveCursorRight() bool { return m.moveCursor(1, 0) }
+func (m *Model) moveCursorUp() bool    { return m.moveCursor(0, -1) }
+func (m *Model) moveCursorDown() bool  { return m.moveCursor(0, 1) }
 
-// moveCursorDown moves the cursor down one row in the card grid.
-func (m *Model) moveCursorDown() bool {
-	cols := max(1, m.cardCols)
-	return m.moveCursorByDelta(cols, false)
-}
-
-// moveCursorByDelta advances the cursor by the provided delta if permitted.
-func (m *Model) moveCursorByDelta(delta int, enforceRow bool) bool {
-	sessions := m.gridSessions()
-	if len(sessions) == 0 {
+func (m *Model) moveCursor(dx, dy int) bool {
+	cells := m.cursorCells()
+	if len(cells) == 0 {
 		m.cursorSession = ""
 		return false
 	}
-	m.ensureCursor(sessions)
-	cols := max(1, m.cardCols)
-	currentIndex := -1
-	for idx, session := range sessions {
-		if session.ID == m.cursorSession {
-			currentIndex = idx
+	current := 0
+	for i, cell := range cells {
+		if cell.id == m.cursorSession {
+			current = i
 			break
 		}
 	}
-	if currentIndex == -1 {
-		return false
-	}
-	nextIndex := currentIndex + delta
-	if nextIndex < 0 || nextIndex >= len(sessions) {
-		return false
-	}
-	if enforceRow {
-		currentRow := currentIndex / cols
-		nextRow := nextIndex / cols
-		if currentRow != nextRow {
-			return false
+	m.cursorSession = cells[current].id
+	next := -1
+	if dx != 0 {
+		candidate := current + dx
+		if candidate >= 0 && candidate < len(cells) && cells[candidate].row == cells[current].row {
+			next = candidate
+		}
+	} else {
+		distance := int(^uint(0) >> 1)
+		for i, cell := range cells {
+			if cell.row != cells[current].row+dy {
+				continue
+			}
+			d := cell.center - cells[current].center
+			if d < 0 {
+				d = -d
+			}
+			if d < distance {
+				next = i
+				distance = d
+			}
 		}
 	}
-	m.cursorSession = sessions[nextIndex].ID
+	if next < 0 {
+		return false
+	}
+	m.cursorSession = cells[next].id
 	return true
 }

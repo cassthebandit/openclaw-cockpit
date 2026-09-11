@@ -262,9 +262,6 @@ func (m *Model) renderSessionCards(sessions []tmux.Session) string {
 
 		borderColor := borderColorBase
 		state := sessionState
-		if state == "" {
-			state = sessionCockpitState(m, session, pane, stale)
-		}
 		if body != "" {
 			body = compactFinishedBody(innerWidth, body, state, bodyBudget)
 			body = compactOverviewBody(innerWidth, body, m.viewMode == viewModeOverview, bodyBudget)
@@ -798,9 +795,6 @@ func formatHeader(now time.Time, width int, session tmux.Session, window tmux.Wi
 		ageLabel = fmt.Sprintf("session %s", coarseDuration(now.Sub(session.CreatedAt)))
 	}
 	state := attentionState
-	if state == "" {
-		state = cockpitState(pane, stale)
-	}
 	runtimeHeader := isOpenClawRuntimePane(pane)
 	if state != "" && state != "running" && state != "starting" && state != "quiet" && (state != "done" || !hasDoneTiming) && !runtimeHeader {
 		meta = append(meta, attentionStateLabel(state))
@@ -1021,57 +1015,6 @@ func parseCockpitTimestamp(value string) time.Time {
 	return time.Time{}
 }
 
-func cockpitState(pane tmux.Pane, stale bool) string {
-	return cockpitStateWithModel(nil, pane, stale)
-}
-
-func cockpitStateWithModel(m *Model, pane tmux.Pane, stale bool) string {
-	if m != nil {
-		if outcome := m.semanticPaneOutcome(pane); outcome.state != "" {
-			return outcome.state
-		}
-	} else if outcome := semanticPaneOutcome(pane); outcome.state != "" {
-		return outcome.state
-	}
-	if pane.Dead && pane.DeadStatus != 0 {
-		return "failed"
-	}
-	if pane.Cockpit != nil {
-		if pane.Cockpit.DisplayOnly() && pane.Dead {
-			return "done"
-		}
-		switch strings.ToLower(strings.TrimSpace(pane.Cockpit.JanitorState)) {
-		case "marked_for_teardown", "cleanup_pending":
-			return "marked-for-teardown"
-		}
-		if strings.TrimSpace(pane.Cockpit.TeardownMarkedAt) != "" {
-			return "marked-for-teardown"
-		}
-		state := strings.ToLower(strings.TrimSpace(pane.Cockpit.State))
-		if pane.Dead {
-			switch state {
-			case "", "starting", "running", "waiting", "blocked", "unknown":
-				return "stale"
-			}
-		}
-		switch state {
-		case "starting", "running", "waiting", "blocked", "done", "failed", "route-fail", "safety-fail", "stale", "review", "pass", "signal", "directional", "null-safe", "held":
-			return state
-		}
-	}
-	if stale {
-		return "stale"
-	}
-	return ""
-}
-
-func sessionCockpitState(m *Model, session tmux.Session, pane tmux.Pane, stale bool) string {
-	if stale && isQuietLiveServiceSession(session) {
-		stale = false
-	}
-	return cockpitStateWithModel(m, pane, stale)
-}
-
 func cockpitInfoLines(width int, m *Model, session tmux.Session, pane tmux.Pane, now time.Time) []string {
 	if pane.Cockpit == nil {
 		return nil
@@ -1205,7 +1148,9 @@ func cockpitCleanupLine(m *Model, session tmux.Session, pane tmux.Pane, now time
 	row, join := m.janitorSessionRow(session)
 	hasRow := join == janitorJoinOK
 	parts := []string{}
-	if !pane.Dead {
+	if !pane.Dead && assignmentTerminalState(meta) != "" {
+		parts = append(parts, "assignment complete · retained until CLI exits")
+	} else if !pane.Dead {
 		if verdict := m.cachedLifecycleVerdict(pane, session); verdict.state == "delivered-idle" {
 			parts = append(parts, "assignment appears complete · CLI open")
 		}

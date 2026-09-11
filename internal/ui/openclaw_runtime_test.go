@@ -11,7 +11,7 @@ import (
 func TestOpenClawRuntimeDefaultScriptUsesCurrentHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	script := filepath.Join(home, ".openclaw", "workspace", "tools", "openclaw_runtime", "cockpit_snapshot.py")
+	script := filepath.Join(home, ".local", "share", "openclaw-cockpit", "helpers", "openclaw_runtime", "cockpit_snapshot.py")
 	if err := os.MkdirAll(filepath.Dir(script), 0o755); err != nil {
 		t.Fatalf("create default script directory: %v", err)
 	}

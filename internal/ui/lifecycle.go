@@ -213,7 +213,7 @@ func (m *Model) refreshLifecycleVerdicts() {
 	}
 	seen := make(map[string]struct{}, len(m.lifecycleInputs))
 	for _, session := range m.sessions {
-		agentLike := sessionHasManagedAgent(session) || containsAny(sessionChromeText(session), agentNameTokens...)
+		agentLike := sessionIsAgentLike(session)
 		for _, window := range session.Windows {
 			for _, pane := range window.Panes {
 				if strings.TrimSpace(pane.PreviewText) == "" {
@@ -245,7 +245,7 @@ func (m *Model) refreshPaneLifecycleVerdict(sessionID, paneID, content string) {
 	if !ok {
 		return
 	}
-	agentLike := sessionHasManagedAgent(session) || containsAny(sessionChromeText(session), agentNameTokens...)
+	agentLike := sessionIsAgentLike(session)
 	for _, window := range session.Windows {
 		for _, pane := range window.Panes {
 			if pane.ID != paneID {
@@ -278,7 +278,7 @@ func (m *Model) cachedLifecycleVerdict(pane tmux.Pane, session tmux.Session) pan
 			}
 		}
 	}
-	return paneLifecycleVerdictFor(pane, sessionHasManagedAgent(session) || containsAny(sessionChromeText(session), agentNameTokens...))
+	return paneLifecycleVerdictFor(pane, sessionIsAgentLike(session))
 }
 
 func paneLifecycleVerdictFor(pane tmux.Pane, agentLike bool) paneLifecycleVerdict {
@@ -496,4 +496,16 @@ func nonEmptyLines(s string) []string {
 		out = append(out, trimmed)
 	}
 	return out
+}
+
+// Kind vocabulary is shared; ownership and service exclusions remain distinct.
+func isAgentKind(kind string) bool {
+	switch kind {
+	case "agent", "visible-agent", "batch-worker", "smoke":
+		return true
+	}
+	return false
+}
+func sessionIsAgentLike(session tmux.Session) bool {
+	return sessionHasManagedAgent(session) || containsAny(sessionChromeText(session), agentNameTokens...)
 }

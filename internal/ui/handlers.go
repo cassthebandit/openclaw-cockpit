@@ -140,7 +140,7 @@ func (m *Model) handleGlobalKey(msg tea.KeyMsg) (bool, tea.Cmd) {
 		if m.focusedSession == "" {
 			return false, nil
 		}
-		now := time.Now()
+		now := m.clockNow()
 		if !m.lastEsc.IsZero() && now.Sub(m.lastEsc) < quitChordWindow {
 			previous := m.focusedSession
 			m.focusedSession = ""
@@ -283,7 +283,7 @@ func (m *Model) handleFocusedKey(msg tea.KeyMsg) (bool, tea.Cmd) {
 		// First press: forward exactly one C-c and arm the quit chord.
 		// Second press inside the window: quit Cockpit WITHOUT forwarding a
 		// second interrupt to the pane.
-		now := time.Now()
+		now := m.clockNow()
 		if !m.lastCtrlC.IsZero() && now.Sub(m.lastCtrlC) < quitChordWindow {
 			m.resetCtrlC()
 			return true, tea.Quit

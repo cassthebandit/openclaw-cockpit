@@ -281,6 +281,9 @@ func agentLifecycleGroup(m *Model, session tmux.Session, state string) cockpitGr
 	hasRow := join == janitorJoinOK
 	held := sessionHasHold(session, m.clockNow()) || (state == "held" && !sessionAllPanesDead(session))
 	blocked := hasRow && strings.EqualFold(strings.TrimSpace(row.JanitorState), "cleanup_blocked")
+	if stateIsCompletedInfo(state) && retainedUntilExit(row) {
+		blocked = false
+	}
 	marked := state == "marked-for-teardown" ||
 		(hasRow && strings.EqualFold(strings.TrimSpace(row.JanitorState), "marked_for_teardown"))
 	// A validly joined sidecar mark must still lose to genuine live/operator
@@ -347,18 +350,12 @@ func verdictIsGenuineLiveEvidence(verdict paneLifecycleVerdict) bool {
 // uses it so a validly joined sidecar mark cannot pull genuinely resumed work
 // out of Active Agents (hygiene should cancel that mark on its next cycle).
 func sessionHasLiveEvidence(m *Model, session tmux.Session) bool {
-	agentLike := sessionHasManagedAgent(session) || containsAny(sessionChromeText(session), agentNameTokens...)
 	for _, window := range session.Windows {
 		for _, pane := range window.Panes {
 			if pane.Dead {
 				continue
 			}
-			var verdict paneLifecycleVerdict
-			if m != nil {
-				verdict = m.cachedLifecycleVerdict(pane, session)
-			} else {
-				verdict = paneLifecycleVerdictFor(pane, agentLike)
-			}
+			verdict := m.cachedLifecycleVerdict(pane, session)
 			if verdictIsGenuineLiveEvidence(verdict) {
 				return true
 			}
@@ -426,6 +423,14 @@ func computeSessionAttentionState(m *Model, session tmux.Session) string {
 }
 
 func paneAttentionState(m *Model, session tmux.Session, pane tmux.Pane) string {
+	// Explicit assignment completion is not overwritten by stale screen text.
+	if pane.Dead && pane.DeadStatus != 0 {
+		return "failed"
+	}
+	if state := assignmentTerminalState(pane.Cockpit); state != "" {
+		return state
+	}
+
 	// Genuine live evidence outranks teardown marks (lifecycle-contract Signal
 	// Precedence rows 1-2): a pane whose captured content proves live work or
 	// an operator prompt stays active even when pane metadata or a sidecar row
@@ -436,11 +441,7 @@ func paneAttentionState(m *Model, session tmux.Session, pane tmux.Pane) string {
 	// a mark.
 	var verdict paneLifecycleVerdict
 	if !pane.Dead {
-		if m != nil {
-			verdict = m.cachedLifecycleVerdict(pane, session)
-		} else {
-			verdict = paneLifecycleVerdictFor(pane, sessionHasManagedAgent(session) || containsAny(sessionChromeText(session), agentNameTokens...))
-		}
+		verdict = m.cachedLifecycleVerdict(pane, session)
 		if verdictIsGenuineLiveEvidence(verdict) {
 			if verdict.state == "live-working" {
 				return "running"
@@ -466,11 +467,7 @@ func paneAttentionState(m *Model, session tmux.Session, pane tmux.Pane) string {
 			return verdict.state
 		}
 	}
-	if m != nil {
-		if outcome := m.semanticPaneOutcome(pane); outcome.state != "" {
-			return outcome.state
-		}
-	} else if outcome := semanticPaneOutcome(pane); outcome.state != "" {
+	if outcome := m.semanticPaneOutcome(pane); outcome.state != "" {
 		return outcome.state
 	}
 	if isOpenClawRuntimePane(pane) {
@@ -565,8 +562,8 @@ func sessionHasCockpitAgent(session tmux.Session) bool {
 				continue
 			}
 			agent := strings.TrimSpace(pane.Cockpit.Agent)
-			kind := strings.TrimSpace(pane.Cockpit.Kind)
-			if agent != "" || kind == "agent" || kind == "batch-worker" || kind == "smoke" {
+			kind := strings.ToLower(strings.TrimSpace(pane.Cockpit.Kind))
+			if agent != "" || isAgentKind(kind) {
 				return true
 			}
 		}
@@ -590,7 +587,7 @@ func sessionHasManagedAgent(session tmux.Session) bool {
 				continue
 			}
 			agent := strings.TrimSpace(pane.Cockpit.Agent)
-			if agent != "" || kind == "agent" || kind == "batch-worker" || kind == "smoke" {
+			if agent != "" || isAgentKind(kind) {
 				return true
 			}
 		}
@@ -841,4 +838,27 @@ func primaryCockpitGroups() []cockpitGroup {
 		groupSubsystemFailures,
 		groupServices,
 	}
+}
+
+// A valid completion timestamp paired with a terminal assignment state is a
+// producer fact. Untimestamped/older metadata and screen heuristics are not.
+func assignmentTerminalState(meta *tmux.CockpitMeta) string {
+	if meta == nil || meta.DisplayOnly() {
+		return ""
+	}
+	completed := parseCockpitTimestamp(meta.CompletedAt)
+	if completed.IsZero() {
+		return ""
+	}
+	if started := parseCockpitTimestamp(meta.StartedAt); !started.IsZero() && completed.Before(started) {
+		return ""
+	}
+	state := strings.ToLower(strings.TrimSpace(meta.State))
+	if stateIsCompletedInfo(state) || stateIsTerminalProblem(state) {
+		return state
+	}
+	return ""
+}
+func retainedUntilExit(row janitorSessionStatus) bool {
+	return row.JanitorState == "retained_until_exit" || row.LastRefusal == "live_session_requires_explicit_retirement" || row.Reason == "live_session_requires_explicit_retirement"
 }

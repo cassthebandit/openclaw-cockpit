@@ -83,10 +83,11 @@ type (
 	snapshotMsg    struct{ snapshot tmux.Snapshot }
 	statusMsg      string
 	paneContentMsg struct {
-		sessionID string
-		paneID    string
-		text      string
-		err       error
+		generation uint64
+		sessionID  string
+		paneID     string
+		text       string
+		err        error
 	}
 	paneVarsMsg struct {
 		sessionID string
@@ -108,15 +109,16 @@ type (
 )
 
 type sessionPreview struct {
-	bodyCache   cardBodyCache
-	cardCache   cardCompositionCache
-	viewport    *viewport.Model
-	paneID      string
-	lastContent string
-	lastChanged time.Time
-	vars        map[string]string
-	autoFollow  bool
-	signal      outputSignalState
+	captureGeneration uint64
+	bodyCache         cardBodyCache
+	cardCache         cardCompositionCache
+	viewport          *viewport.Model
+	paneID            string
+	lastContent       string
+	lastChanged       time.Time
+	vars              map[string]string
+	autoFollow        bool
+	signal            outputSignalState
 }
 
 type outputSignalState struct {
@@ -243,6 +245,7 @@ type Model struct {
 	janitorStatusPath string
 	janitorStatus     janitorStatusView
 	fastCaptureActive map[string]struct{}
+	captureGeneration uint64
 
 	// Presentation config (WallConfig): footer bound, sidecar stale-after,
 	// session stale threshold, and per-group default-collapse overrides.
@@ -347,19 +350,7 @@ func (m *Model) SetStartupError(err error) {
 
 // SetOpenClawRuntimeSource enables read-only OpenClaw runtime cards.
 func (m *Model) SetOpenClawRuntimeSource(script string, limit int, timeout time.Duration) {
-	if limit <= 0 {
-		limit = 20
-	}
-	if timeout <= 0 {
-		timeout = 10 * time.Second
-	}
-	m.runtime = RuntimeSource{
-		Enabled:  true,
-		Script:   strings.TrimSpace(script),
-		Limit:    limit,
-		Timeout:  timeout,
-		Interval: runtimeCardInterval,
-	}
+	m.runtime = NormalizeRuntimeSource(RuntimeSource{Enabled: true, Script: script, Limit: limit, Timeout: timeout})
 }
 
 // SetOpenClawRuntimeInterval overrides the runtime-card refresh cadence.

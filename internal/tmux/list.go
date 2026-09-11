@@ -182,53 +182,7 @@ func (c *Client) listWindows(ctx context.Context) ([]Window, error) {
 // listPanes captures metadata for every pane so we can join them to windows
 // and sessions.
 func (c *Client) listPanes(ctx context.Context) ([]Pane, int, error) {
-	format := escapedTmuxFormat(
-		"session_id",
-		"window_id",
-		"pane_id",
-		"pane_active",
-		"pane_current_command",
-		"pane_title",
-		"pane_last_activity",
-		"pane_created",
-		"pane_width",
-		"pane_height",
-		"pane_tty",
-		"pane_current_path",
-		"pane_dead",
-		"pane_dead_status",
-		"@oc_contract_version",
-		"@oc_managed_by",
-		"@oc_kind",
-		"@oc_agent",
-		"@oc_owner",
-		"@oc_project",
-		"@oc_goal",
-		"@oc_state",
-		"@oc_run_root",
-		"@oc_thread_id",
-		"@oc_session_id",
-		"@oc_started_at",
-		"@oc_updated_at",
-		"@oc_completed_at",
-		"@oc_exit_code",
-		"@oc_ttl",
-		"@oc_cleanup_policy",
-		"@oc_evidence_path",
-		"@oc_hold_reason",
-		"@oc_why_headless",
-		"@oc_pane_log",
-		"@oc_progress_path",
-		"@oc_end_reason",
-		"@oc_route_failure_reason",
-		"@oc_teardown_marked_at",
-		"@oc_teardown_reason",
-		"@oc_janitor_state",
-		"@oc_last_meaningful_activity_at",
-		"@oc_hold_until",
-		"pane_pid",
-		"alternate_on",
-	)
+	format := paneListFormat()
 
 	out, err := c.runTmux(ctx, "list-panes", "-a", "-F", format)
 	if err != nil {
@@ -291,59 +245,12 @@ func (c *Client) listPanes(ctx context.Context) ([]Pane, int, error) {
 				pane.DeadStatus = v
 			}
 		}
-		if len(fields) >= 33 {
-			meta := CockpitMeta{
-				ContractVersion: strings.TrimSpace(fields[14]),
-				ManagedBy:       strings.TrimSpace(fields[15]),
-				Kind:            strings.TrimSpace(fields[16]),
-				Agent:           strings.TrimSpace(fields[17]),
-				Owner:           strings.TrimSpace(fields[18]),
-				Project:         strings.TrimSpace(fields[19]),
-				Goal:            strings.TrimSpace(fields[20]),
-				State:           strings.TrimSpace(fields[21]),
-				RunRoot:         strings.TrimSpace(fields[22]),
-				ThreadID:        strings.TrimSpace(fields[23]),
-				SessionID:       strings.TrimSpace(fields[24]),
-				StartedAt:       strings.TrimSpace(fields[25]),
-				UpdatedAt:       strings.TrimSpace(fields[26]),
-				CompletedAt:     strings.TrimSpace(fields[27]),
-				ExitCode:        strings.TrimSpace(fields[28]),
-				TTL:             strings.TrimSpace(fields[29]),
-				CleanupPolicy:   strings.TrimSpace(fields[30]),
-				EvidencePath:    strings.TrimSpace(fields[31]),
-				HoldReason:      strings.TrimSpace(fields[32]),
-			}
-			if len(fields) >= 37 {
-				meta.WhyHeadless = strings.TrimSpace(fields[33])
-				meta.ProgressPath = strings.TrimSpace(fields[34])
-				meta.EndReason = strings.TrimSpace(fields[35])
-				meta.RouteFailure = strings.TrimSpace(fields[36])
-			}
-			if len(fields) >= 41 {
-				meta.TeardownMarkedAt = strings.TrimSpace(fields[37])
-				meta.TeardownReason = strings.TrimSpace(fields[38])
-				meta.JanitorState = strings.TrimSpace(fields[39])
-				meta.LastMeaningfulAt = strings.TrimSpace(fields[40])
-			}
-			if len(fields) >= 42 {
-				meta.PaneLog = strings.TrimSpace(fields[34])
-				meta.ProgressPath = strings.TrimSpace(fields[35])
-				meta.EndReason = strings.TrimSpace(fields[36])
-				meta.RouteFailure = strings.TrimSpace(fields[37])
-				meta.TeardownMarkedAt = strings.TrimSpace(fields[38])
-				meta.TeardownReason = strings.TrimSpace(fields[39])
-				meta.JanitorState = strings.TrimSpace(fields[40])
-				meta.LastMeaningfulAt = strings.TrimSpace(fields[41])
-			}
-			if len(fields) >= 45 {
-				meta.HoldUntil = strings.TrimSpace(fields[42])
-				pane.PID = strings.TrimSpace(fields[43])
-				pane.AlternateScreen = fields[44] == "1"
-			}
-			if meta.HasData() {
-				pane.Cockpit = &meta
-			}
+		pane.Cockpit = parsePaneMetadata(fields)
+		if len(fields) >= 45 {
+			pane.PID = strings.TrimSpace(fields[43])
+			pane.AlternateScreen = fields[44] == "1"
 		}
+
 		panes = append(panes, pane)
 	}
 	if err := scanner.Err(); err != nil {

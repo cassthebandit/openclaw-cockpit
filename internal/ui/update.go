@@ -93,10 +93,8 @@ func (m *Model) handleMessage(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case statusMsg:
 		m.showToast(string(msg))
 	case paneContentMsg:
-		if m.fastCaptureActive != nil {
+		if preview, ok := m.previews[msg.sessionID]; ok && preview.paneID == msg.paneID && preview.captureGeneration == msg.generation {
 			delete(m.fastCaptureActive, msg.sessionID)
-		}
-		if preview, ok := m.previews[msg.sessionID]; ok && preview.paneID == msg.paneID {
 			content := strings.TrimRight(msg.text, "\n")
 			if msg.err != nil {
 				// The error string is not pane output; strict-sanitize it
@@ -249,9 +247,10 @@ func (m *Model) takeCaptureToken(now time.Time) bool {
 // returns these so the deterministic budget/fairness tests can observe
 // exactly which sessions were serviced without running subprocesses.
 type captureRequest struct {
-	sessionID string
-	paneID    string
-	lines     int
+	generation uint64
+	sessionID  string
+	paneID     string
+	lines      int
 }
 
 // planFastCaptures selects the fast-path capture dispatches for this sweep.
@@ -273,28 +272,8 @@ func (m *Model) planFastCaptures() []captureRequest {
 	exhausted := false
 	for i := 0; i < n; i++ {
 		session := m.sessions[(start+i)%n]
-		if m.isHidden(session.ID) || !m.shouldFastCapture(session) {
-			continue
-		}
-		if _, ok := m.fastCaptureActive[session.ID]; ok {
-			continue
-		}
-		collapsed := m.isCollapsed(session.ID)
-		isFocused := session.ID == m.focusedSession
-		inDetail := m.viewMode == viewModeDetail && m.detailSession == session.ID
-		if collapsed && !isFocused && !inDetail {
-			continue
-		}
-		window, ok := activeWindow(session)
-		if !ok {
-			continue
-		}
-		pane, ok := activePane(window)
-		if !ok {
-			continue
-		}
-		preview := m.previews[session.ID]
-		if preview == nil || preview.paneID != pane.ID {
+		pane, preview, eligible, _ := m.fastCaptureTarget(session)
+		if !eligible {
 			continue
 		}
 		if !m.fastCaptureSignalChanged(session, pane, preview) {
@@ -307,12 +286,7 @@ func (m *Model) planFastCaptures() []captureRequest {
 			exhausted = true
 			break
 		}
-		m.fastCaptureActive[session.ID] = struct{}{}
-		requests = append(requests, captureRequest{
-			sessionID: session.ID,
-			paneID:    pane.ID,
-			lines:     captureLinesFor(preview.viewport.Height()),
-		})
+		requests = append(requests, m.admitCapture(session.ID, pane.ID, preview))
 	}
 	if !exhausted {
 		m.fastCaptureOffset = (start + 1) % n
@@ -327,7 +301,7 @@ func (m *Model) ensureFastCaptures() tea.Cmd {
 	}
 	cmds := make([]tea.Cmd, 0, len(requests))
 	for _, request := range requests {
-		cmds = append(cmds, fetchPaneContentCmd(m.client, request.sessionID, request.paneID, request.lines))
+		cmds = append(cmds, fetchPaneContentCmd(m.client, request.sessionID, request.paneID, request.lines, request.generation))
 	}
 	return tea.Batch(cmds...)
 }
@@ -347,29 +321,11 @@ func (m *Model) fastCaptureSignals() ([]fastCaptureSignal, bool, bool) {
 	missingSignal := false
 	inflightSkipped := false
 	for _, session := range m.sessions {
-		if m.isHidden(session.ID) || !m.shouldFastCapture(session) {
-			continue
-		}
-		if _, ok := m.fastCaptureActive[session.ID]; ok {
+		pane, preview, eligible, inflight := m.fastCaptureTarget(session)
+		if inflight {
 			inflightSkipped = true
-			continue
 		}
-		collapsed := m.isCollapsed(session.ID)
-		isFocused := session.ID == m.focusedSession
-		inDetail := m.viewMode == viewModeDetail && m.detailSession == session.ID
-		if collapsed && !isFocused && !inDetail {
-			continue
-		}
-		window, ok := activeWindow(session)
-		if !ok {
-			continue
-		}
-		pane, ok := activePane(window)
-		if !ok {
-			continue
-		}
-		preview := m.previews[session.ID]
-		if preview == nil || preview.paneID != pane.ID {
+		if !eligible {
 			continue
 		}
 		path := paneOutputSignalPath(session, pane)
@@ -430,6 +386,7 @@ func (m *Model) ensurePreviewsAndCapture() tea.Cmd {
 			m.previews[session.ID] = preview
 		}
 		if preview.paneID != pane.ID {
+			delete(m.fastCaptureActive, session.ID)
 			preview.viewport.SetContent("")
 			preview.paneID = pane.ID
 			preview.lastContent = ""
@@ -449,7 +406,8 @@ func (m *Model) ensurePreviewsAndCapture() tea.Cmd {
 			}
 			continue
 		}
-		shouldCapture := true
+		_, inFlight := m.fastCaptureActive[session.ID]
+		shouldCapture := !inFlight
 		if collapsed && !isFocused && !inDetail {
 			shouldCapture = false
 		}
@@ -471,8 +429,8 @@ func (m *Model) ensurePreviewsAndCapture() tea.Cmd {
 			shouldCapture = false
 		}
 		if shouldCapture {
-			lines := captureLinesFor(preview.viewport.Height())
-			cmds = append(cmds, fetchPaneContentCmd(m.client, session.ID, pane.ID, lines))
+			request := m.admitCapture(session.ID, pane.ID, preview)
+			cmds = append(cmds, fetchPaneContentCmd(m.client, request.sessionID, request.paneID, request.lines, request.generation))
 		}
 		if session.ID == m.focusedSession {
 			cmds = append(cmds, fetchPaneVarsCmd(m.client, session.ID, pane.ID))
@@ -567,7 +525,7 @@ func (m *Model) fastCaptureSignalChanged(session tmux.Session, pane tmux.Pane, p
 	}
 	path := paneOutputSignalPath(session, pane)
 	if path == "" {
-		return fallbackFastCaptureDue(preview)
+		return m.fallbackFastCaptureDue(preview)
 	}
 	info, err := os.Stat(path)
 	if err != nil {
@@ -582,7 +540,7 @@ func (m *Model) fastCaptureSignalChanged(session tmux.Session, pane tmux.Pane, p
 				lastFallback: preview.signal.lastFallback,
 			}
 		}
-		return fallbackFastCaptureDue(preview)
+		return m.fallbackFastCaptureDue(preview)
 	}
 	modTime := info.ModTime()
 	size := info.Size()
@@ -597,12 +555,12 @@ func (m *Model) fastCaptureSignalChanged(session tmux.Session, pane tmux.Pane, p
 	return false
 }
 
-func fallbackFastCaptureDue(preview *sessionPreview) bool {
+func (m *Model) fallbackFastCaptureDue(preview *sessionPreview) bool {
 	if preview == nil {
 		return true
 	}
-	now := time.Now()
-	if preview.signal.lastFallback.IsZero() || now.Sub(preview.signal.lastFallback) >= 250*time.Millisecond {
+	now := m.clockNow()
+	if preview.signal.lastFallback.IsZero() || now.Sub(preview.signal.lastFallback) >= fastCaptureFallback {
 		preview.signal.lastFallback = now
 		return true
 	}
@@ -711,4 +669,44 @@ func (m *Model) refreshMergedSessions() tea.Cmd {
 	cmd := m.ensurePreviewsAndCapture()
 	m.updatePreviewDimensions(m.filteredSessionCount())
 	return cmd
+}
+
+// admitCapture is the single request owner for snapshot and fast captures.
+// Generations survive pane replacement/removal, so late replies cannot clear
+// another request's ownership or overwrite a newly created preview.
+func (m *Model) admitCapture(sessionID, paneID string, preview *sessionPreview) captureRequest {
+	if m.fastCaptureActive == nil {
+		m.fastCaptureActive = make(map[string]struct{})
+	}
+	m.captureGeneration++
+	preview.captureGeneration = m.captureGeneration
+	m.fastCaptureActive[sessionID] = struct{}{}
+	return captureRequest{sessionID: sessionID, paneID: paneID, lines: captureLinesFor(preview.viewport.Height()), generation: m.captureGeneration}
+}
+
+// fastCaptureTarget is shared by admission and the signal watcher. Bookkeeping
+// for budgets, fairness and missing signals deliberately remains at callers.
+func (m *Model) fastCaptureTarget(session tmux.Session) (tmux.Pane, *sessionPreview, bool, bool) {
+	if m.isHidden(session.ID) || !m.shouldFastCapture(session) {
+		return tmux.Pane{}, nil, false, false
+	}
+	if _, ok := m.fastCaptureActive[session.ID]; ok {
+		return tmux.Pane{}, nil, false, true
+	}
+	if m.isCollapsed(session.ID) && session.ID != m.focusedSession && !(m.viewMode == viewModeDetail && m.detailSession == session.ID) {
+		return tmux.Pane{}, nil, false, false
+	}
+	window, ok := activeWindow(session)
+	if !ok {
+		return tmux.Pane{}, nil, false, false
+	}
+	pane, ok := activePane(window)
+	if !ok {
+		return tmux.Pane{}, nil, false, false
+	}
+	preview := m.previews[session.ID]
+	if preview == nil || preview.paneID != pane.ID {
+		return tmux.Pane{}, nil, false, false
+	}
+	return pane, preview, true, false
 }

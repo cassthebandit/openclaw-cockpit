@@ -106,6 +106,9 @@ func (m *Model) buildCommandItems() []commandItem {
 		label:   "Force refresh from tmux",
 		enabled: true,
 		run: func(*Model) tea.Cmd {
+			if m.inflight {
+				return nil
+			}
 			m.inflight = true
 			return fetchSnapshotCmd(m.client)
 		},

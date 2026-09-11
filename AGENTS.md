@@ -101,3 +101,17 @@ Edit guidance: keep the actual tool list inside this `<tools></tools>` block so 
 - `XcodeBuildMCP`: MCP wrapper around Xcode tooling; run `npx mcporter XcodeBuildMCP`.
 - `gh`: GitHub CLI for PRs, CI logs, releases, repo queries; run `gh help`.
 </tools>
+
+
+## This repository (authoritative local tooling)
+
+This is a Go project. The shared wrapper/tool inventory above is historical:
+`runner`, `bin/git`, `scripts/committer`, and `docs:list` are not shipped here.
+Use ordinary `git`, `go`, `python3`, `gofumpt`, and `golangci-lint`; do not
+install pnpm/Bun wrappers to satisfy the shared template. Optional pnpm hot
+reload is not a build or verification prerequisite.
+
+`make fmt` formats source; `make check` runs read-only formatting, lint, unit,
+launcher, race, and advertised cross-build checks matching CI. Existing tmux
+integration tests use disposable named sockets only. Never point tests at the
+operator's tmux server. See `docs/spec.md` for ownership and verification.

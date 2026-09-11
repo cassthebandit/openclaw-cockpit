@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"github.com/mattn/go-runewidth"
 	"strings"
 	"time"
 )
@@ -41,11 +42,11 @@ func (m *Model) toastView(width int) string {
 // width.
 func centerText(text string, width int) string {
 	if width <= 0 {
-		width = len(text)
+		width = runewidth.StringWidth(text)
 	}
-	if len(text) >= width {
+	if runewidth.StringWidth(text) >= width {
 		return text
 	}
-	pad := (width - len(text)) / 2
+	pad := (width - runewidth.StringWidth(text)) / 2
 	return strings.Repeat(" ", pad) + text
 }

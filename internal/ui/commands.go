@@ -111,12 +111,12 @@ func emitMsg(msg tea.Msg) tea.Cmd {
 }
 
 // fetchPaneContentCmd grabs the latest pane output for preview rendering.
-func fetchPaneContentCmd(client *tmux.Client, sessionID, paneID string, lines int) tea.Cmd {
+func fetchPaneContentCmd(client *tmux.Client, sessionID, paneID string, lines int, generation uint64) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		text, err := client.CapturePane(ctx, paneID, lines)
-		return paneContentMsg{sessionID: sessionID, paneID: paneID, text: text, err: err}
+		return paneContentMsg{sessionID: sessionID, paneID: paneID, generation: generation, text: text, err: err}
 	}
 }
 

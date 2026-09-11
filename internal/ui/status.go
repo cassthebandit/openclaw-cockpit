@@ -123,6 +123,7 @@ func (m *Model) formatCockpitSummary(width int) string {
 	grouped := 0
 	rawCards := 0
 	visibleCards := 0
+	totalVisibleCards := 0
 	groupedCards := 0
 	hiddenCards := 0
 	for _, session := range m.sessions {
@@ -152,6 +153,7 @@ func (m *Model) formatCockpitSummary(width int) string {
 				}
 				rawCards = max(rawCards, cockpitIntField(pane.Cockpit.RawCardCount))
 				visibleCards = max(visibleCards, cockpitIntField(pane.Cockpit.VisibleCardCount))
+				totalVisibleCards = max(totalVisibleCards, cockpitIntField(pane.Cockpit.TotalVisibleCardCount))
 				groupedCards = max(groupedCards, cockpitIntField(pane.Cockpit.GroupedCardCount))
 				hiddenCards = max(hiddenCards, cockpitIntField(pane.Cockpit.HiddenCardCount))
 			}
@@ -200,6 +202,9 @@ func (m *Model) formatCockpitSummary(width int) string {
 		}
 		if visibleCards > 0 {
 			cardParts = append(cardParts, fmt.Sprintf("shown %d", visibleCards))
+		}
+		if totalVisibleCards > visibleCards {
+			parts = append(parts, fmt.Sprintf("total %d (truncated)", totalVisibleCards))
 		}
 		if groupedCards > 0 {
 			cardParts = append(cardParts, fmt.Sprintf("pulse groups %d", groupedCards))

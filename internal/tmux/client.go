@@ -105,9 +105,10 @@ func (c *Client) Snapshot(ctx context.Context) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 
-	windowMap := make(map[string]*Window, len(windows))
+	type windowContext struct{ session, window string }
+	windowMap := make(map[windowContext]*Window, len(windows))
 	for i := range windows {
-		windowMap[windows[i].ID] = &windows[i]
+		windowMap[windowContext{windows[i].Session, windows[i].ID}] = &windows[i]
 	}
 
 	sessionMap := make(map[string]*Session, len(sessions))
@@ -116,7 +117,7 @@ func (c *Client) Snapshot(ctx context.Context) (Snapshot, error) {
 	}
 
 	for _, pane := range panes {
-		if win, ok := windowMap[pane.Window]; ok {
+		if win, ok := windowMap[windowContext{pane.Session, pane.Window}]; ok {
 			win.Panes = append(win.Panes, pane)
 			if pane.LastActivity.After(win.LastPane) {
 				win.LastPane = pane.LastActivity

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"github.com/mattn/go-runewidth"
 	"hash/fnv"
 	"sort"
 	"strings"
@@ -275,8 +276,8 @@ func (m *Model) formatRuntimeTimelineLine(width int) string {
 		parts = append(parts, event.shortLabel())
 	}
 	line := "timeline: " + strings.Join(parts, " · ")
-	if width > 0 && len(line) > width {
-		return cardSafeLine(truncateRunes(line, max(0, width-1)))
+	if width > 0 && runewidth.StringWidth(line) > width {
+		return cardSafeLine(runewidth.Truncate(line, width, "…"))
 	}
 	return cardSafeLine(line)
 }

@@ -66,9 +66,12 @@ For a plain ungrouped view, run `openclaw-cockpit` without `--organize`.
 ```text
 / or ctrl+f        search sessions, windows, panes, and captured text
 arrow keys         move between cards; scroll a focused card
-page up/down       scroll the focused card
+page up/down       page the wall, or scroll a focused card
 shift+left/right   switch between the wall and session tabs
-ctrl+m             open or close the focused session detail view
+d / ctrl+m         open or close the session detail view
+enter              focus a card; Esc Esc releases pane focus
+: / v              select a view filter
+c / C              toggle current group / expand all groups
 z / Z              collapse the focused card / expand all cards
 H                  show locally hidden cards
 ctrl+P             open the command palette
@@ -105,7 +108,7 @@ Cockpit works with ordinary tmux sessions on its own. OpenClaw integration is ad
 
 - `@oc_*` tmux options can identify an agent, owner, state, hold, cleanup policy, and evidence path.
 - `--janitor-status` can display cleanup counts, blockers, and teardown countdowns from a sidecar JSON file.
-- `--openclaw-runtime` can merge read-only runtime cards from a compatible `runtime-card.v1` snapshot script. By default Cockpit looks for `~/.openclaw/workspace/tools/openclaw_runtime/cockpit_snapshot.py`; use `--openclaw-runtime-script` to point elsewhere.
+- `--openclaw-runtime` can merge read-only runtime cards from a compatible `runtime-card.v1` snapshot script. By default Cockpit looks for the public helper bundle at `~/.local/share/openclaw-cockpit/helpers/openclaw_runtime/cockpit_snapshot.py` (or `helpers/` beside the binary/in the checkout); use `--openclaw-runtime-script` to point elsewhere.
 
 Missing optional sources appear as visible source errors. They never give Cockpit cleanup authority.
 

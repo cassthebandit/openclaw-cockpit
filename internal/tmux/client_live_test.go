@@ -128,3 +128,27 @@ func TestNamedEnterStaysAKeyTokenOnRealTmux(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
+
+func TestSnapshotLinkedWindowContext(t *testing.T) {
+	wrapper := disposableTmux(t)
+	runDisposable(t, wrapper, "new-session", "-d", "-s", "alpha", "cat")
+	runDisposable(t, wrapper, "new-session", "-d", "-s", "beta", "cat")
+	runDisposable(t, wrapper, "link-window", "-s", "alpha:0", "-t", "beta:1")
+	for _, excluded := range []string{"", "alpha", "beta"} {
+		client := &Client{bin: wrapper, excludeSessions: map[string]bool{excluded: true}}
+		snapshot, err := client.Snapshot(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, session := range snapshot.Sessions {
+			for _, window := range session.Windows {
+				if len(window.Panes) != 1 {
+					t.Fatalf("excluded=%q session=%s window=%s panes=%d", excluded, session.Name, window.ID, len(window.Panes))
+				}
+				if window.Panes[0].Session != session.ID {
+					t.Fatalf("pane attached to wrong session: %+v", window.Panes[0])
+				}
+			}
+		}
+	}
+}
