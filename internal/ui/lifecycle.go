@@ -161,7 +161,48 @@ func paneHasAgentIdentity(pane tmux.Pane) bool {
 	}
 }
 
-// refreshLifecycleVerdicts recomputes every pane's verdict from the freshest
+// lifecycleInput snapshots the classifier inputs by value. In particular, a
+// Cockpit pointer can be reused and mutated by a runtime merge.
+// Keep this in sync with paneLifecycleVerdictFor and its metadata predicates.
+type lifecycleInput struct {
+	content                                      string
+	agentLike, agentIdentity, dead, liveMetadata bool
+	deadStatus                                   int
+	state                                        string
+}
+
+func lifecycleInputFor(pane tmux.Pane, agentLike bool) lifecycleInput {
+	input := lifecycleInput{
+		content: pane.PreviewText, agentLike: agentLike,
+		agentIdentity: paneHasAgentIdentity(pane), dead: pane.Dead,
+		deadStatus: pane.DeadStatus, liveMetadata: liveishMetadata(pane),
+	}
+	if pane.Cockpit != nil {
+		input.state = pane.Cockpit.State
+	}
+	return input
+}
+
+func (m *Model) updateLifecycleVerdict(pane tmux.Pane, agentLike bool) paneLifecycleVerdict {
+	input := lifecycleInputFor(pane, agentLike)
+	if previous, ok := m.lifecycleInputs[pane.ID]; ok && previous == input {
+		if verdict, exists := m.lifecycleVerdicts[pane.ID]; exists {
+			return verdict
+		}
+	}
+	if m.lifecycleInputs == nil {
+		m.lifecycleInputs = make(map[string]lifecycleInput)
+	}
+	if m.lifecycleVerdicts == nil {
+		m.lifecycleVerdicts = make(map[string]paneLifecycleVerdict)
+	}
+	verdict := paneLifecycleVerdictFor(pane, agentLike)
+	m.lifecycleInputs[pane.ID] = input
+	m.lifecycleVerdicts[pane.ID] = verdict
+	return verdict
+}
+
+// refreshLifecycleVerdicts refreshes every pane's verdict from the freshest
 // content available: the snapshot's PreviewText, or the captured preview
 // content when the snapshot carries none. Verdicts for panes whose content
 // arrives later via capture are updated per pane in refreshPaneLifecycleVerdict,
@@ -170,7 +211,7 @@ func (m *Model) refreshLifecycleVerdicts() {
 	if m == nil {
 		return
 	}
-	next := make(map[string]paneLifecycleVerdict)
+	seen := make(map[string]struct{}, len(m.lifecycleInputs))
 	for _, session := range m.sessions {
 		agentLike := sessionHasManagedAgent(session) || containsAny(sessionChromeText(session), agentNameTokens...)
 		for _, window := range session.Windows {
@@ -180,14 +221,17 @@ func (m *Model) refreshLifecycleVerdicts() {
 						pane.PreviewText = preview.lastContent
 					}
 				}
-				verdict := paneLifecycleVerdictFor(pane, agentLike)
-				if verdict.state != "" {
-					next[pane.ID] = verdict
-				}
+				m.updateLifecycleVerdict(pane, agentLike)
+				seen[pane.ID] = struct{}{}
 			}
 		}
 	}
-	m.lifecycleVerdicts = next
+	for id := range m.lifecycleInputs {
+		if _, ok := seen[id]; !ok {
+			delete(m.lifecycleInputs, id)
+			delete(m.lifecycleVerdicts, id)
+		}
+	}
 }
 
 // refreshPaneLifecycleVerdict recomputes a single pane's cached verdict after
@@ -210,15 +254,7 @@ func (m *Model) refreshPaneLifecycleVerdict(sessionID, paneID, content string) {
 			if strings.TrimSpace(pane.PreviewText) == "" {
 				pane.PreviewText = content
 			}
-			verdict := paneLifecycleVerdictFor(pane, agentLike)
-			if m.lifecycleVerdicts == nil {
-				m.lifecycleVerdicts = make(map[string]paneLifecycleVerdict)
-			}
-			if verdict.state != "" {
-				m.lifecycleVerdicts[pane.ID] = verdict
-			} else {
-				delete(m.lifecycleVerdicts, pane.ID)
-			}
+			m.updateLifecycleVerdict(pane, agentLike)
 			return
 		}
 	}

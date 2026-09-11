@@ -108,6 +108,8 @@ type (
 )
 
 type sessionPreview struct {
+	bodyCache   cardBodyCache
+	cardCache   cardCompositionCache
 	viewport    *viewport.Model
 	paneID      string
 	lastContent string
@@ -276,6 +278,7 @@ type Model struct {
 	artifactOutcomes  map[string]string
 	artifactProbes    map[string]artifactOutcomeProbe
 	lifecycleVerdicts map[string]paneLifecycleVerdict
+	lifecycleInputs   map[string]lifecycleInput
 	classifyCache     map[string]*sessionClassification
 
 	lastUpdated time.Time
