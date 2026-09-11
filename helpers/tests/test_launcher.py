@@ -7,6 +7,7 @@ import io
 import http.client
 import json
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -122,7 +123,7 @@ class AgentWallClaudeTests(unittest.TestCase):
     def test_build_codex_tui_command_uses_logged_in_home_and_interactive_mode(self) -> None:
         args = argparse.Namespace(
             model="gpt-5.5",
-            codex_home="/Users/cass/.codex",
+            codex_home="/home/example/.codex",
             ask_for_approval="on-request",
             sandbox="workspace-write",
             cd="/tmp/work",
@@ -132,7 +133,7 @@ class AgentWallClaudeTests(unittest.TestCase):
         )
         command = agent_wall.build_codex_tui_command(args)
 
-        self.assertEqual(command[:4], ["env", "CODEX_HOME=/Users/cass/.codex", "TERM=xterm-256color", "codex"])
+        self.assertEqual(command[:4], ["env", "CODEX_HOME=/home/example/.codex", "TERM=xterm-256color", "codex"])
         self.assertIn("--model", command)
         self.assertIn("gpt-5.5", command)
         self.assertIn("--ask-for-approval", command)
@@ -160,7 +161,7 @@ class AgentWallClaudeTests(unittest.TestCase):
     def test_build_agy_tui_command_uses_interactive_mode(self) -> None:
         args = argparse.Namespace(
             model="gemini-3.5-flash",
-            project="tmuxwatch",
+            project="example-project",
             agy_project="agy-review-project",
             new_project=True,
             sandbox=True,
@@ -260,7 +261,7 @@ class AgentWallClaudeTests(unittest.TestCase):
             kind="agent",
             agent="codex",
             owner="workshop-4",
-            project="tmuxwatch",
+            project="example-project",
             goal="review",
             run_root="/tmp/run",
             thread_id="",
@@ -284,7 +285,7 @@ class AgentWallClaudeTests(unittest.TestCase):
             kind="visible-agent",
             agent="codex",
             owner="workshop-4",
-            project="tmuxwatch",
+            project="example-project",
             goal="review",
             run_root="/tmp/run",
             thread_id="",
@@ -401,7 +402,7 @@ class AgentWallClaudeTests(unittest.TestCase):
                 kind="batch-worker",
                 agent="codex-batch",
                 owner="workshop-4",
-                project="tmuxwatch",
+                project="example-project",
                 goal="Verify batch defaults",
                 run_root=str(run_root),
                 thread_id="",
@@ -455,7 +456,7 @@ class AgentWallClaudeTests(unittest.TestCase):
                 kind="batch-worker",
                 agent="codex-batch",
                 owner="workshop-4",
-                project="tmuxwatch",
+                project="example-project",
                 goal="Verify batch evidence defaults",
                 run_root=str(run_root),
                 thread_id="",
@@ -742,7 +743,7 @@ class AgentWallClaudeTests(unittest.TestCase):
                 kind="agent",
                 agent="codex",
                 owner="workshop-4",
-                project="tmuxwatch",
+                project="example-project",
                 goal="annotate",
                 state="running",
                 run_root="/tmp/run",
@@ -807,7 +808,7 @@ class AgentWallClaudeTests(unittest.TestCase):
         args = argparse.Namespace(
             kind="service",
             agent="service",
-            owner="Cass",
+            owner="Example",
             project="cameras",
             goal="RTSP stream bridge",
             state="running",
@@ -1080,8 +1081,8 @@ class AgentWallClaudeTests(unittest.TestCase):
                 pane_log="",
                 kind="visible-agent",
                 agent="codex",
-                owner="Cass",
-                project="tmuxwatch",
+                owner="Example",
+                project="example-project",
                 goal="verify geometry",
                 thread_id="",
                 session_id="",
@@ -1104,7 +1105,7 @@ class AgentWallClaudeTests(unittest.TestCase):
             original_first_pane = agent_wall.first_pane
             original_wait = agent_wall.wait_for_log_activity
             original_verify = agent_wall.verify_visible_contract
-            original_inject = agent_wall.inject_prompt
+            original_inject = agent_wall.inject_assignment
             try:
                 agent_wall.STATE_DIR = run_root / "state"
                 agent_wall.session_exists = lambda name: False
@@ -1112,7 +1113,7 @@ class AgentWallClaudeTests(unittest.TestCase):
                 agent_wall.run_tmux = lambda *call, **kwargs: calls.append(call) or subprocess.CompletedProcess(call, 0, "", "")
                 agent_wall.wait_for_log_activity = lambda path: Path(path).write_text("OpenAI Codex\n", encoding="utf-8")
                 agent_wall.verify_visible_contract = lambda *v_args, **v_kwargs: {"runtime": "codex"}
-                agent_wall.inject_prompt = lambda *i_args, **i_kwargs: None
+                agent_wall.inject_assignment = lambda *i_args, **i_kwargs: None
 
                 agent_wall.spawn_tui_session(
                     args,
@@ -1127,7 +1128,7 @@ class AgentWallClaudeTests(unittest.TestCase):
                 agent_wall.first_pane = original_first_pane
                 agent_wall.wait_for_log_activity = original_wait
                 agent_wall.verify_visible_contract = original_verify
-                agent_wall.inject_prompt = original_inject
+                agent_wall.inject_assignment = original_inject
 
         self.assertIn(("new-session", "-d", "-x", "132", "-y", "37", "-s", "codex-geometry-lane", "-n", "codex", str(run_root / "state" / "codex-geometry-lane" / "run-codex_tui.sh")), calls)
         self.assertIn(("set-option", "-p", "-t", "%1", "@oc_geometry_managed", "1"), calls)
@@ -1147,8 +1148,8 @@ class AgentWallClaudeTests(unittest.TestCase):
                 pane_log="",
                 kind="visible-agent",
                 agent="codex",
-                owner="Cass",
-                project="tmuxwatch",
+                owner="Example",
+                project="example-project",
                 goal="verify cleanup",
                 thread_id="",
                 session_id="",
@@ -1213,8 +1214,8 @@ class AgentWallClaudeTests(unittest.TestCase):
                 pane_log="",
                 kind="visible-agent",
                 agent="codex",
-                owner="Cass",
-                project="tmuxwatch",
+                owner="Example",
+                project="example-project",
                 goal="verify timeout cleanup",
                 thread_id="",
                 session_id="",
@@ -1235,7 +1236,7 @@ class AgentWallClaudeTests(unittest.TestCase):
             original_first_pane = agent_wall.first_pane
             original_wait = agent_wall.wait_for_log_activity
             original_set = agent_wall.set_pane_options
-            original_inject = agent_wall.inject_prompt
+            original_inject = agent_wall.inject_assignment
             injected: list[bool] = []
             try:
                 agent_wall.STATE_DIR = run_root / "state"
@@ -1260,7 +1261,7 @@ class AgentWallClaudeTests(unittest.TestCase):
                 agent_wall.first_pane = original_first_pane
                 agent_wall.wait_for_log_activity = original_wait
                 agent_wall.set_pane_options = original_set
-                agent_wall.inject_prompt = original_inject
+                agent_wall.inject_assignment = original_inject
 
         self.assertNotIn(("kill-session", "-t", "=timeout-codex-lane"), calls)
         failure_updates = [call for call in calls if call[:2] == ("set_pane_options", "%1")]
@@ -1286,7 +1287,7 @@ NODE_CLAUDE_PROCESS = "node /opt/homebrew/lib/node_modules/@anthropic-ai/claude-
 # A `claude` token that only ever appears in argument paths, never in the
 # executable position. Runtime proof must not accept it.
 UNRELATED_PATH_COLLISION_PROCESS = (
-    "node /opt/tools/bundle.js --workspace /Users/cass/projects/claude-code/notes --log /tmp/claude.log"
+    "node /opt/tools/bundle.js --workspace /home/example/projects/claude-code/notes --log /tmp/claude.log"
 )
 
 
@@ -1382,6 +1383,16 @@ class FakeTmuxServer:
             "pane_pid": "4242",
         }
         self._run_wrapper_side_effects()
+        wrapper = Path(args[-1]).read_text()
+        for line in wrapper.splitlines():
+            if 'supervise --run-dir' not in line:
+                continue
+            words = shlex.split(line)
+            root = Path(words[words.index('--run-dir') + 1])
+            launch = json.loads((root / 'launch.json').read_text())
+            self.sessions[name].update(session_id='$1', window_id='@1', **{'@oc_launch_id': launch['run_id']})
+            identity = [pane_id, '4242', '$1', '@1', launch['run_id'], '', self.pane_dead]
+            (root / 'process.json').write_text(json.dumps({'run_id': launch['run_id'], 'pane_identity': identity}))
         return self._ok(args)
 
     def _run_wrapper_side_effects(self) -> None:
@@ -1403,6 +1414,14 @@ class FakeTmuxServer:
             target = args[args.index("-t") + 1].lstrip("=").split(":")[0]
             panes = [pane for name, pane in self.sessions.items() if name == target]
         return self._ok(args, "".join(self.expand(fmt, pane) + "\n" for pane in panes))
+
+    def _tmux_if_shell(self, args: list[str]) -> subprocess.CompletedProcess[str]:
+        pane = self.pane_state(args[args.index('-t') + 1]) or {}
+        tests = re.findall(r"#\{==:#\{([^}]+)\},([^}]+)\}", args[-3])
+        command = args[-2] if all(pane.get(field, '') == expected for field,expected in tests) else args[-1]
+        if command.startswith('display-message -p COCKPIT_'):
+            return self._ok(args, command.split()[-1])
+        return self(*shlex.split(command))
 
     def _tmux_display_message(self, args: list[str]) -> subprocess.CompletedProcess[str]:
         if self.truncate_pane_log_at_verify and self.pane_log.exists():
@@ -1543,6 +1562,18 @@ class ClaudeTuiFullPathTests(unittest.TestCase):
         wrapper_body = Path(server.wrappers["claude-lane"]).read_text(encoding="utf-8")
         self.assertIn(str(server.pane_log), wrapper_body)
         self.assertIn(str(server.launch_record), wrapper_body)
+
+    def test_untrusted_startup_saves_task_without_submitting(self) -> None:
+        with mock.patch.object(agent_wall, 'assignment_is_bound', return_value=False):
+            server, payload, failure = self.launch(process_tree=[DIRECT_CLAUDE_PROCESS])
+        self.assertIsNone(failure)
+        self.assertFalse(payload['prompt_submitted'])
+        self.assertIn('setup_required', payload)
+        self.assertIn('submit-assignment', payload['submit_command'])
+        self.assertTrue(Path(payload['prompt_file']).is_file())
+        self.assertNotIn('load-buffer', server.events)
+        self.assertNotIn('paste-buffer', server.events)
+        self.assertNotIn('send-keys', server.events)
 
     def test_generic_claude_role_accepts_opus_model(self) -> None:
         _, payload, failure = self.launch(
@@ -1758,7 +1789,7 @@ class RuntimePositionMatchingTests(unittest.TestCase):
     def test_runtime_token_only_in_arguments_is_rejected(self) -> None:
         for command in [
             UNRELATED_PATH_COLLISION_PROCESS,
-            "rg --files /Users/cass/projects/claude-code",
+            "rg --files /home/example/projects/claude-code",
             "python3 /tmp/tool.py --config /opt/claude/conf.json",
             "bash /tmp/run-claude_tui.sh",
             "zsh",
@@ -1912,6 +1943,55 @@ class AgentWallReleaseHoldTests(unittest.TestCase):
         self.assertIn(("set-option", "-p", "-u", "-t", "%12", "@oc_hold_reason"), calls)
         self.assertTrue(any(call[:1] == ("set-option",) and "@oc_state" in call for call in calls))
 
+
+
+class AssignmentSubmissionTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.launch_id = '12345678-1234-1234-1234-123456789abc'
+        (self.root/'launch.json').write_text(json.dumps({'run_id': self.launch_id}))
+        (self.root/'process.json').write_text(json.dumps({'run_id':self.launch_id,
+             'pane_identity':['%1','4242','$1','@1',self.launch_id,'','0']}))
+        (self.root/'prompt.md').write_text('Only the intended worker may receive this task.')
+        self.server = FakeTmuxServer(pane_log=self.root/'log', launch_record=self.root/'record')
+        self.server.sessions['worker'] = {'pane_id':'%1','pane_pid':'4242','session_id':'$1',
+            'window_id':'@1','pane_dead':'0','@oc_launch_id':self.launch_id}
+    def submit(self):
+        with mock.patch.object(agent_wall, 'run_tmux', self.server), mock.patch.object(agent_wall.time, 'sleep'), contextlib.redirect_stdout(io.StringIO()):
+            return agent_wall.cmd_submit_assignment(argparse.Namespace(pane='%1',assignment_run=str(self.root)))
+    def test_stale_submit_refuses_respawn_even_when_launch_metadata_survives(self):
+        self.server.sessions['worker']['pane_pid'] = '5252'
+        with self.assertRaisesRegex(SystemExit, 'identity changed'):
+            self.submit()
+        self.assertNotIn('paste-buffer', self.server.events)
+        self.assertNotIn('send-keys', self.server.events)
+        self.assertFalse((self.root/'submission.json').exists())
+    def test_replacement_between_paste_and_enter_refuses_enter(self):
+        def replace(args):
+            self.server.sessions['worker']['pane_pid'] = '5252'
+            return self.server._ok(args)
+        self.server._tmux_paste_buffer = replace
+        with self.assertRaisesRegex(SystemExit, 'identity changed'):
+            self.submit()
+        self.assertIn('paste-buffer', self.server.events)
+        self.assertNotIn('send-keys', self.server.events)
+    def test_dead_submit_refused(self):
+        self.server.sessions['worker']['pane_dead'] = '1'
+        with self.assertRaisesRegex(SystemExit, 'identity changed'):
+            self.submit()
+        self.assertNotIn('paste-buffer', self.server.events)
+    def test_initial_submission_is_one_shot(self):
+        self.assertEqual(self.submit(),0)
+        with self.assertRaisesRegex(SystemExit, 'already submitted'):
+            self.submit()
+        self.assertEqual(self.server.events.count('send-keys'),1)
+    def test_missing_record_is_visible_refusal(self):
+        (self.root/'process.json').unlink()
+        with self.assertRaisesRegex(SystemExit, 'prompt not submitted'):
+            self.submit()
+        self.assertNotIn('load-buffer', self.server.events)
 
 if __name__ == "__main__":
     unittest.main()

@@ -49,6 +49,39 @@ class AssignmentTests(unittest.TestCase):
         second = a.prepare('codex', Path(self.temp.name)/'codex', ['codex'])
         self.assertIn('hooks.Stop=', ' '.join(second['command']))
         self.assertNotIn('--dangerously-bypass-hook-trust', second['command'])
+    def test_hook_definition_is_stable_across_launch_roots(self):
+        other = a.prepare('claude', Path(self.temp.name)/'other', ['claude'])
+        first_hooks = a._read(self.root/'hooks.json')
+        other_hooks = a._read(Path(other['run_dir'])/'hooks.json')
+        self.assertEqual(first_hooks, other_hooks)
+        self.assertNotIn(str(self.root), json.dumps(first_hooks))
+    def test_is_bound_requires_actual_runtime_event(self):
+        fresh = Path(self.temp.name)/'fresh'
+        a.prepare('codex', fresh, ['codex'])
+        self.assertFalse(a.is_bound(fresh))
+        self.assertTrue(a.is_bound(self.root))
+    def test_process_archive_failure_preserves_owned_child(self):
+        with mock.patch.object(a.subprocess, 'Popen') as popen, mock.patch.object(a, '_write', side_effect=OSError('disk full')):
+            child = popen.return_value
+            child.pid = 123
+            self.assertEqual(a.supervise(self.root, ['fake'], guard=Guard()), 1)
+            child.send_signal.assert_not_called()
+            child.wait.assert_called_once()
+    def test_codex_bootstrap_requires_native_stop_and_is_not_completion(self):
+        root = Path(self.temp.name)/'bootstrap'
+        prepared = a.prepare('codex', root, ['codex'], bootstrap=True)
+        self.assertIn('Do not use tools', prepared['command'][-1])
+        with a._locked(root):
+            a.accept_event(root, dict(hook_event_name='SessionStart', session_id='boot'))
+        self.assertTrue(a.is_bound(root))
+        self.assertFalse(a.is_ready(root))
+        payload = dict(hook_event_name='Stop', session_id='boot', turn_id='turn',
+                       last_assistant_message=prepared['bootstrap_marker'])
+        with a._locked(root):
+            self.assertIsNone(a.accept_event(root,payload))
+        self.assertTrue(a.is_ready(root))
+        self.assertIsNone(a._read(root/'state.json')['pending'])
+        self.assertFalse((root/'outcome.json').exists())
     def test_generic_stop_cannot_close(self):
         self.assertIsNone(self.event(self.stop('work continues')))
         self.finish()
@@ -109,6 +142,17 @@ class AssignmentTests(unittest.TestCase):
         with mock.patch.object(a.time, 'monotonic', side_effect=[0,21]):
             self.assertEqual(a.hook(self.root, self.stop(marker)), {})
         self.assertIsNone(a._read(self.root/'state.json')['pending'])
+    def test_snapshot_loss_at_exit_boundary_never_signals(self):
+        mark = self.finish()
+        self.event(self.stop(mark))
+        guard = Guard()
+        with mock.patch.object(a.subprocess, 'Popen') as popen, mock.patch.object(a, 'snapshot_valid', side_effect=[True, False]):
+            child = popen.return_value
+            child.pid = 123
+            child.poll.return_value = None
+            self.assertEqual(a.supervise(self.root, ['fake'], guard=guard), 1)
+            child.send_signal.assert_not_called()
+            self.assertTrue(any(args[0] == 'blocked' for args,kwargs in guard.stamps))
     def test_native_zero_exit_without_receipt_is_not_success(self):
         self.assertEqual(a.supervise(self.root, [sys.executable, '-c', 'pass'], guard=Guard()), 1)
         self.assertEqual(a._read(self.root/'outcome.json')['outcome'], 'incomplete')

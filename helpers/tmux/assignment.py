@@ -50,7 +50,7 @@ def _locked(root: Path):
         yield
 
 
-def prepare(runtime: str, run_dir: str | Path, command: list[str], *, keep_open: bool = False) -> dict:
+def prepare(runtime: str, run_dir: str | Path, command: list[str], *, keep_open: bool = False, bootstrap: bool = False) -> dict:
     """Create a unique launch directory and return command/prompt_suffix/run_id.
 
     command must be runtime argv (including optional env prefix), without an
@@ -63,6 +63,8 @@ def prepare(runtime: str, run_dir: str | Path, command: list[str], *, keep_open:
     root.mkdir(parents=True, mode=0o700, exist_ok=False)
     run_id = str(uuid.uuid4())
     manifest = {"run_id": run_id, "runtime": runtime, "keep_open": keep_open}
+    if runtime == "codex" and bootstrap:
+        manifest["bootstrap_marker"] = "COCKPIT_READY:" + uuid.uuid4().hex
     _write(root / "launch.json", manifest)
     _write(root / "state.json", {"generation": 0, "session_id": None, "receipt": None, "pending": None})
     helper = str(Path(__file__).resolve())
@@ -94,6 +96,9 @@ def prepare(runtime: str, run_dir: str | Path, command: list[str], *, keep_open:
         "If more work is needed, continue normally and call finish again only at the actual end. "
         "Do not exit or kill your own terminal. This receipt is assignment outcome, not independent acceptance.\n"
     )
+    if manifest.get("bootstrap_marker"):
+        result_command.append("Lifecycle initialization only, not the assignment. Do not use tools, read files, or change anything. "
+                              "Reply with exactly " + manifest["bootstrap_marker"] + ". The actual assignment will be submitted separately.")
     return {**manifest, "run_dir": str(root), "command": result_command, "prompt_suffix": suffix}
 
 
@@ -104,6 +109,18 @@ def is_bound(run_dir: str | Path) -> bool:
         with _locked(root):
             session_id = _read(root / "state.json").get("session_id")
         return isinstance(session_id, str) and bool(session_id)
+    except (OSError, ValueError):
+        return False
+
+
+def is_ready(run_dir: str | Path) -> bool:
+    """Native lifecycle readiness; Codex initialization must have ended its turn."""
+    try:
+        root = Path(run_dir)
+        with _locked(root):
+            launch = _read(root / "launch.json")
+            state = _read(root / "state.json")
+        return bool(state.get("session_id")) and (not launch.get("bootstrap_marker") or state.get("bootstrap_complete") is True)
     except (OSError, ValueError):
         return False
 
@@ -141,6 +158,15 @@ def marker(receipt: dict) -> str:
     return "COCKPIT_ASSIGNMENT_FINISHED:" + receipt["run_id"] + ":" + receipt["nonce"]
 
 
+def snapshot_valid(receipt: dict) -> bool:
+    snapshot = Path(receipt["result_path"])
+    try:
+        return (not snapshot.is_symlink() and snapshot.is_file()
+                and hashlib.sha256(snapshot.read_bytes()).hexdigest() == receipt["result_sha256"])
+    except OSError:
+        return False
+
+
 def accept_event(root: Path, payload: dict) -> str | None:
     """Validate an event and publish a close request. Caller must hold state.lock."""
     launch = _read(root / "launch.json")
@@ -161,6 +187,12 @@ def accept_event(root: Path, payload: dict) -> str | None:
         _write(root / "state.json", state)
         return None
     receipt = state.get("receipt")
+    if (event == "Stop" and not receipt and launch.get("bootstrap_marker")
+            and str(payload.get("last_assistant_message", "")).strip() == launch["bootstrap_marker"]
+            and payload.get("turn_id") and not payload.get("agent_id")):
+        state["bootstrap_complete"] = True
+        _write(root / "state.json", state)
+        return None
     if event != "Stop" or not receipt or payload.get("agent_id"):
         return None
     if receipt["generation"] != state["generation"] or receipt["session_id"] != session_id:
@@ -173,8 +205,7 @@ def accept_event(root: Path, payload: dict) -> str | None:
         reason = "Codex Stop has no turn_id"
     if launch["runtime"] == "claude" and (payload.get("background_tasks") != [] or payload.get("session_crons") != []):
         reason = "Claude background task/scheduled wakeup state is missing or nonempty"
-    snapshot = Path(receipt["result_path"])
-    if snapshot.is_symlink() or not snapshot.is_file() or hashlib.sha256(snapshot.read_bytes()).hexdigest() != receipt["result_sha256"]:
+    if not snapshot_valid(receipt):
         reason = "saved result snapshot is missing or changed"
     if reason:
         state.update(blocked_reason=reason, pending=None)
@@ -237,11 +268,13 @@ class TmuxGuard:
             raise ValueError("pane ownership changed")
         return bool(current[5])
 
-    def stamp(self, state: str, reason: str, completed: bool = False) -> None:
+    def stamp(self, state: str, reason: str, completed: bool = False, exit_code: int | None = None) -> None:
         # Each write uses an exact pane target, with a fresh ownership predicate
         # in the same tmux command queue as the mutation.
         fields = {"state": state, "end_reason": reason,
                   "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        if exit_code is not None:
+            fields["exit_code"] = str(exit_code)
         if completed:
             fields["completed_at"] = fields["updated_at"]
         self.validate()
@@ -266,11 +299,16 @@ def supervise(root: Path, command: list[str], *, guard=None) -> int:
     # Inherit the real terminal descriptors. No headless runtime, PTY proxy,
     # detached monitor, broad process-group kill, or janitor responsibility.
     environment = dict(os.environ, OPENCLAW_COCKPIT_ASSIGNMENT_DIR=str(root))
-    child = subprocess.Popen(command, env=environment)
+    try:
+        child = subprocess.Popen(command, env=environment)
+    except OSError as error:
+        _write(root / "outcome.json", {"run_id": launch["run_id"], "outcome": "failed", "end_reason": "runtime_launch_failed", "reason": str(error)})
+        guard.stamp("failed", "runtime_launch_failed", completed=True, exit_code=1)
+        return 1
     seen_generation = -1
     completed = None
     try:
-        _write(root / "process.json", {"run_id": launch["run_id"], "supervisor_pid": os.getpid(), "child_pid": child.pid})
+        _write(root / "process.json", {"run_id": launch["run_id"], "supervisor_pid": os.getpid(), "child_pid": child.pid, "pane_identity": getattr(guard, "initial", [])})
         while child.poll() is None:
             with _locked(root):
                 state = _read(root / "state.json")
@@ -286,6 +324,8 @@ def supervise(root: Path, command: list[str], *, guard=None) -> int:
                 if pending and time.monotonic() < pending["deadline"]:
                     # No child poll/reap between this ownership check and signal:
                     # an unreaped child PID cannot be recycled on POSIX.
+                    if not snapshot_valid(pending):
+                        raise ValueError("saved result disappeared or changed before closeout")
                     held = guard.validate()
                     retained = launch["keep_open"] or held
                     completed = {**pending, "retained": retained}
@@ -302,6 +342,8 @@ def supervise(root: Path, command: list[str], *, guard=None) -> int:
                             _write(root / "outcome.json", completed)
                             guard.stamp("done" if pending["outcome"] == "succeeded" else "failed", "assignment_retained", completed=True)
                         else:
+                            if not snapshot_valid(pending):
+                                raise ValueError("saved result changed at process-exit boundary")
                             child.send_signal(signal.SIGTERM)
                             try:
                                 code = child.wait(timeout=10)
@@ -313,21 +355,34 @@ def supervise(root: Path, command: list[str], *, guard=None) -> int:
                                 completed["process_exit_code"] = code
                                 completed["end_reason"] = "managed_assignment_exit"
                                 _write(root / "outcome.json", completed)
-                                return 0 if pending["outcome"] == "succeeded" else 1
+                                result_code = 0 if pending["outcome"] == "succeeded" else 1
+                                guard.stamp("done" if result_code == 0 else "failed", "managed_assignment_exit", completed=True, exit_code=result_code)
+                                return result_code
             time.sleep(0.05)
         code = child.returncode
         # A manual/native exit is not proof that an assignment finished.
         if completed:
             completed.update(process_exit_code=code, end_reason="retained_assignment_exited")
             _write(root / "outcome.json", completed)
-            return 0 if completed["outcome"] == "succeeded" and code == 0 else 1
+            result_code = 0 if completed["outcome"] == "succeeded" and code == 0 else 1
+            guard.stamp("done" if result_code == 0 else "failed", "retained_assignment_exited", completed=True, exit_code=result_code)
+            return result_code
         _write(root / "outcome.json", {"run_id": launch["run_id"], "outcome": "incomplete", "process_exit_code": code,
                                       "end_reason": "process_exited_without_assignment_completion"})
+        guard.stamp("failed", "process_exited_without_assignment_completion", completed=True, exit_code=1)
         return 1
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         # Keep the child and terminal alive after an evidence/ownership failure;
         # never return to a wrapper that might label/retire the live session.
         print(f"[assignment] closeout blocked: {error}", file=sys.stderr, flush=True)
+        try:
+            _write(root / "closeout-error.json", {"run_id": launch["run_id"], "reason": str(error)})
+        except OSError:
+            pass
+        try:
+            guard.stamp("blocked", str(error)[:300])
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
         child.wait()
         return 1
 

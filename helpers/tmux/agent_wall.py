@@ -650,22 +650,25 @@ def write_tui_wrapper(
     }
     if parallel_contract is not None:
         launch_payload["parallel_contract"] = parallel_contract
+    # Managed supervisor owns final state; an obsolete wrapper must never stamp a replacement.
+    final_metadata = "" if launch_id else 'tmux pipe-pane -t "$TMUX_PANE" >/dev/null 2>&1\ntmux set-option -p -t "$TMUX_PANE" @oc_state "$oc_state" >/dev/null 2>&1\ntmux set-option -p -t "$TMUX_PANE" @oc_exit_code "$exit_code" >/dev/null 2>&1\ntmux set-option -p -t "$TMUX_PANE" @oc_end_reason "$oc_end_reason" >/dev/null 2>&1\ntmux set-option -p -t "$TMUX_PANE" @oc_completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >/dev/null 2>&1\ntmux set-option -p -t "$TMUX_PANE" @oc_updated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >/dev/null 2>&1\n'
     wrapper.write_text(
         f"""#!/usr/bin/env bash
-set +e
+set -e
 mkdir -p "$(dirname {pane_log_q})" "$(dirname {launch_record_q})"
 : > {pane_log_q}
 # A new CLI invocation must not inherit completion from a prior incarnation.
 for oc_field in completed_at exit_code end_reason teardown_marked_at teardown_reason; do
-  tmux set-option -pu -t "$TMUX_PANE" "@oc_$oc_field" >/dev/null 2>&1 || true
+  tmux set-option -pu -t "$TMUX_PANE" "@oc_$oc_field" >/dev/null 2>&1
 done
-tmux set-option -p -t "$TMUX_PANE" @oc_launch_id {shlex.quote(launch_id)} >/dev/null 2>&1 || true
-tmux set-option -p -t "$TMUX_PANE" @oc_state running >/dev/null 2>&1 || true
-tmux set-option -p -t "$TMUX_PANE" @oc_updated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >/dev/null 2>&1 || true
-tmux pipe-pane -o -t "$TMUX_PANE" "cat >> {pane_log_q}" >/dev/null 2>&1 || true
+tmux set-option -p -t "$TMUX_PANE" @oc_launch_id {shlex.quote(launch_id)} >/dev/null 2>&1
+tmux set-option -p -t "$TMUX_PANE" @oc_state running >/dev/null 2>&1
+tmux set-option -p -t "$TMUX_PANE" @oc_updated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >/dev/null 2>&1
+tmux pipe-pane -o -t "$TMUX_PANE" "cat >> {pane_log_q}" >/dev/null 2>&1
 cat > {launch_record_q} <<'JSON'
 {json.dumps(launch_payload, indent=2)}
 JSON
+set +e
 {command_line}
 exit_code=$?
 if [ "$exit_code" -eq 0 ]; then
@@ -675,12 +678,7 @@ else
   oc_state=failed
   oc_end_reason=process_exit_nonzero
 fi
-tmux pipe-pane -t "$TMUX_PANE" >/dev/null 2>&1 || true
-tmux set-option -p -t "$TMUX_PANE" @oc_state "$oc_state" >/dev/null 2>&1 || true
-tmux set-option -p -t "$TMUX_PANE" @oc_exit_code "$exit_code" >/dev/null 2>&1 || true
-tmux set-option -p -t "$TMUX_PANE" @oc_end_reason "$oc_end_reason" >/dev/null 2>&1 || true
-tmux set-option -p -t "$TMUX_PANE" @oc_completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >/dev/null 2>&1 || true
-tmux set-option -p -t "$TMUX_PANE" @oc_updated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >/dev/null 2>&1 || true
+{final_metadata}
 echo "[agent-wall] {label} exited with status $exit_code"
 exit "$exit_code"
 """,
@@ -721,11 +719,13 @@ def wait_for_command(pane: str, expected: str, *, timeout: float = 8.0) -> None:
     raise SystemExit(f"pane {pane} did not report command {expected!r} within {timeout:.1f}s")
 
 
-def wait_for_log_text(path: Path, expected: str, *, timeout: float | None = None) -> None:
+def wait_for_log_text(path: Path, expected: str, *, timeout: float | None = None, pane: str = "") -> None:
     timeout = READINESS_TIMEOUT_SECONDS if timeout is None else timeout
     deadline = time.time() + timeout
     while time.time() < deadline:
         if path.exists() and expected in path.read_text(encoding="utf-8", errors="ignore"):
+            return
+        if pane and expected in run_tmux("capture-pane", "-p", "-t", pane).stdout:
             return
         time.sleep(0.2)
     raise SystemExit(f"{path} did not contain {expected!r} within {timeout:.1f}s")
@@ -1137,23 +1137,76 @@ def ensure_tui_cleanup_defaults(args: argparse.Namespace, *, pane_log: str, run_
 
 
 def assignment_is_bound(run_dir: str) -> bool:
+    return assignment.is_ready(run_dir)
+
+
+def wait_for_assignment_ready(run_dir: str) -> bool:
+    deadline = time.monotonic() + READINESS_TIMEOUT_SECONDS
+    while True:
+        if assignment_is_bound(run_dir):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.1)
+
+
+def assignment_identity(root: Path, pane: str) -> list[str]:
+    if not re.fullmatch(r"%[0-9]+", pane):
+        raise SystemExit("submit-assignment requires an exact pane ID")
     try:
-        return bool(json.loads((Path(run_dir) / "state.json").read_text())["session_id"])
-    except (OSError, ValueError, KeyError):
-        return False
+        launch = json.loads((root / "launch.json").read_text())
+        process = json.loads((root / "process.json").read_text())
+        identity = process.get("pane_identity", [])
+        patterns = (r"%[0-9]+", r"[0-9]+", r"\$[0-9]+", r"@[0-9]+", r"[0-9a-f-]{36}")
+        valid = (len(identity) == 7 and all(isinstance(value, str) and re.fullmatch(pattern, value)
+                 for pattern, value in zip(patterns, identity[:5])))
+        if (not valid or identity[0] != pane or identity[4] != launch["run_id"]
+                or process.get("run_id") != launch["run_id"]):
+            raise ValueError("stored process identity does not match launch")
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise SystemExit(f"assignment/pane identity missing or changed; prompt not submitted: {error}") from error
+    return identity
+
+
+def inject_assignment(pane: str, root: Path) -> None:
+    with assignment._locked(root):
+        if (root / "submission.json").exists():
+            raise SystemExit("initial assignment was already submitted; use the runtime for follow-up")
+        _inject_assignment(pane, root)
+        assignment._write(root / "submission.json", {"pane": pane, "submitted_at": utc_now()})
+
+
+def _inject_assignment(pane: str, root: Path) -> None:
+    identity = assignment_identity(root, pane)
+    fields = ("pane_id", "pane_pid", "session_id", "window_id", "@oc_launch_id")
+    conditions = ["#{==:#{" + field + "}," + expected + "}" for field, expected in zip(fields, identity[:5])]
+    conditions.append("#{==:#{pane_dead},0}")
+    condition = conditions[0]
+    for item in conditions[1:]:
+        condition = "#{&&:" + condition + "," + item + "}"
+    buffer_name = "oc-assignment-" + identity[4]
+    # The process tuple comes from this launch's supervisor, not a fresh snapshot
+    # of whichever process happens to occupy the pane now. Check in the tmux
+    # server immediately before both paste and Enter, including after the delay.
+    run_tmux("load-buffer", "-b", buffer_name, str(root / "prompt.md"))
+    try:
+        commands = [["paste-buffer", "-p", "-b", buffer_name, "-t", pane], ["send-keys", "-t", pane, "Enter"]]
+        for index, command in enumerate(commands):
+            if index:
+                time.sleep(0.35)
+            output = run_tmux("if-shell", "-F", "-t", pane, condition, shlex.join(command),
+                              "display-message -p COCKPIT_ASSIGNMENT_IDENTITY_CHANGED").stdout
+            if "COCKPIT_ASSIGNMENT_IDENTITY_CHANGED" in output:
+                raise SystemExit("assignment/pane identity changed; prompt not submitted")
+    finally:
+        run_tmux("delete-buffer", "-b", buffer_name, check=False)
 
 
 def cmd_submit_assignment(args: argparse.Namespace) -> int:
     root = Path(args.assignment_run).expanduser().resolve()
+    inject_assignment(args.pane, root)
     launch = json.loads((root / "launch.json").read_text())
-    pane = args.pane
-    if not re.fullmatch(r"%[0-9]+", pane):
-        raise SystemExit("submit-assignment requires an exact pane ID")
-    actual = run_tmux("display-message", "-p", "-t", pane, "#{@oc_launch_id}").stdout.strip()
-    if actual != launch["run_id"]:
-        raise SystemExit("assignment/pane identity changed; prompt not submitted")
-    inject_prompt(pane, root / "prompt.md", buffer_name="oc-prompt-" + launch["run_id"])
-    print(json.dumps({"pane": pane, "submitted": True, "launch_id": actual}))
+    print(json.dumps({"pane": args.pane, "submitted": True, "launch_id": launch["run_id"]}))
     return 0
 
 
@@ -1188,7 +1241,7 @@ def spawn_tui_session(
         assignment_run = assignment.prepare(
             command_kind.removesuffix("_tui"),
             run_root / "assignments" / uuid.uuid4().hex,
-            command, keep_open=bool(getattr(args, "keep_open", False)),
+            command, keep_open=bool(getattr(args, "keep_open", False)), bootstrap=command_kind == "codex_tui",
         )
         managed_prompt = Path(assignment_run["run_dir"]) / "prompt.md"
         managed_prompt.write_text(prompt_path.read_text(encoding="utf-8") + assignment_run["prompt_suffix"], encoding="utf-8")
@@ -1230,7 +1283,7 @@ def spawn_tui_session(
             dismiss_codex_update_prompt_if_needed(pane, pane_log_path)
         try:
             if ready_text:
-                wait_for_log_text(pane_log_path, ready_text)
+                wait_for_log_text(pane_log_path, ready_text, pane=pane)
             else:
                 wait_for_log_activity(pane_log_path)
         except SystemExit as exc:
@@ -1245,9 +1298,12 @@ def spawn_tui_session(
             runtime_probe=runtime_probe,
             runtime_command_validator=runtime_command_validator,
         )
-        prompt_submitted = not assignment_run or assignment_is_bound(assignment_run["run_dir"])
+        prompt_submitted = not assignment_run or wait_for_assignment_ready(assignment_run["run_dir"])
         if prompt_submitted:
-            inject_prompt(pane, prompt_path, buffer_name=f"oc-prompt-{args.name}")
+            if assignment_run:
+                inject_assignment(pane, Path(assignment_run["run_dir"]))
+            else:
+                inject_prompt(pane, prompt_path, buffer_name=f"oc-prompt-{args.name}")
     except ReadinessTimeout as exc:
         if pane:
             fail_visible_contract(args, pane, str(exc), end_reason="readiness_timeout")
@@ -1279,7 +1335,7 @@ def spawn_tui_session(
         result["assignment_run"] = assignment_run["run_dir"]
         result["launch_id"] = assignment_run["run_id"]
         if not prompt_submitted:
-            result["setup_required"] = "Approve the launch-local hooks in the runtime, then submit this saved assignment."
+            result["setup_required"] = "Runtime lifecycle initialization is not ready. Resolve any workspace/hook trust prompts, then submit this saved assignment."
             result["submit_command"] = [sys.executable, str(Path(__file__).resolve()), "submit-assignment", "--pane", pane, "--assignment-run", assignment_run["run_dir"]]
     if parallel_contract is not None:
         result["parallel_contract"] = parallel_contract
