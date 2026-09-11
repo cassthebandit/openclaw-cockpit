@@ -1,13 +1,15 @@
 package ui
 
 import (
-	"charm.land/lipgloss/v2"
 	"fmt"
-	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
-	"github.com/mattn/go-runewidth"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"charm.land/lipgloss/v2"
+
+	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
+	"github.com/mattn/go-runewidth"
 )
 
 func truncateSingleLine(value string, width int) string {

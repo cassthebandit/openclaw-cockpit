@@ -311,12 +311,6 @@ func sessionGroupCounts(m *Model, sessions []tmux.Session) map[string]int {
 // — i.e. filtered sessions minus any that live in a collapsed accordion group.
 // Card rendering and cursor navigation both use this so a collapsed group's
 // cards are neither drawn nor selectable, while its divider still shows.
-func (m *Model) gridSessions() []tmux.Session {
-	return m.gridSessionsFrom(m.filteredSessions())
-}
-
-// gridSessionsFrom applies the collapsed-group filter to an already computed
-// filtered session list.
 func (m *Model) gridSessionsFrom(sessions []tmux.Session) []tmux.Session {
 	if !m.organized || m.viewMode != viewModeOverview {
 		return sessions

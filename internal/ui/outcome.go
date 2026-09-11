@@ -17,6 +17,7 @@ type cockpitOutcome struct {
 func semanticPaneOutcome(pane tmux.Pane) cockpitOutcome {
 	return paneOutcomeWithArtifact(pane, artifactOutcomeState(pane))
 }
+
 func (m *Model) semanticPaneOutcome(pane tmux.Pane) cockpitOutcome {
 	if m == nil {
 		return semanticPaneOutcome(pane)

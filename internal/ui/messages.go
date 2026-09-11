@@ -3,9 +3,10 @@
 package ui
 
 import (
-	"github.com/mattn/go-runewidth"
 	"strings"
 	"time"
+
+	"github.com/mattn/go-runewidth"
 )
 
 // toastState tracks the current toast message and its expiration time.

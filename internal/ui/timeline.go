@@ -2,12 +2,13 @@ package ui
 
 import (
 	"fmt"
-	"github.com/mattn/go-runewidth"
 	"hash/fnv"
 	"sort"
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/mattn/go-runewidth"
 
 	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
@@ -434,17 +435,6 @@ func runtimeTimelineLooksLikeOpaqueID(value string) bool {
 	}
 	lower := strings.ToLower(value)
 	return strings.Contains(lower, "evidence") || strings.Contains(lower, "secret")
-}
-
-func truncateRunes(value string, limit int) string {
-	if limit <= 0 {
-		return ""
-	}
-	runes := []rune(value)
-	if len(runes) <= limit {
-		return value
-	}
-	return string(runes[:limit])
 }
 
 func (e runtimeTimelineEvent) shortLabel() string {

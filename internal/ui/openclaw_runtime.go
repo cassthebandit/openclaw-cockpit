@@ -673,7 +673,10 @@ func (b *runtimeOutputBuffer) Write(p []byte) (int, error) {
 // DefaultRuntimeScript resolves the optional public helper bundle. go install
 // installs the Go binary only; helper installation is documented separately.
 func DefaultRuntimeScript() string {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "."
+	}
 	fallback := filepath.Join(home, ".local", "share", "openclaw-cockpit", "helpers", "openclaw_runtime", "cockpit_snapshot.py")
 	candidates := []string{fallback}
 	if executable, err := os.Executable(); err == nil {

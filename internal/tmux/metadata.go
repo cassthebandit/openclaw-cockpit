@@ -50,6 +50,7 @@ func paneListFormat() string {
 	keys = append(keys, "pane_pid", "alternate_on")
 	return escapedTmuxFormat(keys...)
 }
+
 func parsePaneMetadata(fields []string) *CockpitMeta {
 	if len(fields) < 33 {
 		return nil
