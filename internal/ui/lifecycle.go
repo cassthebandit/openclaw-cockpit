@@ -213,7 +213,7 @@ func (m *Model) refreshLifecycleVerdicts() {
 	}
 	seen := make(map[string]struct{}, len(m.lifecycleInputs))
 	for _, session := range m.sessions {
-		agentLike := sessionIsAgentLike(session)
+		agentLike := m.sessionIsAgentLike(session)
 		for _, window := range session.Windows {
 			for _, pane := range window.Panes {
 				if strings.TrimSpace(pane.PreviewText) == "" {
@@ -245,7 +245,7 @@ func (m *Model) refreshPaneLifecycleVerdict(sessionID, paneID, content string) {
 	if !ok {
 		return
 	}
-	agentLike := sessionIsAgentLike(session)
+	agentLike := m.sessionIsAgentLike(session)
 	for _, window := range session.Windows {
 		for _, pane := range window.Panes {
 			if pane.ID != paneID {
@@ -278,7 +278,7 @@ func (m *Model) cachedLifecycleVerdict(pane tmux.Pane, session tmux.Session) pan
 			}
 		}
 	}
-	return paneLifecycleVerdictFor(pane, sessionIsAgentLike(session))
+	return paneLifecycleVerdictFor(pane, m.sessionIsAgentLike(session))
 }
 
 func paneLifecycleVerdictFor(pane tmux.Pane, agentLike bool) paneLifecycleVerdict {
@@ -507,6 +507,6 @@ func isAgentKind(kind string) bool {
 	return false
 }
 
-func sessionIsAgentLike(session tmux.Session) bool {
-	return sessionHasManagedAgent(session) || containsAny(sessionChromeText(session), agentNameTokens...)
+func (m *Model) sessionIsAgentLike(session tmux.Session) bool {
+	return sessionHasManagedAgent(session) || containsKeywords(sessionChromeText(session), m.groupingConfig().AgentKeywords)
 }

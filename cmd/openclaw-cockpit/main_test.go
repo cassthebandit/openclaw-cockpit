@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cassthebandit/openclaw-cockpit/internal/ui"
 )
 
 var testBinPath string
@@ -277,8 +279,8 @@ func TestHelpFlag(t *testing.T) {
 // Both defaults are read back out of the built binary's own flag help so the
 // test fails if either constant drifts.
 func TestOpenClawRuntimeIntervalDefault(t *testing.T) {
-	if defaultOpenClawRuntimeInterval != 5*time.Second {
-		t.Fatalf("defaultOpenClawRuntimeInterval = %s, want 5s", defaultOpenClawRuntimeInterval)
+	if time.Duration(ui.DefaultWallConfig().RuntimeInterval) != 5*time.Second {
+		t.Fatalf("time.Duration(ui.DefaultWallConfig().RuntimeInterval) = %s, want 5s", time.Duration(ui.DefaultWallConfig().RuntimeInterval))
 	}
 
 	cmd := exec.Command(testBinPath, "-h")
@@ -327,11 +329,17 @@ func flagDefaultFromHelp(t *testing.T, help, name string) string {
 	return ""
 }
 
-func TestParseSessionList(t *testing.T) {
-	got := parseSessionList(" cass-agents, watch ,,,services ")
-	want := []string{"cass-agents", "watch", "services"}
-	if strings.Join(got, "|") != strings.Join(want, "|") {
-		t.Fatalf("parseSessionList() = %#v, want %#v", got, want)
+func TestExcludeSessionListTrimsEmptyNames(t *testing.T) {
+	out, err := configCommand(t, `{}`, nil, "--exclude-session= dashboard, watch ,,,services ", "--dump-config")
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	var cfg ui.WallConfig
+	if err := json.Unmarshal(out, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(cfg.ExcludeSessions, "|"); got != "dashboard|watch|services" {
+		t.Fatal(got)
 	}
 }
 

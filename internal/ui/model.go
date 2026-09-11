@@ -175,10 +175,12 @@ type commandItem struct {
 
 // Model owns the Bubble Tea state machine and cached tmux snapshot data.
 type Model struct {
-	client        *tmux.Client
-	pollInterval  time.Duration
-	captureBudget int
-	zonePrefix    string
+	grouping                                                         *GroupingConfig
+	captureRate, captureMinLines, captureMaxLines, captureSlackLines int
+	client                                                           *tmux.Client
+	pollInterval                                                     time.Duration
+	captureBudget                                                    int
+	zonePrefix                                                       string
 
 	width  int
 	height int

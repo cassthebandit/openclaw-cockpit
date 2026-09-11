@@ -1,0 +1,58 @@
+{
+  "interval": "1s",
+  "fps": 60,
+  "cols": 0,
+  "capture_budget": 6,
+  "capture_rate": 60,
+  "capture_min_lines": 80,
+  "capture_max_lines": 600,
+  "capture_slack_lines": 40,
+  "organize": false,
+  "preserve_colors": false,
+  "exclude_sessions": [],
+  "tmux": "",
+  "openclaw_runtime": false,
+  "runtime_script": "",
+  "runtime_limit": 80,
+  "runtime_interval": "5s",
+  "runtime_timeout": "20s",
+  "dump_runtime_timeout": "45s",
+  "janitor_status": "",
+  "grouping": {
+    "agent_keywords": [
+      "committee",
+      "fable",
+      "codex",
+      "claude",
+      "gemini",
+      "agy",
+      "antigravity",
+      "opencode",
+      "aider"
+    ],
+    "service_keywords": [
+      "go2rtc",
+      "frigate",
+      "camera",
+      "detector",
+      "alerts",
+      "notification-watcher"
+    ],
+    "dashboard_keywords": [
+      "tmuxwatch",
+      "dashboard",
+      " mux "
+    ],
+    "viewer_keywords": [
+      "-html",
+      "localhost",
+      "http://",
+      "vite"
+    ]
+  },
+  "footer_max_height": 4,
+  "janitor_stale_after": "3m",
+  "stale_threshold": "1h",
+  "collapsed_groups": [],
+  "expanded_groups": []
+}
