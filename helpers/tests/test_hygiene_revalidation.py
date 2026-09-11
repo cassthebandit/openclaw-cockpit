@@ -146,7 +146,7 @@ def test_real_tmux_respawn_changes_incarnation(tmp_path):
     socket_root = tempfile.TemporaryDirectory(prefix='pr2-', dir='/tmp')
     socket = str(Path(socket_root.name)/'test.sock')
     def run(*args, check=True):
-        return subprocess.run([tmux, '-S', socket, *args], text=True, capture_output=True, check=check)
+        return subprocess.run([tmux, '-u', '-S', socket, *args], text=True, encoding='utf-8', capture_output=True, check=check)
     try:
         run('new-session', '-d', '-s', 'fixture', 'echo "Thinking… esc to interrupt"; exec sleep 60')
         with patch.object(h, 'run_tmux', side_effect=run):

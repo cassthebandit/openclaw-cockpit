@@ -52,7 +52,11 @@ class Check:
 
 
 def run_command(args: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # Preserve tab/unit-separator framing and Unicode when invoked outside tmux
+    # under a C locale, just like the managed helper transport.
+    if args and args[0] == "tmux":
+        args = [args[0], "-u", *args[1:]]
+    return subprocess.run(args, text=True, encoding="utf-8", stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
 def ok(name: str, detail: str = "", data: dict[str, Any] | None = None) -> Check:

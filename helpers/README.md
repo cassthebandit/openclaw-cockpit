@@ -12,6 +12,9 @@ Use Python 3.10+ and tmux on macOS or Linux. Interactive launchers additionally
 require the selected authenticated Codex or Claude CLI. Windows users can run the
 Go monitor, but the POSIX/tmux helper suite needs WSL or a Unix host. No Python
 third-party dependencies are needed. Keep the `helpers` directory intact.
+The tmux transport explicitly uses UTF-8 (`tmux -u`) so its field separators
+and Unicode metadata survive outside-tmux/C-locale execution. Invalid UTF-8
+transport bytes fail decoding; they are not silently replaced in identity data.
 
 - `tmux/agent_wall.py`: launch/mark/hold orchestration.
 - `tmux/runtime_commands.py`: runtime-specific argument preparation.

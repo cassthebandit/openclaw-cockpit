@@ -14,7 +14,7 @@ def server():
     with tempfile.TemporaryDirectory(prefix="cockpit-inspect-", dir="/tmp") as tmp:
         sock = str(Path(tmp) / "s")
         def run(*args, check=True):
-            return subprocess.run(["tmux", "-S", sock, *args], capture_output=True, text=True, check=check)
+            return subprocess.run(["tmux", "-u", "-S", sock, *args], capture_output=True, text=True, check=check)
         try:
             pane = run("new-session", "-d", "-P", "-F", "#{pane_id}", "-s", "example", "sleep 600").stdout.strip()
             yield run, pane

@@ -94,7 +94,8 @@ def utc_now() -> str:
 
 
 def run_tmux(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["tmux", *args], check=check, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # tmux otherwise replaces framing controls with underscores in a C locale.
+    return subprocess.run(["tmux", "-u", *args], check=check, text=True, encoding="utf-8", stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
 def sanitize_tmux_option_value(value: object) -> str:

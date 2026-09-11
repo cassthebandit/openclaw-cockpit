@@ -51,7 +51,7 @@ def test_real_guard(change):
     with tempfile.TemporaryDirectory(prefix='p4-', dir='/tmp') as tmp:
         sock = str(Path(tmp)/'s')
         def run(*args, check=True):
-            return subprocess.run(['tmux', '-S', sock, *args], capture_output=True, text=True, check=check)
+            return subprocess.run(['tmux', '-u', '-S', sock, *args], capture_output=True, text=True, check=check)
         try:
             pane_id = run('new-session', '-d', '-P', '-F', '#{pane_id}', '-s', 'probe', 'sleep 600').stdout.strip()
             run('set-option', '-w', '-t', pane_id, 'remain-on-exit', 'on')
@@ -89,7 +89,7 @@ def test_real_guard(change):
 def test_existing_linked_sessions_are_both_retained():
     with tempfile.TemporaryDirectory(prefix='linked-', dir='/tmp') as tmp:
         def run(*args, check=True):
-            return subprocess.run(['tmux','-S',tmp+'/s',*args],capture_output=True,text=True,check=check)
+            return subprocess.run(['tmux','-u','-S',tmp+'/s',*args],capture_output=True,text=True,check=check)
         try:
             run('new-session','-d','-s','original','sleep 600')
             run('set-option','-w','-t','original','remain-on-exit','on')
