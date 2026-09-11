@@ -61,6 +61,8 @@ def test_real_guard(change):
                 time.sleep(.02)
             with patch.object(h, 'run_tmux', side_effect=run):
                 p = h.list_panes()[0]
+                assert p.session_grouped == "0"
+                assert h.dead_retirement_expectations(p)["session_grouped"] == "0"
                 # Another current session must not steal the format context.
                 run('new-session', '-d', '-s', 'unrelated', 'sleep 600')
                 if change == 'respawn': run('respawn-pane', '-t', pane_id, 'sleep 600')
@@ -103,10 +105,33 @@ def test_existing_linked_sessions_are_both_retained():
                 assert len(panes)==2
                 assert panes[0].server_session_id != panes[1].server_session_id
                 for pane in panes:
+                    assert pane.session_grouped == "1"
+                    # Older Linux tmux reports zero here even for groups.
+                    pane.window_linked = "0"
+                    assert h.dead_retirement_refusal([pane]) == "grouped_or_unknown_session_requires_explicit_retirement"
                     assert h.guarded_dead_retirement(pane).returncode != 0
             assert run('has-session','-t','=original',check=False).returncode == 0
             assert run('has-session','-t','=linked',check=False).returncode == 0
         finally:run('kill-server',check=False)
+
+
+@pytest.mark.parametrize('grouped', ['1', '', 'unknown'])
+def test_grouped_or_unknown_session_refused_before_any_side_effect(tmp_path, grouped):
+    p = managed('probe', kind='agent', state='done', cleanup_policy='kill_on_done',
+                completed_at='2026-09-10T10:00:00Z', run_root=str(tmp_path), evidence_path='result.md')
+    p.dead = True
+    p.session_grouped = grouped
+    (tmp_path/'result.md').write_text('done')
+    args = argparse.Namespace(policy='kill-safe', grace=0, allow_session=[], override_hold=False,
+        max_kills=1, json=True, archive_root=str(tmp_path), status_file='')
+    with patch.object(h, 'list_panes', return_value=[p]), patch.object(h, 'archive_cleanup') as archive, \
+         patch.object(h, 'write_ledger_event') as ledger, patch.object(h, 'run_tmux') as run, \
+         contextlib.redirect_stdout(io.StringIO()) as output:
+        h.cmd_apply(args)
+    archive.assert_not_called()
+    ledger.assert_not_called()
+    run.assert_not_called()
+    assert 'grouped_or_unknown_session_requires_explicit_retirement' in output.getvalue()
 
 
 def test_comma_metadata_never_archives_on_repeated_apply(tmp_path):

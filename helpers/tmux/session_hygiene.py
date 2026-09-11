@@ -157,6 +157,7 @@ class Pane:
     process_started: str = ""
     server_session_id: str = ""
     window_linked: str = ""
+    session_grouped: str = ""
 
 
 def utc_now() -> datetime:
@@ -384,6 +385,7 @@ def list_panes() -> list[Pane]:
             *[f"#{{@oc_{field}}}" for field in OC_FIELDS],
             "#{session_id}",
             "#{window_linked}",
+            "#{session_grouped}",
         ]
     )
     cp = run_tmux("list-panes", "-a", "-F", fmt, check=False)
@@ -412,7 +414,7 @@ def list_panes() -> list[Pane]:
     skipped = 0
     for line in cp.stdout.splitlines():
         fields = line.split(TMUX_FIELD_SEP)
-        if len(fields) != 13 + len(OC_FIELDS):
+        if len(fields) != 14 + len(OC_FIELDS):
             skipped += 1
             continue
         meta = dict(zip(OC_FIELDS, fields[11:11 + len(OC_FIELDS)]))
@@ -430,8 +432,9 @@ def list_panes() -> list[Pane]:
                 dead_status=fields[9],
                 pid=fields[10],
                 process_started=births.get(fields[10], ""),
-                server_session_id=fields[-2],
-                window_linked=fields[-1],
+                server_session_id=fields[-3],
+                window_linked=fields[-2],
+                session_grouped=fields[-1],
                 meta=meta,
             )
         )
@@ -1502,6 +1505,7 @@ def dead_retirement_expectations(pane: Pane) -> dict[str, str]:
             "pane_id": pane.pane, "pane_pid": pane.pid,
             "session_created": pane.created, "pane_dead": "1",
             "session_windows": "1", "window_panes": "1", "window_linked": "0",
+            "session_grouped": "0",
             **{"@oc_" + key: value for key, value in pane.meta.items()}}
 
 
@@ -1511,6 +1515,10 @@ def dead_retirement_refusal(panes: list[Pane]) -> str:
     pane = panes[0]
     if not re.fullmatch(r"\$[0-9]+", pane.server_session_id) or not re.fullmatch(r"%[0-9]+", pane.pane):
         return "server_identity_unknown"
+    # Older tmux can report window_linked=0 for grouped-session windows.
+    # Unknown grouping is not evidence of a standalone session either.
+    if pane.session_grouped != "0":
+        return "grouped_or_unknown_session_requires_explicit_retirement"
     if pane.window_linked != "0":
         return "linked_or_unknown_window_requires_explicit_retirement"
     # Refuse unsupported literals BEFORE archive/ledger I/O as well as at
@@ -1523,8 +1531,8 @@ def dead_retirement_refusal(panes: list[Pane]) -> str:
 def guarded_dead_retirement(pane: Pane) -> subprocess.CompletedProcess[str]:
     """Synchronous tmux guard bound to the exact server session AND pane.
 
-    Bare pane IDs are ambiguous across linked sessions. Reject linked windows
-    and use the immutable session ID in both the format context and kill target.
+    Bare pane IDs are ambiguous across linked/grouped sessions. Reject both
+    topologies and use the immutable session ID for format context and kill target.
     Resolve the session's sole pane; its exact ID is checked in the predicate.
     Do not put a pane ID in the window slot of a compound tmux target.
     No shell job, asynchronous branch, or fuzzy session-name target is used.

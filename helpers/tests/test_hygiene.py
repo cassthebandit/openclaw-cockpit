@@ -24,6 +24,7 @@ def pane(session: str, **meta: str) -> hygiene.Pane:
         session=session,
         server_session_id="$1",
         window_linked="0",
+        session_grouped="0",
         window="main",
         pane="%1",
         title="",
