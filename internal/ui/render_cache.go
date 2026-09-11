@@ -88,6 +88,9 @@ func (m *Model) computeNextRenderTransition(now time.Time) time.Time {
 		earlier(now.Add(nextCoarseDurationChange(now.Sub(m.lastUpdated))))
 	}
 	for _, session := range m.sessions {
+		if !session.CreatedAt.IsZero() {
+			earlier(now.Add(nextCoarseDurationChange(now.Sub(session.CreatedAt))))
+		}
 		for _, window := range session.Windows {
 			for _, pane := range window.Panes {
 				if !pane.LastActivity.IsZero() {

@@ -1225,7 +1225,12 @@ func cockpitCleanupLine(m *Model, session tmux.Session, pane tmux.Pane, now time
 		label := "hold blocks cleanup: " + hold
 		if until := parseCockpitTimestamp(meta.HoldUntil); !until.IsZero() {
 			if !now.Before(until) {
-				label = "hold expired; cleanup rechecked by janitor: " + hold
+				switch meta.Kind {
+				case "service", "viewer", "runtime":
+					label = "hold remains active for " + meta.Kind + ": " + hold
+				default:
+					label = "hold expired; cleanup rechecked by janitor: " + hold
+				}
 			} else {
 				label += " · until " + until.Local().Format("Jan 2 15:04 MST")
 			}

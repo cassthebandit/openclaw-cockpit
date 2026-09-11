@@ -61,3 +61,16 @@ func TestPR4OpenCLICompletionIsDisplayOnly(t *testing.T) {
 		t.Fatal("display mutated cleanup state")
 	}
 }
+
+func TestPR4HoldGroupingMatchesDeadLease(t *testing.T) {
+	now := time.Now()
+	p := tmux.Pane{Dead: true, Cockpit: &tmux.CockpitMeta{Kind: "agent", State: "done", HoldReason: "review", HoldUntil: now.Add(-time.Minute).Format(time.RFC3339)}}
+	s := tmux.Session{Windows: []tmux.Window{{Panes: []tmux.Pane{p}}}}
+	if agentLifecycleGroup(nil, s, "terminal-done").name == groupHeldAgents.name {
+		t.Fatal("expired dead lease still held")
+	}
+	p.Cockpit.Kind = "viewer"
+	if !strings.Contains(cockpitCleanupLine(nil, s, p, now), "hold remains active") {
+		t.Fatal("viewer protection hidden")
+	}
+}
