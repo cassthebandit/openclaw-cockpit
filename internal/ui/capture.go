@@ -1,12 +1,13 @@
 package ui
 
 import (
-	tea "charm.land/bubbletea/v2"
-	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
 // scheduleFastCaptureWatch arms the off-loop pane-log watcher. It is
@@ -441,7 +442,7 @@ func (m *Model) fastCaptureTarget(session tmux.Session) (tmux.Pane, *sessionPrev
 	if _, ok := m.fastCaptureActive[session.ID]; ok {
 		return tmux.Pane{}, nil, false, true
 	}
-	if m.isCollapsed(session.ID) && session.ID != m.focusedSession && !(m.viewMode == viewModeDetail && m.detailSession == session.ID) {
+	if m.isCollapsed(session.ID) && session.ID != m.focusedSession && (m.viewMode != viewModeDetail || m.detailSession != session.ID) {
 		return tmux.Pane{}, nil, false, false
 	}
 	window, ok := activeWindow(session)

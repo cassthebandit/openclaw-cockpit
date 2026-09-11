@@ -5,7 +5,8 @@ GOLANGCI_LINT ?= golangci-lint
 fmt:
 	$(GOFUMPT) -w .
 fmt-check:
-	@test -z "$$($(GOFUMPT) -l .)"
+	@files="$$($(GOFUMPT) -l .)" || exit $$?; \
+		if [ -n "$$files" ]; then printf '%s\n' "$$files"; exit 1; fi
 lint:
 	$(GOLANGCI_LINT) run --timeout=5m --max-issues-per-linter=0 --max-same-issues=0
 test:
