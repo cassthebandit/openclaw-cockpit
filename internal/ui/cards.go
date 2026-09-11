@@ -67,10 +67,6 @@ func (m *Model) renderSessionCards(sessions []tmux.Session) string {
 
 	cols := max(1, m.cardCols)
 	m.ensureCursor(m.gridSessionsFrom(sessions))
-	baseStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(borderColorBase)).
-		Padding(0, cardPadding)
 
 	innerHeight := m.cardInnerHeight
 	if innerHeight < 0 {
@@ -260,7 +256,7 @@ func (m *Model) renderSessionCards(sessions []tmux.Session) string {
 			body = lipgloss.JoinVertical(lipgloss.Left, info...)
 		}
 
-		borderStyle := baseStyle
+		borderColor := borderColorBase
 		state := sessionState
 		if state == "" {
 			state = sessionCockpitState(m, session, pane, stale)
@@ -268,44 +264,44 @@ func (m *Model) renderSessionCards(sessions []tmux.Session) string {
 		if body != "" {
 			body = compactFinishedBody(innerWidth, body, state, bodyBudget)
 			body = compactOverviewBody(innerWidth, body, m.viewMode == viewModeOverview, bodyBudget)
-			body = renderCardBodyBlock(innerWidth, body, agentCLIColorPassthroughGroup(currentGroup))
+			body = preview.bodyCache.render(innerWidth, body, agentCLIColorPassthroughGroup(currentGroup))
 		}
 		switch {
 		case state == "failed" || state == "route-fail" || state == "safety-fail":
-			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorExitFail))
+			borderColor = borderColorExitFail
 		case state == "blocked" || state == "review":
-			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorBlocked))
+			borderColor = borderColorBlocked
 		case state == "waiting":
-			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorWaiting))
+			borderColor = borderColorWaiting
 		case currentGroup == groupInactiveAgents.name && (state == "done" || state == "pass" || state == "signal" || state == "idle-finished" || state == "terminal-done" || state == "delivered-idle" || state == "marked-for-teardown"):
-			borderStyle = borderStyle.BorderForeground(lipgloss.Color(groupColorInactive))
+			borderColor = groupColorInactive
 		case state == "marked-for-teardown":
-			borderStyle = borderStyle.BorderForeground(lipgloss.Color(groupColorInactive))
+			borderColor = groupColorInactive
 		case state == "done" || state == "pass" || state == "signal":
-			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorExitOK))
+			borderColor = borderColorExitOK
 		case state == "idle-finished":
-			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorCursor))
+			borderColor = borderColorCursor
 		case state == "directional" || state == "null-safe":
-			borderStyle = borderStyle.BorderForeground(lipgloss.Color(headerColorCursor))
+			borderColor = headerColorCursor
 		case pane.Dead && pane.DeadStatus != 0:
-			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorExitFail))
+			borderColor = borderColorExitFail
 		case pane.Dead:
-			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorExitOK))
+			borderColor = borderColorExitOK
 		case currentGroup == groupActiveAgents.name:
-			borderStyle = borderStyle.BorderForeground(lipgloss.Color(groupColorActive))
+			borderColor = groupColorActive
 		case focused:
-			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorFocus))
+			borderColor = borderColorFocus
 		case cursor:
-			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorCursor))
+			borderColor = borderColorCursor
 		case hovered:
-			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorHover))
+			borderColor = borderColorHover
 		case stale:
-			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorStale))
+			borderColor = borderColorStale
 		case pulsing:
-			borderStyle = borderStyle.BorderForeground(lipgloss.Color(borderColorPulse))
+			borderColor = borderColorPulse
 		}
 
-		cardContent := borderStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, body))
+		cardContent := preview.cardCache.render(header, body, borderColor)
 		cardContent = zone.Mark(cardID, cardContent)
 
 		currentRow = append(currentRow, cardContent)
@@ -846,6 +842,44 @@ func formatHeader(now time.Time, width int, session tmux.Session, window tmux.Wi
 	}
 	style = style.Width(width)
 	return style.Render(header)
+}
+
+// Cache the expensive border composition, not the card's live inputs. Header
+// and body are freshly produced before lookup, including time/focus/hover and
+// viewport changes. Zone marking and geometry remain outside this cache.
+type cardCompositionCache struct {
+	header, body, borderColor string
+	rendered                  string
+}
+
+func (c *cardCompositionCache) render(header, body, borderColor string) string {
+	if c.header == header && c.body == body && c.borderColor == borderColor {
+		return c.rendered
+	}
+	c.header, c.body, c.borderColor = header, body, borderColor
+	c.rendered = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(borderColor)).Padding(0, cardPadding).
+		Render(lipgloss.JoinVertical(lipgloss.Left, header, body))
+	return c.rendered
+}
+
+// One rendered body per preview; headers, time labels, borders and hitboxes
+// are still rebuilt. Exact input equality includes scroll/resize/info changes.
+// The entry goes away with its preview and never accumulates old frames.
+type cardBodyCache struct {
+	width          int
+	body           string
+	preserveColors bool
+	rendered       string
+}
+
+func (c *cardBodyCache) render(width int, body string, preserveColors bool) string {
+	if c.width == width && c.body == body && c.preserveColors == preserveColors {
+		return c.rendered
+	}
+	c.width, c.body, c.preserveColors = width, body, preserveColors
+	c.rendered = renderCardBodyBlock(width, body, preserveColors)
+	return c.rendered
 }
 
 func renderCardBodyBlock(width int, body string, preserveAgentCLIColors bool) string {
