@@ -1,0 +1,53 @@
+{
+  "count": 4,
+  "tasks": [
+    {
+      "taskId": "task-running",
+      "runtime": "acp",
+      "label": "live ACP lane",
+      "status": "running",
+      "deliveryStatus": "not_applicable",
+      "ownerKey": "agent:main:discord:channel:1",
+      "requesterSessionKey": "agent:main:discord:channel:1",
+      "childSessionKey": "agent:codex:acp:abc",
+      "runId": "run-running",
+      "createdAt": 1000,
+      "lastEventAt": 2000,
+      "progressSummary": "working"
+    },
+    {
+      "taskId": "task-delivery-failed",
+      "runtime": "subagent",
+      "label": "delivery failed lane",
+      "status": "succeeded",
+      "deliveryStatus": "failed",
+      "ownerKey": "agent:main:discord:channel:1",
+      "requesterSessionKey": "agent:main:discord:channel:1",
+      "childSessionKey": "agent:codex:thread:def",
+      "runId": "run-delivery-failed",
+      "createdAt": 1000,
+      "lastEventAt": 3000,
+      "terminalSummary": "handoff failed"
+    },
+    {
+      "taskId": "task-failed",
+      "runtime": "acp",
+      "label": "failed ACP lane",
+      "status": "failed",
+      "deliveryStatus": "not_applicable",
+      "error": "permission prompt unavailable",
+      "createdAt": 1000,
+      "lastEventAt": 4000
+    },
+    {
+      "taskId": "task-done",
+      "runtime": "cron",
+      "label": "completed cron",
+      "status": "succeeded",
+      "deliveryStatus": "not_applicable",
+      "terminalSummary": "done",
+      "createdAt": 1000,
+      "lastEventAt": 5000
+    }
+  ]
+}

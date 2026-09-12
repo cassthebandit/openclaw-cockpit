@@ -50,6 +50,11 @@ jobs:
       - name: Launcher regression
         run: python3 -m unittest discover -s scripts -p 'test_*.py'
 
+      - name: Public helper regressions
+        run: |
+          python3 -m pip install pytest==8.4.2
+          python3 -m pytest helpers/tests -q
+
       - name: Race test
         run: go test -race ./...
 

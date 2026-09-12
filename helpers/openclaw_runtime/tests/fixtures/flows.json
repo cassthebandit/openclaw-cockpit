@@ -1,0 +1,40 @@
+{
+  "count": 2,
+  "flows": [
+    {
+      "flowId": "flow-blocked",
+      "ownerKey": "agent:main:discord:channel:1",
+      "requesterOrigin": {
+        "to": "channel:1"
+      },
+      "status": "blocked",
+      "goal": "blocked committee lane",
+      "blockedSummary": "completion ended with progress-only text",
+      "createdAt": 1000,
+      "updatedAt": 6000,
+      "taskSummary": {
+        "total": 1,
+        "active": 0,
+        "terminal": 1,
+        "failures": 0
+      }
+    },
+    {
+      "flowId": "flow-active",
+      "ownerKey": "agent:main:discord:channel:1",
+      "requesterOrigin": {
+        "to": "channel:1"
+      },
+      "status": "succeeded",
+      "goal": "flow with active child",
+      "createdAt": 1000,
+      "updatedAt": 7000,
+      "taskSummary": {
+        "total": 2,
+        "active": 1,
+        "terminal": 1,
+        "failures": 0
+      }
+    }
+  ]
+}

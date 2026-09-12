@@ -1,0 +1,19 @@
+{
+  "summary": {
+    "combined": {
+      "warnings": 1,
+      "errors": 0
+    }
+  },
+  "findings": [
+    {
+      "kind": "task",
+      "severity": "warn",
+      "code": "delivery_failed",
+      "detail": "terminal update delivery failed",
+      "ageMs": 1234,
+      "status": "succeeded",
+      "token": "task-delivery-failed"
+    }
+  ]
+}
