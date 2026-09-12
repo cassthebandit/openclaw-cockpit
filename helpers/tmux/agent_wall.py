@@ -500,6 +500,19 @@ def normalize_tui_geometry(args: argparse.Namespace) -> tuple[int, int]:
     return cols, rows
 
 
+def sensitive_output_setup(paths: list[str]) -> str:
+    """Protect exact output files, not the caller's existing project directories."""
+    lines = ["umask 077"]
+    for path in dict.fromkeys(path for path in paths if path):
+        quoted = shlex.quote(path)
+        lines.extend([
+            f'mkdir -p -- {shlex.quote(str(Path(path).parent))} || exit 1',
+            f'if [ -L {quoted} ] || {{ [ -e {quoted} ] && [ ! -f {quoted} ]; }}; then exit 1; fi',
+            f'touch -- {quoted} && chmod 600 {quoted} || exit 1',
+        ])
+    return "\n".join(lines)
+
+
 def write_wrapper(
     name: str,
     command: list[str],
@@ -509,7 +522,8 @@ def write_wrapper(
 ) -> Path:
     safe_name = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in name)
     root = STATE_DIR / safe_name
-    root.mkdir(parents=True, exist_ok=True)
+    root.mkdir(parents=True, mode=0o700, exist_ok=True)
+    root.chmod(0o700)
     wrapper = root / "run.sh"
     command_line = shlex.join(command)
     pane_log_q = shlex.quote(pane_log) if pane_log else ""
@@ -518,9 +532,9 @@ def write_wrapper(
     logging_teardown = ""
     if pane_log and launch_record:
         logging_setup = f"""
-mkdir -p "$(dirname {pane_log_q})" "$(dirname {launch_record_q})"
+{sensitive_output_setup([pane_log, launch_record])}
 : > {pane_log_q}
-tmux pipe-pane -o -t "$TMUX_PANE" "cat >> {pane_log_q}" >/dev/null 2>&1 || true
+tmux pipe-pane -o -t "$TMUX_PANE" {shlex.quote("cat >> " + pane_log_q)} >/dev/null 2>&1 || true
 cat > {launch_record_q} <<'JSON'
 {json.dumps({"command_kind": "generic", "argv": command, "pane_log_sensitive": True}, indent=2)}
 JSON
@@ -636,7 +650,8 @@ def write_tui_wrapper(
 ) -> Path:
     safe_name = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in name)
     root = STATE_DIR / safe_name
-    root.mkdir(parents=True, exist_ok=True)
+    root.mkdir(parents=True, mode=0o700, exist_ok=True)
+    root.chmod(0o700)
     wrapper = root / f"run-{command_kind}.sh"
     command_line = shlex.join(command)
     pane_log_q = shlex.quote(pane_log)
@@ -657,7 +672,7 @@ def write_tui_wrapper(
     wrapper.write_text(
         f"""#!/usr/bin/env bash
 set -e
-mkdir -p "$(dirname {pane_log_q})" "$(dirname {launch_record_q})"
+{sensitive_output_setup([pane_log, launch_record, debug_file])}
 : > {pane_log_q}
 # A new CLI invocation must not inherit completion from a prior incarnation.
 for oc_field in completed_at exit_code end_reason teardown_marked_at teardown_reason; do
@@ -666,7 +681,7 @@ done
 tmux set-option -p -t "$TMUX_PANE" @oc_launch_id {shlex.quote(launch_id)} >/dev/null 2>&1
 tmux set-option -p -t "$TMUX_PANE" @oc_state running >/dev/null 2>&1
 tmux set-option -p -t "$TMUX_PANE" @oc_updated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >/dev/null 2>&1
-tmux pipe-pane -o -t "$TMUX_PANE" "cat >> {pane_log_q}" >/dev/null 2>&1
+tmux pipe-pane -o -t "$TMUX_PANE" {shlex.quote("cat >> " + pane_log_q)} >/dev/null 2>&1
 cat > {launch_record_q} <<'JSON'
 {json.dumps(launch_payload, indent=2)}
 JSON
@@ -1232,7 +1247,7 @@ def spawn_tui_session(
     prompt_path = prompt_path_from_args(args)
     run_root = resolve_run_root(args, prompt_path)
     logs_dir = run_root / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
     pane_log = resolve_pane_log(args, run_root, default_name=f"{args.name}-pane.log")
     ensure_tui_cleanup_defaults(args, pane_log=pane_log, run_root=run_root)
     debug_path = debug_file
@@ -1308,8 +1323,13 @@ def spawn_tui_session(
                 inject_prompt(pane, prompt_path, buffer_name=f"oc-prompt-{args.name}")
     except ReadinessTimeout as exc:
         if pane:
-            fail_visible_contract(args, pane, str(exc), end_reason="readiness_timeout")
-        raise SystemExit(str(exc)) from exc
+            set_pane_options(pane, {"state": "waiting", "end_reason": "readiness_timeout",
+                                    "route_failure_reason": str(exc) + "; assignment not submitted; resolve startup then use submit-assignment"})
+        recovery = ""
+        if pane and assignment_run:
+            recovery = "; recover with: " + shlex.join([sys.executable, "-B", str(Path(__file__).resolve()),
+                "submit-assignment", "--pane", pane, "--assignment-run", assignment_run["run_dir"]])
+        raise SystemExit(str(exc) + recovery) from exc
     except SystemExit as exc:
         if pane:
             fail_visible_contract(args, pane, str(exc))
@@ -1338,7 +1358,7 @@ def spawn_tui_session(
         result["launch_id"] = assignment_run["run_id"]
         if not prompt_submitted:
             result["setup_required"] = "Runtime lifecycle initialization is not ready. Resolve any workspace/hook trust prompts, then submit this saved assignment."
-            result["submit_command"] = [sys.executable, str(Path(__file__).resolve()), "submit-assignment", "--pane", pane, "--assignment-run", assignment_run["run_dir"]]
+            result["submit_command"] = [sys.executable, "-B", str(Path(__file__).resolve()), "submit-assignment", "--pane", pane, "--assignment-run", assignment_run["run_dir"]]
     if parallel_contract is not None:
         result["parallel_contract"] = parallel_contract
     return result
@@ -1353,7 +1373,7 @@ def cmd_spawn(args: argparse.Namespace) -> int:
     run_root = Path(args.run_root).expanduser().resolve() if args.run_root else Path.cwd().resolve()
     args.run_root = str(run_root)
     logs_dir = run_root / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
     pane_log = str(logs_dir / f"{args.name}-pane.log")
     if getattr(args, "kind", "") == "batch-worker":
         if not getattr(args, "evidence_path", ""):
@@ -1385,7 +1405,7 @@ def cmd_spawn_claude(args: argparse.Namespace) -> int:
     prompt_path = prompt_path_from_args(args)
     run_root = resolve_run_root(args, prompt_path)
     logs_dir = run_root / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
     if not args.debug_file:
         args.debug_file = str(logs_dir / "claude-debug.log")
     command = build_claude_tui_command(args)
@@ -1742,10 +1762,10 @@ def cmd_smoke_start(args: argparse.Namespace) -> int:
             title=f"smoke-{i:02d}",
             kind="smoke",
             agent=["codex", "fable", "agy"][i % 3],
-            owner="workshop-4",
+            owner="cockpit-smoke",
             project="Cockpit",
             goal=f"Disposable cockpit smoke worker {i:02d}",
-            run_root=str((Path.cwd() / "memory/runs/Cockpit-cockpit-smoke-20260702").resolve()),
+            run_root=str((STATE_DIR / "smoke").resolve()),
             thread_id="",
             session_id=f"smoke-{i:02d}",
             ttl="30m",

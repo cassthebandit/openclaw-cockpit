@@ -178,6 +178,9 @@ def accept_event(root: Path, payload: dict) -> str | None:
     if not isinstance(session_id, str) or not session_id:
         return None
     if state["session_id"] and state["session_id"] != session_id:
+        if event == "SessionStart":
+            state.update(blocked_reason="runtime session replaced; start a new managed assignment", pending=None, receipt=None)
+            _write(root / "state.json", state)
         return None
     if not state["session_id"]:
         if event not in {"SessionStart", "UserPromptSubmit"}:
@@ -309,6 +312,8 @@ def supervise(root: Path, command: list[str], *, guard=None) -> int:
         return 1
     seen_generation = -1
     completed = None
+    seen_blocked = None
+    shutdown_deadline = None
     try:
         _write(root / "process.json", {"run_id": launch["run_id"], "supervisor_pid": os.getpid(), "child_pid": child.pid, "pane_identity": getattr(guard, "initial", [])})
         while child.poll() is None:
@@ -320,8 +325,11 @@ def supervise(root: Path, command: list[str], *, guard=None) -> int:
                     guard.stamp(active_state, "assignment_" + str(activity or "active"))
                     seen_generation = state["generation"]
                     completed = None
-                if state.get("blocked_reason"):
-                    guard.stamp("blocked", state["blocked_reason"])
+                    seen_blocked = None
+                blocked = state.get("blocked_reason")
+                if blocked and blocked != seen_blocked:
+                    guard.stamp("blocked", blocked)
+                seen_blocked = blocked
                 pending = state.get("pending")
                 if pending and time.monotonic() < pending["deadline"]:
                     # No child poll/reap between this ownership check and signal:
@@ -347,27 +355,24 @@ def supervise(root: Path, command: list[str], *, guard=None) -> int:
                             if not snapshot_valid(pending):
                                 raise ValueError("saved result changed at process-exit boundary")
                             child.send_signal(signal.SIGTERM)
-                            try:
-                                code = child.wait(timeout=10)
-                            except subprocess.TimeoutExpired:
-                                # Never escalate to SIGKILL on a timer.
-                                guard.stamp("blocked", "owned worker did not exit after managed SIGTERM")
-                                completed = None
-                            else:
-                                completed["process_exit_code"] = code
-                                completed["end_reason"] = "managed_assignment_exit"
-                                _write(root / "outcome.json", completed)
-                                result_code = 0 if pending["outcome"] == "succeeded" else 1
-                                guard.stamp("done" if result_code == 0 else "failed", "managed_assignment_exit", completed=True, exit_code=result_code)
-                                return result_code
+                            shutdown_deadline = time.monotonic() + 10
+            # The signal decision is atomic with hook generation/identity/hold
+            # checks above. Waiting must not hold the synchronous hook's lock.
+            if shutdown_deadline is not None and time.monotonic() >= shutdown_deadline:
+                guard.stamp("blocked", "owned worker did not exit after managed SIGTERM")
+                if completed:
+                    completed["shutdown_status"] = "waiting_for_exit"
+                    _write(root / "outcome.json", completed)
+                shutdown_deadline = None  # No repeated stamps or SIGKILL escalation.
             time.sleep(0.05)
         code = child.returncode
         # A manual/native exit is not proof that an assignment finished.
         if completed:
-            completed.update(process_exit_code=code, end_reason="retained_assignment_exited")
+            end_reason = "retained_assignment_exited" if completed["retained"] else "managed_assignment_exit"
+            completed.update(process_exit_code=code, end_reason=end_reason, shutdown_status="exited")
             _write(root / "outcome.json", completed)
-            result_code = 0 if completed["outcome"] == "succeeded" and code == 0 else 1
-            guard.stamp("done" if result_code == 0 else "failed", "retained_assignment_exited", completed=True, exit_code=result_code)
+            result_code = 0 if completed["outcome"] == "succeeded" and (not completed["retained"] or code == 0) else 1
+            guard.stamp("done" if result_code == 0 else "failed", end_reason, completed=True, exit_code=result_code)
             return result_code
         _write(root / "outcome.json", {"run_id": launch["run_id"], "outcome": "incomplete", "process_exit_code": code,
                                       "end_reason": "process_exited_without_assignment_completion"})

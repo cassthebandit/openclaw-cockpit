@@ -137,3 +137,5 @@ python3 -m pytest helpers/tests -q
 
 Live tests create isolated tmux servers. Runtime smoke results and minimum hook
 compatibility are recorded with the change; never infer them from mocked tests.
+
+Ordinary managed closeout ends the completed CLI. Input queued during its final Stop is not a new assignment; use keep-open when further interaction is intended. A readiness timeout preserves the terminal in waiting state without submitting the assignment; resolve startup and use the saved assignment with `submit-assignment`.
