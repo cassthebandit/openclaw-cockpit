@@ -168,7 +168,7 @@ func loadOpenClawRuntimeCards(source RuntimeSource) ([]openClawRuntimeCard, erro
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "python3", script, "--limit", strconv.Itoa(limit), "--format", "json")
+	cmd := exec.CommandContext(ctx, "python3", "-B", script, "--limit", strconv.Itoa(limit), "--format", "json")
 	stderr := &cappedBuffer{limit: runtimeStderrCapBytes}
 	cmd.Stderr = stderr
 	// Let os/exec own copying and pipe closure. WaitDelay bounds inherited

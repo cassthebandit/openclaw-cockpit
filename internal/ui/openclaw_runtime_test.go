@@ -334,3 +334,34 @@ func TestValidateOpenClawRuntimeSnapshotRejectsMissingCardContract(t *testing.T)
 		t.Fatalf("expected card contract error, got %v", err)
 	}
 }
+
+func TestRuntimePollingDoesNotWriteImportBytecode(t *testing.T) {
+	// Exercise the real child process, with bytecode protection absent from
+	// the parent environment as it is in an existing tmux server.
+	t.Setenv("PYTHONDONTWRITEBYTECODE", "")
+	t.Setenv("PYTHONPYCACHEPREFIX", "")
+	root := t.TempDir()
+	script := filepath.Join(root, "snapshot.py")
+	for name, content := range map[string]string{
+		"snapshot.py": "import source\nprint(source.payload)\n",
+		"source.py":   `payload = '{"cardContract":"runtime-card.v1","summary":{},"cards":[]}'`,
+	} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range 2 {
+		if _, err := loadOpenClawRuntimeCards(RuntimeSource{Enabled: true, Script: script, Timeout: 5 * time.Second}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.Name() != "snapshot.py" && entry.Name() != "source.py" {
+			t.Fatalf("read-only polling wrote an import artifact: %s", entry.Name())
+		}
+	}
+}
