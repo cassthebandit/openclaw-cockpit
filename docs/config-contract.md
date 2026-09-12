@@ -86,7 +86,7 @@ Only flags actually supplied override the file. For example,
 `--config PATH` selects the file; otherwise `OPENCLAW_COCKPIT_CONFIG` may select
 it. `--dump-config` prints effective JSON. `--explain-config` reports the file
 and explicit per-key override sources to stderr. `--validate-config` exits
-without opening tmux, loading runtime cards, or starting the TUI.
+without executing tmux, loading runtime cards, or starting the TUI.
 
 Supported CLI settings are `--interval`, `--fps`, `--cols`, `--capture-budget`,
 `--tmux`, `--organize`, `--preserve-colors`, `--exclude-session`,
