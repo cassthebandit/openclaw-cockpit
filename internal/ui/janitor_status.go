@@ -34,10 +34,10 @@ type janitorSessionStatus struct {
 	KillNotBefore string `json:"kill_not_before"`
 	LastAction    string `json:"last_action"`
 	LastRefusal   string `json:"last_refusal"`
-	// PaneID and PaneCreated carry the sidecar's pane identity for the row.
+	// PaneID, PanePID and PaneCreated carry the sidecar's pane identity for the row.
 	// Hygiene writes pane_id from tmux #{pane_id} and pane_created from the
-	// primary pane's #{session_created}; a row may only grant teardown or
-	// countdown authority when this identity matches a current pane
+	// primary pane's #{session_created}; a row may only supply teardown or
+	// countdown display facts when this identity matches a current pane
 	// (janitorSessionRow), so a replacement pane reusing the session name never
 	// inherits the old row's cleanup truth.
 	PanePID     string `json:"pane_pid"`

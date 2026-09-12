@@ -186,7 +186,7 @@ func TestFastCaptureSkipsPaneAlreadyInFlight(t *testing.T) {
 	if second := m.ensureFastCaptures(); second != nil {
 		t.Fatalf("expected no overlapping fast capture command")
 	}
-	m.Update(paneContentMsg{sessionID: "$active-1", paneID: "%active-1", text: "done"})
+	m.Update(paneContentMsg{generation: m.previews["$active-1"].captureGeneration, sessionID: "$active-1", paneID: "%active-1", text: "done"})
 	if _, ok := m.fastCaptureActive["$active-1"]; ok {
 		t.Fatalf("expected fast capture in-flight marker to clear")
 	}
@@ -227,7 +227,7 @@ func TestFastCaptureWaitsForPaneLogSignal(t *testing.T) {
 	if first == nil {
 		t.Fatalf("expected initial capture to seed signal state")
 	}
-	m.Update(paneContentMsg{sessionID: "$active-1", paneID: "%active-1", text: "ready"})
+	m.Update(paneContentMsg{generation: m.previews["$active-1"].captureGeneration, sessionID: "$active-1", paneID: "%active-1", text: "ready"})
 	if second := m.ensureFastCaptures(); second != nil {
 		t.Fatalf("expected unchanged pane log to suppress fast capture")
 	}
@@ -359,7 +359,7 @@ func TestFastCaptureStatErrorRecordsSignalState(t *testing.T) {
 	if !preview.signal.statErr || !preview.signal.seen || preview.signal.path != logPath {
 		t.Fatalf("stat error not recorded as signal state: %+v", preview.signal)
 	}
-	m.Update(paneContentMsg{sessionID: "$active-1", paneID: "%active-1", text: "ready"})
+	m.Update(paneContentMsg{generation: m.previews["$active-1"].captureGeneration, sessionID: "$active-1", paneID: "%active-1", text: "ready"})
 
 	signals, _, inflightSkipped := m.fastCaptureSignals()
 	if inflightSkipped {

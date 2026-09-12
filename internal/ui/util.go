@@ -19,19 +19,3 @@ func coarseDuration(d time.Duration) string {
 		return fmt.Sprintf("%dh", int(d.Hours()))
 	}
 }
-
-// max returns the largest of two integers.
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-// min returns the smallest of two integers.
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

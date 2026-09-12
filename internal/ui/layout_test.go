@@ -36,6 +36,9 @@ func TestMoveCursorGrid(t *testing.T) {
 	t.Parallel()
 
 	sessions := []tmux.Session{{ID: "$1"}, {ID: "$2"}, {ID: "$3"}, {ID: "$4"}}
+	for i := range sessions {
+		sessions[i].Windows = []tmux.Window{{Panes: []tmux.Pane{{ID: "%pane"}}}}
+	}
 	m := &Model{
 		sessions:      sessions,
 		hidden:        make(map[string]struct{}),

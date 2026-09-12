@@ -9,45 +9,6 @@ import (
 	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
-type cockpitGroup struct {
-	name string
-	rank int
-}
-
-// Canonical group registry. Ranks and definitions mirror
-// docs/group-registry.md exactly; that table is the source of truth.
-var (
-	// Rank 0 — live/resumable agent TUIs: managed agents in a live sub-state
-	// (starting/running/waiting/blocked/review), plus prompt/approval screens
-	// that can continue when answered.
-	groupActiveAgents = cockpitGroup{name: "Active Agents", rank: 0}
-	// Rank 1 — non-live agent panes blocked by an explicit hold, including the
-	// held+marked conflict (hold always wins over a mark for presentation).
-	groupHeldAgents = cockpitGroup{name: "Held / Teardown Blocked", rank: 1}
-	// Rank 2 — sessions actually marked by the janitor with no hold/evidence
-	// conflict; the only group that may render a cleanup countdown.
-	groupInactiveAgents = cockpitGroup{name: "Marked For Teardown", rank: 2}
-	// Rank 3 — non-active cleanup debt hygiene refuses to mark or kill
-	// (missing/empty evidence, relative run root, invalid contract data).
-	groupCleanupBlocked = cockpitGroup{name: "Cleanup Blocked", rank: 3}
-	// Rank 4 — failed/problem agent panes inside the failure-visible window.
-	groupFailedAgents = cockpitGroup{name: "Failed Agents", rank: 4}
-	// Rank 5 — workflow/runtime failures that need operator judgment.
-	groupOperationalFailures = cockpitGroup{name: "Operational Failures", rank: 5}
-	// Rank 6 — platform, route, skeleton, or source-health failures.
-	groupSubsystemFailures = cockpitGroup{name: "Sub-System Failures", rank: 6}
-	// Rank 7 — healthy long-running watchers/bridges/monitors.
-	groupServices = cockpitGroup{name: "Services", rank: 7}
-	// Rank 8 — completed agent cards that are not held, failed-visible,
-	// marked, or cleanup-blocked; also completed runtime cards.
-	groupDoneHeld = cockpitGroup{name: "Completed Agent Runs", rank: 8}
-	// Rank 9+ — non-agent fallback work, self-monitoring UIs, viewers, shells.
-	groupWork      = cockpitGroup{name: "Active Work", rank: 9}
-	groupDashboard = cockpitGroup{name: "Dashboards", rank: 10}
-	groupViewers   = cockpitGroup{name: "Viewers", rank: 11}
-	groupIdle      = cockpitGroup{name: "Idle / Unowned", rank: 12}
-)
-
 // agentNameTokens identify an agent/review session by its chrome (name, window,
 // title, command) when it carries no managed cockpit metadata.
 var agentNameTokens = []string{
@@ -170,7 +131,7 @@ func computeCockpitGroupFor(m *Model, session tmux.Session) cockpitGroup {
 
 	// 5. Remaining non-agent work.
 	if stateIsCompletedInfo(state) || state == "held" || state == "stale" || sessionAllPanesDead(session) {
-		return groupDoneHeld
+		return groupCompletedAgents
 	}
 	if stateNeedsAttention(state) {
 		return groupSubsystemFailures
@@ -281,6 +242,9 @@ func agentLifecycleGroup(m *Model, session tmux.Session, state string) cockpitGr
 	hasRow := join == janitorJoinOK
 	held := sessionHasHold(session, m.clockNow()) || (state == "held" && !sessionAllPanesDead(session))
 	blocked := hasRow && strings.EqualFold(strings.TrimSpace(row.JanitorState), "cleanup_blocked")
+	if stateIsCompletedInfo(state) && retainedUntilExit(row) {
+		blocked = false
+	}
 	marked := state == "marked-for-teardown" ||
 		(hasRow && strings.EqualFold(strings.TrimSpace(row.JanitorState), "marked_for_teardown"))
 	// A validly joined sidecar mark must still lose to genuine live/operator
@@ -313,9 +277,9 @@ func agentLifecycleGroup(m *Model, session tmux.Session, state string) cockpitGr
 			return groupCleanupBlocked
 		}
 		if marked {
-			return groupInactiveAgents
+			return groupMarkedForTeardown
 		}
-		return groupDoneHeld
+		return groupCompletedAgents
 	}
 	// Live managed agent: waiting/blocked/review and any unknown sub-state stay
 	// in the active band, never scattered.
@@ -347,18 +311,12 @@ func verdictIsGenuineLiveEvidence(verdict paneLifecycleVerdict) bool {
 // uses it so a validly joined sidecar mark cannot pull genuinely resumed work
 // out of Active Agents (hygiene should cancel that mark on its next cycle).
 func sessionHasLiveEvidence(m *Model, session tmux.Session) bool {
-	agentLike := sessionHasManagedAgent(session) || containsAny(sessionChromeText(session), agentNameTokens...)
 	for _, window := range session.Windows {
 		for _, pane := range window.Panes {
 			if pane.Dead {
 				continue
 			}
-			var verdict paneLifecycleVerdict
-			if m != nil {
-				verdict = m.cachedLifecycleVerdict(pane, session)
-			} else {
-				verdict = paneLifecycleVerdictFor(pane, agentLike)
-			}
+			verdict := m.cachedLifecycleVerdict(pane, session)
 			if verdictIsGenuineLiveEvidence(verdict) {
 				return true
 			}
@@ -426,6 +384,14 @@ func computeSessionAttentionState(m *Model, session tmux.Session) string {
 }
 
 func paneAttentionState(m *Model, session tmux.Session, pane tmux.Pane) string {
+	// Explicit assignment completion is not overwritten by stale screen text.
+	if pane.Dead && pane.DeadStatus != 0 {
+		return "failed"
+	}
+	if state := assignmentTerminalState(pane.Cockpit); state != "" {
+		return state
+	}
+
 	// Genuine live evidence outranks teardown marks (lifecycle-contract Signal
 	// Precedence rows 1-2): a pane whose captured content proves live work or
 	// an operator prompt stays active even when pane metadata or a sidecar row
@@ -436,11 +402,7 @@ func paneAttentionState(m *Model, session tmux.Session, pane tmux.Pane) string {
 	// a mark.
 	var verdict paneLifecycleVerdict
 	if !pane.Dead {
-		if m != nil {
-			verdict = m.cachedLifecycleVerdict(pane, session)
-		} else {
-			verdict = paneLifecycleVerdictFor(pane, sessionHasManagedAgent(session) || containsAny(sessionChromeText(session), agentNameTokens...))
-		}
+		verdict = m.cachedLifecycleVerdict(pane, session)
 		if verdictIsGenuineLiveEvidence(verdict) {
 			if verdict.state == "live-working" {
 				return "running"
@@ -466,11 +428,7 @@ func paneAttentionState(m *Model, session tmux.Session, pane tmux.Pane) string {
 			return verdict.state
 		}
 	}
-	if m != nil {
-		if outcome := m.semanticPaneOutcome(pane); outcome.state != "" {
-			return outcome.state
-		}
-	} else if outcome := semanticPaneOutcome(pane); outcome.state != "" {
+	if outcome := m.semanticPaneOutcome(pane); outcome.state != "" {
 		return outcome.state
 	}
 	if isOpenClawRuntimePane(pane) {
@@ -565,8 +523,8 @@ func sessionHasCockpitAgent(session tmux.Session) bool {
 				continue
 			}
 			agent := strings.TrimSpace(pane.Cockpit.Agent)
-			kind := strings.TrimSpace(pane.Cockpit.Kind)
-			if agent != "" || kind == "agent" || kind == "batch-worker" || kind == "smoke" {
+			kind := strings.ToLower(strings.TrimSpace(pane.Cockpit.Kind))
+			if agent != "" || isAgentKind(kind) {
 				return true
 			}
 		}
@@ -590,7 +548,7 @@ func sessionHasManagedAgent(session tmux.Session) bool {
 				continue
 			}
 			agent := strings.TrimSpace(pane.Cockpit.Agent)
-			if agent != "" || kind == "agent" || kind == "batch-worker" || kind == "smoke" {
+			if agent != "" || isAgentKind(kind) {
 				return true
 			}
 		}
@@ -720,7 +678,7 @@ func openClawRuntimeGroupFor(session tmux.Session) (cockpitGroup, bool) {
 			case "route_health", "source_unknown", "expected_controls", "skeletons":
 				return groupSubsystemFailures, true
 			case "completed":
-				return groupDoneHeld, true
+				return groupCompletedAgents, true
 			}
 			// Fallback: no presentationGroup mapping hit. Route the raw
 			// displayGroup; a needs_attention card becomes operational when it is
@@ -731,7 +689,7 @@ func openClawRuntimeGroupFor(session tmux.Session) (cockpitGroup, bool) {
 			case "active":
 				return groupOperationalFailures, true
 			case "completed", "unknown":
-				return groupDoneHeld, true
+				return groupCompletedAgents, true
 			default:
 				state := strings.ToLower(strings.TrimSpace(pane.Cockpit.State))
 				if stateNeedsAttention(state) {
@@ -740,7 +698,7 @@ func openClawRuntimeGroupFor(session tmux.Session) (cockpitGroup, bool) {
 				if stateIsLiveAgentState(state) {
 					return groupOperationalFailures, true
 				}
-				return groupDoneHeld, true
+				return groupCompletedAgents, true
 			}
 		}
 	}
@@ -834,11 +792,35 @@ func primaryCockpitGroups() []cockpitGroup {
 	return []cockpitGroup{
 		groupActiveAgents,
 		groupHeldAgents,
-		groupInactiveAgents,
+		groupMarkedForTeardown,
 		groupCleanupBlocked,
 		groupFailedAgents,
 		groupOperationalFailures,
 		groupSubsystemFailures,
 		groupServices,
 	}
+}
+
+// A valid completion timestamp paired with a terminal assignment state is a
+// producer fact. Untimestamped/older metadata and screen heuristics are not.
+func assignmentTerminalState(meta *tmux.CockpitMeta) string {
+	if meta == nil || meta.DisplayOnly() {
+		return ""
+	}
+	completed := parseCockpitTimestamp(meta.CompletedAt)
+	if completed.IsZero() {
+		return ""
+	}
+	if started := parseCockpitTimestamp(meta.StartedAt); !started.IsZero() && completed.Before(started) {
+		return ""
+	}
+	state := strings.ToLower(strings.TrimSpace(meta.State))
+	if stateIsCompletedInfo(state) || stateIsTerminalProblem(state) {
+		return state
+	}
+	return ""
+}
+
+func retainedUntilExit(row janitorSessionStatus) bool {
+	return row.JanitorState == "retained_until_exit" || row.LastRefusal == "live_session_requires_explicit_retirement" || row.Reason == "live_session_requires_explicit_retirement"
 }

@@ -22,7 +22,7 @@ func TestFormatHeaderOmitsHost(t *testing.T) {
 		LastActivity: time.Now().Add(-time.Minute),
 	}
 
-	got := formatHeader(time.Now(), 80, session, window, pane, false, false, false, false, "", "[x]", "dev-host")
+	got := formatHeader(time.Now(), 80, session, window, pane, false, false, false, false, paneAttentionState(nil, session, pane), "[x]", "dev-host")
 	if strings.Contains(got, "dev-host") {
 		t.Fatalf("formatHeader should omit host when title matches, got %q", got)
 	}
@@ -60,7 +60,7 @@ func TestFormatHeaderUsesCockpitMetadata(t *testing.T) {
 		},
 	}
 
-	got := formatHeader(time.Now(), 100, session, window, pane, false, false, false, false, "", "[x]", "dev-host")
+	got := formatHeader(time.Now(), 100, session, window, pane, false, false, false, false, paneAttentionState(nil, session, pane), "[x]", "dev-host")
 	for _, want := range []string{"CODEX", "waiting", "workshop-4", "tmuxwatch"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("formatHeader missing %q in %q", want, got)
@@ -289,7 +289,7 @@ func TestCockpitStateDowngradesDeadManagedRunningPane(t *testing.T) {
 		},
 	}
 
-	if got := cockpitState(pane, false); got != "stale" {
+	if got := paneAttentionState(nil, tmux.Session{}, pane); got != "stale" {
 		t.Fatalf("cockpitState() = %q, want stale", got)
 	}
 }
@@ -611,7 +611,7 @@ func TestNonAgentCardsStripCLIColors(t *testing.T) {
 func TestAgentCLIColorPassthroughGroups(t *testing.T) {
 	t.Parallel()
 
-	for _, group := range []cockpitGroup{groupActiveAgents, groupInactiveAgents, groupFailedAgents} {
+	for _, group := range []cockpitGroup{groupActiveAgents, groupMarkedForTeardown, groupFailedAgents} {
 		if !agentCLIColorPassthroughGroup(group.name) {
 			t.Fatalf("%s should preserve agent CLI foreground colors", group.name)
 		}
@@ -714,7 +714,7 @@ func TestViewerKindOverridesAgentLabelAndQuietOutput(t *testing.T) {
 	if sessionHasManagedAgent(session) {
 		t.Fatal("viewer classified as agent")
 	}
-	if got := sessionCockpitState(nil, session, pane, true); got == "stale" {
+	if got := paneAttentionState(nil, session, pane); got == "stale" {
 		t.Fatal("quiet viewer labeled stale")
 	}
 	session.Windows[0].Panes[0].Dead = true

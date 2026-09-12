@@ -61,7 +61,7 @@ Accordion state is view state, not lifecycle truth.
 
 Each group policy is defined in [`group-registry.md`](group-registry.md). Supported policy terms:
 
-- `auto_open_on_urgent`: may reopen when new active or urgent content appears.
+- `auto_open_on_urgent` (future, not implemented): may reopen when new active or urgent content appears.
 - `respect_manual_collapse`: stays collapsed until the operator opens it.
 - `default_open`: initial state only.
 - `default_collapsed`: initial state only.
@@ -121,7 +121,7 @@ Color is supporting information, not the only state indicator. Group colors and 
 - Active group receives more height than services/completed when active work exists.
 - One active card can relax past soft caps when lower groups are compacted.
 - Manual collapse persists across snapshot reloads and janitor/runtime updates.
-- Policy-defined active/urgent events can reopen only the groups configured to auto-open.
+- Future policy-defined active/urgent auto-open is not implemented; current manual collapse persists across refreshes.
 - Footer height stays within configured maximum.
 - Group labels and countdowns remain visible within narrow widths.
 - Launcher/config behavior around tmux status row is explicit and documented.
@@ -141,3 +141,19 @@ Golden wall fixture:
 - one cleanup-blocked pane with evidence error;
 - one failed-visible pane;
 - one service card.
+
+
+## Acquisition and navigation invariants
+
+Snapshot and fast preview captures share admission and a per-request generation.
+A late reply cannot replace a newer preview or release another request. Aggregate
+rate budgets and round-robin fairness apply across both paths.
+
+Arrow keys follow each group's rendered rows and horizontal card centers, not
+a global column count. Vertical moves choose the nearest center in the next
+row, including partial rows and different group widths; horizontal moves never
+wrap rows. Collapse and resize recompute navigation from the rendering policy.
+
+Runtime `shown` counts mean delivered cards after producer and consumer caps.
+Pre-limit visible totals are labeled `total`; truncation is explicit. Raw,
+grouped and hidden source counts remain distinct facts.

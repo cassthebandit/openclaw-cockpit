@@ -72,14 +72,14 @@ func TestFastTickMessageMixDoesNotRebuild(t *testing.T) {
 		t.Fatalf("heartbeat ticks rebuilt the frame: builds %d -> %d", builds, m.renderBuilds)
 	}
 
-	m.Update(paneContentMsg{sessionID: target.ID, paneID: paneID, text: "fresh streaming output\nline 2"})
+	m.Update(paneContentMsg{generation: m.previews[target.ID].captureGeneration, sessionID: target.ID, paneID: paneID, text: "fresh streaming output\nline 2"})
 	_ = m.View()
 	if m.renderBuilds != builds+1 {
 		t.Fatalf("changed capture content should rebuild exactly once: builds %d -> %d", builds, m.renderBuilds)
 	}
 
 	builds = m.renderBuilds
-	m.Update(paneContentMsg{sessionID: target.ID, paneID: paneID, text: "fresh streaming output\nline 2"})
+	m.Update(paneContentMsg{generation: m.previews[target.ID].captureGeneration, sessionID: target.ID, paneID: paneID, text: "fresh streaming output\nline 2"})
 	_ = m.View()
 	if m.renderBuilds != builds {
 		t.Fatalf("same-content capture should stay render-neutral: builds %d -> %d", builds, m.renderBuilds)
@@ -308,7 +308,7 @@ func TestPulseSchedulingAndSteadyOnOff(t *testing.T) {
 	_ = m.View()
 
 	start := *clock
-	m.Update(paneContentMsg{sessionID: target.ID, paneID: paneID, text: "pulse content"})
+	m.Update(paneContentMsg{generation: m.previews[target.ID].captureGeneration, sessionID: target.ID, paneID: paneID, text: "pulse content"})
 	if want := start.Add(pulseDuration); !m.nextRenderAt.Equal(want) {
 		t.Fatalf("pulse expiry scheduled at %v, want %v", m.nextRenderAt, want)
 	}

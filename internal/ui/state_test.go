@@ -97,16 +97,16 @@ func TestGroupCollapseDefaults(t *testing.T) {
 
 	m := &Model{collapsedGroups: map[string]struct{}{}, seededGroups: map[string]struct{}{}}
 	m.seedGroupCollapse([]cockpitGroup{
-		groupActiveAgents, groupInactiveAgents, groupFailedAgents, groupOperationalFailures, groupSubsystemFailures,
-		groupDoneHeld, groupServices,
+		groupActiveAgents, groupMarkedForTeardown, groupFailedAgents, groupOperationalFailures, groupSubsystemFailures,
+		groupCompletedAgents, groupServices,
 	})
 
-	for _, g := range []cockpitGroup{groupActiveAgents, groupInactiveAgents, groupFailedAgents, groupOperationalFailures, groupSubsystemFailures} {
+	for _, g := range []cockpitGroup{groupActiveAgents, groupMarkedForTeardown, groupFailedAgents, groupOperationalFailures, groupSubsystemFailures} {
 		if m.isGroupCollapsed(g.name) {
 			t.Fatalf("group %q should default expanded", g.name)
 		}
 	}
-	for _, g := range []cockpitGroup{groupDoneHeld, groupServices} {
+	for _, g := range []cockpitGroup{groupCompletedAgents, groupServices} {
 		if !m.isGroupCollapsed(g.name) {
 			t.Fatalf("group %q should default collapsed", g.name)
 		}
@@ -119,11 +119,11 @@ func TestGroupCollapseTogglePersistsAcrossSeeding(t *testing.T) {
 	t.Parallel()
 
 	m := &Model{collapsedGroups: map[string]struct{}{}, seededGroups: map[string]struct{}{}}
-	groups := []cockpitGroup{groupActiveAgents, groupDoneHeld}
+	groups := []cockpitGroup{groupActiveAgents, groupCompletedAgents}
 	m.seedGroupCollapse(groups)
 
-	m.toggleGroupCollapsed(groupActiveAgents.name) // expanded -> collapsed
-	m.toggleGroupCollapsed(groupDoneHeld.name)     // collapsed -> expanded
+	m.toggleGroupCollapsed(groupActiveAgents.name)    // expanded -> collapsed
+	m.toggleGroupCollapsed(groupCompletedAgents.name) // collapsed -> expanded
 
 	// A later render re-seeds; user choices must persist.
 	m.seedGroupCollapse(groups)
@@ -131,7 +131,7 @@ func TestGroupCollapseTogglePersistsAcrossSeeding(t *testing.T) {
 	if !m.isGroupCollapsed(groupActiveAgents.name) {
 		t.Fatal("user-collapsed Active Agents should stay collapsed after re-seed")
 	}
-	if m.isGroupCollapsed(groupDoneHeld.name) {
+	if m.isGroupCollapsed(groupCompletedAgents.name) {
 		t.Fatal("user-expanded Completed Agent Runs should stay expanded after re-seed")
 	}
 }

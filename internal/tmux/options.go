@@ -5,7 +5,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 )
 
@@ -14,8 +13,7 @@ func (c *Client) PaneVariables(ctx context.Context, paneID string) (map[string]s
 	if paneID == "" {
 		return nil, fmt.Errorf("pane id cannot be empty")
 	}
-	cmd := exec.CommandContext(ctx, c.bin, "show-options", "-p", "-t", paneID)
-	out, err := cmd.Output()
+	out, err := c.runTmux(ctx, "show-options", "-p", "-t", paneID)
 	if err != nil {
 		return nil, fmt.Errorf("show-options %s: %w", paneID, err)
 	}

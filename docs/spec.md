@@ -50,12 +50,15 @@ The implemented JSON config covers footer height, stale display thresholds, and 
 Changes should run the same gates as CI:
 
 ```sh
-gofumpt -w .
+gofumpt -l . # must produce no paths (use make fmt to format)
 golangci-lint run --timeout=5m --max-issues-per-linter=0 --max-same-issues=0
 go test ./...
 go test -race ./...
-go build ./cmd/openclaw-cockpit
+python3 -m unittest discover -s scripts -p 'test_*.py'
+make cross-build
 ```
+
+`make check` runs the complete gate above. tmux must be installed; a skipped live test is not runtime proof.
 
 Changes to terminal behavior should also be exercised against a real disposable tmux session. Packaging changes must preserve the release targets in `.goreleaser.yaml` and the Nix flake.
 

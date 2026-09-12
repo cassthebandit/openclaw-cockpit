@@ -15,43 +15,58 @@ type cockpitOutcome struct {
 }
 
 func semanticPaneOutcome(pane tmux.Pane) cockpitOutcome {
-	if pane.Cockpit == nil {
+	return paneOutcomeWithArtifact(pane, artifactOutcomeState(pane))
+}
+
+func (m *Model) semanticPaneOutcome(pane tmux.Pane) cockpitOutcome {
+	if m == nil {
+		return semanticPaneOutcome(pane)
+	}
+	return paneOutcomeWithArtifact(pane, m.cachedArtifactOutcome(pane))
+}
+
+// Acquisition (cached or direct) stays with the caller; precedence has one owner.
+func paneOutcomeWithArtifact(pane tmux.Pane, artifact string) cockpitOutcome {
+	if pane.Cockpit == nil || (pane.Dead && pane.DeadStatus != 0) {
 		return cockpitOutcome{}
 	}
-	if pane.Dead && pane.DeadStatus != 0 {
-		return cockpitOutcome{}
+	if artifact != "" {
+		return cockpitOutcome{state: artifact}
 	}
-	if state := artifactOutcomeState(pane); state != "" {
-		return cockpitOutcome{state: state}
-	}
-	meta := pane.Cockpit
-	if strings.TrimSpace(meta.RouteFailure) != "" {
+	if strings.TrimSpace(pane.Cockpit.RouteFailure) != "" {
 		return cockpitOutcome{state: "route-fail"}
 	}
-	if strings.Contains(strings.ToLower(meta.EndReason), "safety") {
+	if strings.Contains(strings.ToLower(pane.Cockpit.EndReason), "safety") {
 		return cockpitOutcome{state: "safety-fail"}
 	}
 	return cockpitOutcome{}
 }
 
-func (m *Model) semanticPaneOutcome(pane tmux.Pane) cockpitOutcome {
-	if pane.Cockpit == nil {
-		return cockpitOutcome{}
+var evidenceCandidateFiles = []string{"verification.json", "analysis.json", "summary.json", "RESULT.md"}
+
+// resolveEvidence preserves the declared-root and symlink containment boundary
+// for both stat fingerprinting and outcome reads. A blank declaration is not
+// evidence; an invalid declared path remains a visible review outcome.
+func resolveEvidence(meta *tmux.CockpitMeta) (root, path string, err error) {
+	if meta == nil || strings.TrimSpace(meta.RunRoot) == "" || strings.TrimSpace(meta.EvidencePath) == "" {
+		return "", "", nil
 	}
-	if pane.Dead && pane.DeadStatus != 0 {
-		return cockpitOutcome{}
+	root, err = filepath.EvalSymlinks(strings.TrimSpace(meta.RunRoot))
+	if err != nil {
+		return "", "", err
 	}
-	if state := m.cachedArtifactOutcome(pane); state != "" {
-		return cockpitOutcome{state: state}
+	path = strings.TrimSpace(meta.EvidencePath)
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(root, path)
 	}
-	meta := pane.Cockpit
-	if strings.TrimSpace(meta.RouteFailure) != "" {
-		return cockpitOutcome{state: "route-fail"}
+	path, err = filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", "", err
 	}
-	if strings.Contains(strings.ToLower(meta.EndReason), "safety") {
-		return cockpitOutcome{state: "safety-fail"}
+	if !pathIsInside(root, path) {
+		return "", "", fmt.Errorf("evidence outside run root")
 	}
-	return cockpitOutcome{}
+	return root, path, nil
 }
 
 // artifactOutcomeProbe caches an evidence outcome together with the stat
@@ -102,25 +117,8 @@ func (m *Model) refreshArtifactOutcomes() {
 // disables probe reuse for that pane (full recompute each snapshot, matching
 // the old behaviour).
 func artifactStatKey(pane tmux.Pane) string {
-	meta := pane.Cockpit
-	if meta == nil {
-		return ""
-	}
-	runRoot := strings.TrimSpace(meta.RunRoot)
-	evidence := strings.TrimSpace(meta.EvidencePath)
-	if runRoot == "" || evidence == "" {
-		return ""
-	}
-	root, err := filepath.EvalSymlinks(runRoot)
-	if err != nil {
-		return ""
-	}
-	evidencePath := evidence
-	if !filepath.IsAbs(evidencePath) {
-		evidencePath = filepath.Join(root, evidencePath)
-	}
-	evidencePath, err = filepath.EvalSymlinks(evidencePath)
-	if err != nil || !pathIsInside(root, evidencePath) {
+	root, evidencePath, err := resolveEvidence(pane.Cockpit)
+	if err != nil || evidencePath == "" {
 		return ""
 	}
 	var b strings.Builder
@@ -140,7 +138,7 @@ func artifactStatKey(pane tmux.Pane) string {
 		return info
 	}
 	if info := appendStat(evidencePath); info != nil && info.IsDir() {
-		for _, name := range []string{"verification.json", "analysis.json", "summary.json", "RESULT.md"} {
+		for _, name := range evidenceCandidateFiles {
 			appendStat(filepath.Join(evidencePath, name))
 		}
 	}
@@ -167,33 +165,19 @@ func artifactOutcomeCacheKey(pane tmux.Pane) string {
 }
 
 func artifactOutcomeState(pane tmux.Pane) string {
-	meta := pane.Cockpit
-	if meta == nil {
-		return ""
-	}
-	runRoot := strings.TrimSpace(meta.RunRoot)
-	evidence := strings.TrimSpace(meta.EvidencePath)
-	if runRoot == "" || evidence == "" {
-		return ""
-	}
-	root, err := filepath.EvalSymlinks(runRoot)
+	root, evidencePath, err := resolveEvidence(pane.Cockpit)
 	if err != nil {
 		return "review"
 	}
-	evidencePath := evidence
-	if !filepath.IsAbs(evidencePath) {
-		evidencePath = filepath.Join(root, evidencePath)
-	}
-	evidencePath, err = filepath.EvalSymlinks(evidencePath)
-	if err != nil || !pathIsInside(root, evidencePath) {
-		return "review"
+	if evidencePath == "" {
+		return ""
 	}
 	info, err := os.Stat(evidencePath)
 	if err != nil {
 		return "review"
 	}
 	if info.IsDir() {
-		for _, name := range []string{"verification.json", "analysis.json", "summary.json", "RESULT.md"} {
+		for _, name := range evidenceCandidateFiles {
 			candidate := filepath.Join(evidencePath, name)
 			resolved, err := filepath.EvalSymlinks(candidate)
 			if os.IsNotExist(err) {
@@ -208,7 +192,7 @@ func artifactOutcomeState(pane tmux.Pane) string {
 		}
 		return ""
 	}
-	return artifactFileOutcomeAs(evidencePath, evidence, true)
+	return artifactFileOutcomeAs(evidencePath, strings.TrimSpace(pane.Cockpit.EvidencePath), true)
 }
 
 func artifactFileOutcomeAs(path, declared string, required bool) string {

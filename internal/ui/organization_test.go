@@ -187,8 +187,8 @@ func TestDisplayOnlyMetadataDoesNotOverrideDeadPane(t *testing.T) {
 	if got := sessionAttentionState(nil, session); got != "done" {
 		t.Fatalf("sessionAttentionState() = %q, want done", got)
 	}
-	if got := cockpitGroupFor(nil, session).name; got != groupDoneHeld.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupDoneHeld.name)
+	if got := cockpitGroupFor(nil, session).name; got != groupCompletedAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupCompletedAgents.name)
 	}
 }
 
@@ -424,8 +424,8 @@ func TestManagedDeliveredIdleIgnoresSiblingShellPane(t *testing.T) {
 	if got := sessionAttentionState(nil, session); got != "delivered-idle" {
 		t.Fatalf("sessionAttentionState() = %q, want delivered-idle", got)
 	}
-	if got := cockpitGroupFor(nil, session).name; got != groupDoneHeld.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupDoneHeld.name)
+	if got := cockpitGroupFor(nil, session).name; got != groupCompletedAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupCompletedAgents.name)
 	}
 }
 
@@ -798,7 +798,7 @@ func TestOrganizedCardBodyHeightsUseVerticalSpace(t *testing.T) {
 	heights := m.cardBodyHeightsByGroup(m.sessions)
 	running := heights[groupActiveAgents.name]
 	services := heights[groupServices.name]
-	done := heights[groupInactiveAgents.name]
+	done := heights[groupMarkedForTeardown.name]
 
 	if running <= maxOverviewBodyLines {
 		t.Fatalf("active agent height = %d, want more than old fixed cap %d", running, maxOverviewBodyLines)
@@ -868,8 +868,8 @@ func TestOrganizedCardBodyHeightsCollapsedTopPromotesNextOpenGroup(t *testing.T)
 	if _, ok := heights[groupActiveAgents.name]; ok {
 		t.Fatalf("collapsed active group should not receive body height: %#v", heights)
 	}
-	inactive := heights[groupInactiveAgents.name]
-	if inactive <= bodyHeightConstraintForGroup(groupInactiveAgents).max {
+	inactive := heights[groupMarkedForTeardown.name]
+	if inactive <= bodyHeightConstraintForGroup(groupMarkedForTeardown).max {
 		t.Fatalf("inactive height = %d, want first expanded non-empty group to relax past soft cap", inactive)
 	}
 }
@@ -1045,7 +1045,7 @@ func TestOrganizedCardBodyHeightsShrinkSmallTerminalCleanly(t *testing.T) {
 	}
 
 	content := stripANSI(m.renderSessionPreviews(m.previewOffset))
-	for _, want := range []string{groupActiveAgents.name, groupInactiveAgents.name, groupOperationalFailures.name, groupServices.name} {
+	for _, want := range []string{groupActiveAgents.name, groupMarkedForTeardown.name, groupOperationalFailures.name, groupServices.name} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("small terminal render missing divider %q in:\n%s", want, content)
 		}
@@ -1288,7 +1288,7 @@ func TestCockpitGroupRoutesWaitingBlockedAndDone(t *testing.T) {
 	}{
 		{state: "waiting", want: groupActiveAgents.name},
 		{state: "blocked", want: groupActiveAgents.name},
-		{state: "done", want: groupDoneHeld.name},
+		{state: "done", want: groupCompletedAgents.name},
 	}
 	for _, tt := range tests {
 		tt := tt
@@ -1455,8 +1455,8 @@ func TestSidecarRowPaneIdentityMismatchGrantsNoTeardown(t *testing.T) {
 		PaneCreated:   "1700000000",
 	}
 	m := modelWithJanitorSidecar(map[string]janitorSessionStatus{"reused-name": row})
-	if got := cockpitGroupFor(m, session).name; got != groupDoneHeld.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q (mismatched row must not mark)", got, groupDoneHeld.name)
+	if got := cockpitGroupFor(m, session).name; got != groupCompletedAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q (mismatched row must not mark)", got, groupCompletedAgents.name)
 	}
 	line := cockpitCleanupLine(m, session, session.Windows[0].Panes[0], time.Unix(1752000100, 0))
 	if !strings.Contains(line, "pane identity mismatch") {
@@ -1476,8 +1476,8 @@ func TestSidecarRowWithoutIdentityGrantsNoTeardown(t *testing.T) {
 	m := modelWithJanitorSidecar(map[string]janitorSessionStatus{
 		"legacy-payload": {JanitorState: "marked_for_teardown", KillNotBefore: "2099-01-01T00:00:00Z"},
 	})
-	if got := cockpitGroupFor(m, session).name; got != groupDoneHeld.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q (identity-less row must not mark)", got, groupDoneHeld.name)
+	if got := cockpitGroupFor(m, session).name; got != groupCompletedAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q (identity-less row must not mark)", got, groupCompletedAgents.name)
 	}
 	line := cockpitCleanupLine(m, session, session.Windows[0].Panes[0], time.Unix(1752000100, 0))
 	if !strings.Contains(line, "no pane identity") {
@@ -1524,8 +1524,8 @@ func TestSidecarMarkRoutesToMarkedForTeardown(t *testing.T) {
 	m := modelWithJanitorSidecar(map[string]janitorSessionStatus{
 		"marked-by-sidecar": sidecarRowFor(session, janitorSessionStatus{JanitorState: "marked_for_teardown", KillNotBefore: "2026-07-09T23:59:00Z"}),
 	})
-	if got := cockpitGroupFor(m, session).name; got != groupInactiveAgents.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupInactiveAgents.name)
+	if got := cockpitGroupFor(m, session).name; got != groupMarkedForTeardown.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupMarkedForTeardown.name)
 	}
 }
 
@@ -1539,8 +1539,8 @@ func TestStaleSidecarNeverInfersCleanupEligibility(t *testing.T) {
 		"stale-sidecar-lane": {JanitorState: "cleanup_blocked", LastRefusal: "evidence_empty"},
 	})
 	m.janitorStatus.State = "stale"
-	if got := cockpitGroupFor(m, session).name; got != groupDoneHeld.name {
-		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupDoneHeld.name)
+	if got := cockpitGroupFor(m, session).name; got != groupCompletedAgents.name {
+		t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupCompletedAgents.name)
 	}
 }
 
@@ -1641,8 +1641,8 @@ func TestTerminalAgentStatesRouteToSystemProblems(t *testing.T) {
 		t.Parallel()
 		// Stale is completed-ish debt, not a janitor mark: Completed Agent Runs.
 		session := agentSessionForGroup("terminal-agent-stale", "stale")
-		if got := cockpitGroupFor(nil, session).name; got != groupDoneHeld.name {
-			t.Fatalf("stale: cockpitGroupFor() = %q, want %q", got, groupDoneHeld.name)
+		if got := cockpitGroupFor(nil, session).name; got != groupCompletedAgents.name {
+			t.Fatalf("stale: cockpitGroupFor() = %q, want %q", got, groupCompletedAgents.name)
 		}
 	})
 
@@ -1673,8 +1673,8 @@ func TestStaleAgentRoutesCompletedWithAndWithoutPreview(t *testing.T) {
 			t.Parallel()
 			session := agentSessionForGroup("stale-agent-"+tt.name, "stale")
 			session.Windows[0].Panes[0].PreviewText = tt.preview
-			if got := cockpitGroupFor(nil, session).name; got != groupDoneHeld.name {
-				t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupDoneHeld.name)
+			if got := cockpitGroupFor(nil, session).name; got != groupCompletedAgents.name {
+				t.Fatalf("cockpitGroupFor() = %q, want %q", got, groupCompletedAgents.name)
 			}
 		})
 	}

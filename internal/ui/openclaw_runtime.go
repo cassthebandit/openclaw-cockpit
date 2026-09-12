@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	defaultOpenClawRuntimeTimeout = 20 * time.Second
-	openClawRuntimeCardContract   = "runtime-card.v1"
+	defaultOpenClawRuntimeTimeout   = 20 * time.Second
+	defaultOpenClawRuntimeCardLimit = 20
+	openClawRuntimeCardContract     = "runtime-card.v1"
 	// runtimeOutputCapBytes bounds how much snapshot-script stdout is read
 	// before JSON decoding; a producer past the cap is killed and reported
 	// instead of being slurped into memory.
@@ -48,15 +49,17 @@ func (c *cappedBuffer) String() string { return c.buf.String() }
 
 type openClawRuntimeSnapshot struct {
 	CardContract string                 `json:"cardContract"`
+	Truncated    bool                   `json:"truncated"`
 	Summary      openClawRuntimeSummary `json:"summary"`
 	Cards        []openClawRuntimeCard  `json:"cards"`
 }
 
 type openClawRuntimeSummary struct {
-	RawRuntimeCardCount     int `json:"rawRuntimeCardCount"`
-	VisibleRuntimeCardCount int `json:"visibleRuntimeCardCount"`
-	GroupedRuntimeCardCount int `json:"groupedRuntimeCardCount"`
-	HiddenRuntimeCardCount  int `json:"hiddenRuntimeCardCount"`
+	TotalVisibleRuntimeCardCount int `json:"totalVisibleRuntimeCardCount"`
+	RawRuntimeCardCount          int `json:"rawRuntimeCardCount"`
+	VisibleRuntimeCardCount      int `json:"visibleRuntimeCardCount"`
+	GroupedRuntimeCardCount      int `json:"groupedRuntimeCardCount"`
+	HiddenRuntimeCardCount       int `json:"hiddenRuntimeCardCount"`
 }
 
 type openClawRuntimeCard struct {
@@ -135,6 +138,7 @@ func openClawRuntimeSessions(source RuntimeSource, now time.Time) []tmux.Session
 			DisplayTitle:      "OpenClaw runtime snapshot",
 			DisplayStatus:     "failed",
 			DisplayGroup:      "needs_attention",
+			PresentationGroup: "source_unknown",
 			Reason:            "runtime_failed",
 			NextAction:        "inspect manually",
 			Runtime:           "openclaw-runtime",
@@ -159,22 +163,8 @@ func openClawRuntimeSessions(source RuntimeSource, now time.Time) []tmux.Session
 }
 
 func loadOpenClawRuntimeCards(source RuntimeSource) ([]openClawRuntimeCard, error) {
-	script := strings.TrimSpace(source.Script)
-	if script == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("resolve default OpenClaw runtime script: %w", err)
-		}
-		script = filepath.Join(home, ".openclaw", "workspace", "tools", "openclaw_runtime", "cockpit_snapshot.py")
-	}
-	limit := source.Limit
-	if limit <= 0 {
-		limit = 20
-	}
-	timeout := source.Timeout
-	if timeout <= 0 {
-		timeout = defaultOpenClawRuntimeTimeout
-	}
+	source = NormalizeRuntimeSource(source)
+	script, limit, timeout := source.Script, source.Limit, source.Timeout
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -198,7 +188,21 @@ func loadOpenClawRuntimeCards(source RuntimeSource) ([]openClawRuntimeCard, erro
 		return nil, fmt.Errorf("runtime snapshot timed out after %s", timeout)
 	}
 	if waitErr != nil {
-		detail := strings.TrimSpace(stderr.String())
+		var failure struct {
+			OK    *bool  `json:"ok"`
+			Error string `json:"error"`
+		}
+		detail := ""
+		if json.Unmarshal(out, &failure) == nil && failure.OK != nil && !*failure.OK {
+			detail = failure.Error
+		}
+		if strings.TrimSpace(detail) == "" {
+			detail = stderr.String()
+		}
+		detail = cardSafeLine(detail)
+		if len(detail) > 2048 {
+			detail = string([]rune(detail)[:min(512, len([]rune(detail)))]) + "…"
+		}
 		if detail == "" {
 			detail = waitErr.Error()
 		}
@@ -211,11 +215,15 @@ func loadOpenClawRuntimeCards(source RuntimeSource) ([]openClawRuntimeCard, erro
 	if err := validateOpenClawRuntimeSnapshot(snapshot); err != nil {
 		return nil, err
 	}
+	// Preserve source totals separately; shown always means delivered, even
+	// for old producers whose visible count was computed before their cap.
+	snapshot.Summary.TotalVisibleRuntimeCardCount = max(snapshot.Summary.TotalVisibleRuntimeCardCount, snapshot.Summary.VisibleRuntimeCardCount, len(snapshot.Cards))
 	// The requested card limit is enforced locally even when the producer
 	// returns more cards than asked for.
 	if len(snapshot.Cards) > limit {
 		snapshot.Cards = snapshot.Cards[:limit]
 	}
+	snapshot.Summary.VisibleRuntimeCardCount = len(snapshot.Cards)
 	for i := range snapshot.Cards {
 		snapshot.Cards[i].summary = snapshot.Summary
 	}
@@ -256,47 +264,48 @@ func openClawRuntimeSession(card openClawRuntimeCard, index int, now time.Time) 
 		Width:        100,
 		Height:       24,
 		Cockpit: &tmux.CockpitMeta{
-			ContractVersion:      runtimeCardContract(card),
-			ManagedBy:            "openclaw_runtime_snapshot",
-			Kind:                 "runtime",
-			Agent:                runtime,
-			Owner:                "",
-			Project:              "",
-			Goal:                 label,
-			State:                state,
-			DisplayStatus:        cardSafeLine(valueOr(card.DisplayStatus, state)),
-			DisplayGroup:         cardSafeLine(valueOr(card.DisplayGroup, "unknown")),
-			PresentationGroup:    cardSafeLine(card.PresentationGroup),
-			PresentationLabel:    cardSafeLine(card.PresentationLabel),
-			Reason:               cardSafeLine(card.Reason),
-			NextAction:           cardSafeLine(card.NextAction),
-			WhyVisible:           cardSafeLine(card.WhyVisible),
-			SuggestionKind:       cardSafeLine(card.SuggestionKind),
-			SuggestedAction:      cardSafeLine(card.SuggestedAction),
-			SuggestedCommand:     cardSafeLine(card.SuggestedCommand),
-			SuggestionConfidence: cardSafeLine(card.SuggestionConfidence),
-			Skeleton:             boolString(card.Skeleton),
-			SkeletonReason:       cardSafeLine(card.SkeletonReason),
-			Suppressed:           boolString(card.Suppressed),
-			LifecycleState:       cardSafeLine(runtimeCardLifecycle(card)),
-			SourceTruth:          cardSafeLine(card.SourceTruth),
-			SourceProvenance:     cardSafeLine(card.SourceProvenance),
-			Actionability:        cardSafeLine(card.Actionability),
-			TeardownPolicy:       cardSafeLine(card.TeardownPolicy),
-			PolicyScope:          cardSafeLine(card.PolicyScope),
-			AggregationPolicy:    cardSafeLine(card.AggregationPolicy),
-			SourceKinds:          cardSafeLine(strings.Join(card.SourceKinds, ",")),
-			SourceCount:          runtimeSourceCount(card),
-			LogicalGroupKey:      cardSafeLine(card.LogicalGroupKey),
-			GroupedRecordCount:   intString(card.GroupedRecordCount),
-			RawCardCount:         intString(firstPositive(card.summary.RawRuntimeCardCount, card.RawCardCount)),
-			VisibleCardCount:     intString(firstPositive(card.summary.VisibleRuntimeCardCount, card.VisibleCardCount)),
-			GroupedCardCount:     intString(card.summary.GroupedRuntimeCardCount),
-			HiddenCardCount:      intString(card.summary.HiddenRuntimeCardCount),
-			SessionID:            firstNonEmpty(card.ChildSessionKey, card.RequesterSession, card.ParentFlowID, card.RunID, card.DedupeKey, card.ID),
-			UpdatedAt:            activity.UTC().Format(time.RFC3339),
-			EvidencePath:         runtimeCardEvidence(card),
-			HoldReason:           runtimeCardHoldReason(card),
+			ContractVersion:       runtimeCardContract(card),
+			ManagedBy:             "openclaw_runtime_snapshot",
+			Kind:                  "runtime",
+			Agent:                 runtime,
+			Owner:                 "",
+			Project:               "",
+			Goal:                  label,
+			State:                 state,
+			DisplayStatus:         cardSafeLine(valueOr(card.DisplayStatus, state)),
+			DisplayGroup:          cardSafeLine(valueOr(card.DisplayGroup, "unknown")),
+			PresentationGroup:     cardSafeLine(card.PresentationGroup),
+			PresentationLabel:     cardSafeLine(card.PresentationLabel),
+			Reason:                cardSafeLine(card.Reason),
+			NextAction:            cardSafeLine(card.NextAction),
+			WhyVisible:            cardSafeLine(card.WhyVisible),
+			SuggestionKind:        cardSafeLine(card.SuggestionKind),
+			SuggestedAction:       cardSafeLine(card.SuggestedAction),
+			SuggestedCommand:      cardSafeLine(card.SuggestedCommand),
+			SuggestionConfidence:  cardSafeLine(card.SuggestionConfidence),
+			Skeleton:              boolString(card.Skeleton),
+			SkeletonReason:        cardSafeLine(card.SkeletonReason),
+			Suppressed:            boolString(card.Suppressed),
+			LifecycleState:        cardSafeLine(runtimeCardLifecycle(card)),
+			SourceTruth:           cardSafeLine(card.SourceTruth),
+			SourceProvenance:      cardSafeLine(card.SourceProvenance),
+			Actionability:         cardSafeLine(card.Actionability),
+			TeardownPolicy:        cardSafeLine(card.TeardownPolicy),
+			PolicyScope:           cardSafeLine(card.PolicyScope),
+			AggregationPolicy:     cardSafeLine(card.AggregationPolicy),
+			SourceKinds:           cardSafeLine(strings.Join(card.SourceKinds, ",")),
+			SourceCount:           runtimeSourceCount(card),
+			LogicalGroupKey:       cardSafeLine(card.LogicalGroupKey),
+			GroupedRecordCount:    intString(card.GroupedRecordCount),
+			RawCardCount:          intString(firstPositive(card.summary.RawRuntimeCardCount, card.RawCardCount)),
+			VisibleCardCount:      intString(firstPositive(card.summary.VisibleRuntimeCardCount, card.VisibleCardCount)),
+			TotalVisibleCardCount: intString(card.summary.TotalVisibleRuntimeCardCount),
+			GroupedCardCount:      intString(card.summary.GroupedRuntimeCardCount),
+			HiddenCardCount:       intString(card.summary.HiddenRuntimeCardCount),
+			SessionID:             firstNonEmpty(card.ChildSessionKey, card.RequesterSession, card.ParentFlowID, card.RunID, card.DedupeKey, card.ID),
+			UpdatedAt:             activity.UTC().Format(time.RFC3339),
+			EvidencePath:          runtimeCardEvidence(card),
+			HoldReason:            runtimeCardHoldReason(card),
 		},
 		PreviewText: runtimeCardPreview(card),
 	}
@@ -497,6 +506,9 @@ func runtimeCardSummaryLine(card openClawRuntimeCard) string {
 	if visible > 0 {
 		parts = append(parts, fmt.Sprintf("shown %d", visible))
 	}
+	if total := card.summary.TotalVisibleRuntimeCardCount; total > visible {
+		parts = append(parts, fmt.Sprintf("total %d · truncated", total))
+	}
 	if grouped > 0 {
 		parts = append(parts, fmt.Sprintf("grouped %d", grouped))
 	}
@@ -656,4 +668,50 @@ func (b *runtimeOutputBuffer) Write(p []byte) (int, error) {
 		b.cancel()
 	}
 	return n, err
+}
+
+// DefaultRuntimeScript resolves the optional public helper bundle. go install
+// installs the Go binary only; helper installation is documented separately.
+func DefaultRuntimeScript() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "."
+	}
+	fallback := filepath.Join(home, ".local", "share", "openclaw-cockpit", "helpers", "openclaw_runtime", "cockpit_snapshot.py")
+	candidates := []string{fallback}
+	if executable, err := os.Executable(); err == nil {
+		dir := filepath.Dir(executable)
+		candidates = append(candidates, filepath.Join(dir, "helpers", "openclaw_runtime", "cockpit_snapshot.py"), filepath.Join(dir, "..", "share", "openclaw-cockpit", "helpers", "openclaw_runtime", "cockpit_snapshot.py"))
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		candidates = append(candidates, filepath.Join(cwd, "helpers", "openclaw_runtime", "cockpit_snapshot.py"))
+	}
+	for _, path := range candidates {
+		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
+			absolute, err := filepath.Abs(path)
+			if err == nil {
+				return absolute
+			}
+		}
+	}
+	return fallback
+}
+
+// NormalizeRuntimeSource centralizes common defaults. Dump callers deliberately
+// supply their longer timeout and larger limit; those explicit values survive.
+func NormalizeRuntimeSource(source RuntimeSource) RuntimeSource {
+	source.Script = strings.TrimSpace(source.Script)
+	if source.Script == "" {
+		source.Script = DefaultRuntimeScript()
+	}
+	if source.Limit <= 0 {
+		source.Limit = defaultOpenClawRuntimeCardLimit
+	}
+	if source.Timeout <= 0 {
+		source.Timeout = defaultOpenClawRuntimeTimeout
+	}
+	if source.Interval <= 0 {
+		source.Interval = runtimeCardInterval
+	}
+	return source
 }
