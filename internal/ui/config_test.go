@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -30,6 +31,7 @@ func TestDefaultWallConfigReproducesBuiltins(t *testing.T) {
 }
 
 func TestLoadWallConfigMissingDefaultPathUsesDefaults(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	cfg, err := LoadWallConfig("")
 	if err != nil {
 		// A user config may legitimately exist on this machine; only a
@@ -185,5 +187,138 @@ func TestStartupConfigErrorSurfacesInFooter(t *testing.T) {
 	got := m.buildStatusLine(120)
 	if !strings.Contains(got, "wall config error") {
 		t.Fatalf("startup config error missing from footer: %q", got)
+	}
+}
+
+func TestEveryEnvironmentAliasAndCLIOverridePrecedence(t *testing.T) {
+	values := map[string]string{"cols": "3", "fps": "30", "interval": "2s", "capture_budget": "9", "runtime_limit": "11", "runtime_interval": "7s", "exclude_sessions": "alpha,beta", "janitor_status": "/tmp/status.json", "runtime_script": "/tmp/snapshot.py"}
+	for key, names := range ConfigEnvironment {
+		for _, name := range names {
+			t.Run(name, func(t *testing.T) {
+				env := map[string]string{name: values[key]}
+				lookup := func(key string) (string, bool) { v, ok := env[key]; return v, ok }
+				_, _, err := ResolveWallConfig(filepath.Join(t.TempDir(), "missing"), nil, lookup)
+				if err == nil {
+					t.Fatal("explicit missing config accepted")
+				}
+				path := filepath.Join(t.TempDir(), "config.json")
+				if err := os.WriteFile(path, []byte(`{}`), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				cfg, sources, err := ResolveWallConfig(path, nil, lookup)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(sources[key], name) {
+					t.Fatalf("alias not applied: %v", sources)
+				}
+				want := DefaultWallConfig()
+				if err := applyConfigOverride(&want, key, values[key]); err != nil {
+					t.Fatal(err)
+				}
+				gotJSON, err := json.Marshal(cfg)
+				if err != nil {
+					t.Fatal(err)
+				}
+				wantJSON, err := json.Marshal(want)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var gotFields, wantFields map[string]json.RawMessage
+				if err := json.Unmarshal(gotJSON, &gotFields); err != nil {
+					t.Fatal(err)
+				}
+				if err := json.Unmarshal(wantJSON, &wantFields); err != nil {
+					t.Fatal(err)
+				}
+				if string(gotFields[key]) != string(wantFields[key]) {
+					t.Fatalf("override %s not effective", key)
+				}
+				_, sources, err = ResolveWallConfig(path, map[string]string{key: values[key]}, lookup)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !strings.HasPrefix(sources[key], "CLI") {
+					t.Fatalf("CLI did not win: %v", sources)
+				}
+			})
+		}
+	}
+}
+
+func TestConfigWiresGroupingRefreshAndCaptureWithoutAuthority(t *testing.T) {
+	cfg := DefaultWallConfig()
+	cfg.Interval = configDuration(2 * time.Second)
+	cfg.CaptureRate = 2
+	cfg.CaptureMinLines = 12
+	cfg.CaptureMaxLines = 30
+	cfg.CaptureSlackLines = 5
+	cfg.Grouping.ServiceKeywords = []string{"CUSTOM-WATCHER"}
+	cfg.Organize = true
+	m := NewModel(nil, time.Second, 4, nil, false, true)
+	m.ApplyWallConfig(cfg)
+	if m.pollInterval != 2*time.Second || m.captureLines(20) != 25 || m.captureLines(100) != 30 {
+		t.Fatal("timing/capture config not wired")
+	}
+	now := time.Now()
+	first, second, third := m.takeCaptureToken(now), m.takeCaptureToken(now), m.takeCaptureToken(now)
+	if !first || !second || third {
+		t.Fatal("capture rate ignored")
+	}
+	session := sessionForGroup("custom-watcher", "node", "", "")
+	if group := cockpitGroupFor(m, session); group != groupServices {
+		t.Fatalf("custom service keyword ignored: %+v", group)
+	}
+	session.Windows[0].Panes[0].Cockpit = &tmux.CockpitMeta{Kind: "agent", State: "running"}
+	m.invalidateClassifications()
+	if group := cockpitGroupFor(m, session); group != groupActiveAgents {
+		t.Fatal("keyword stole managed agent")
+	}
+	if !m.monitorOnly {
+		t.Fatal("configuration acquired control authority")
+	}
+}
+
+func TestConfigExampleMatchesDefaults(t *testing.T) {
+	cfg, err := LoadWallConfig("../../examples/config.example.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := json.Marshal(DefaultWallConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("example defaults drifted\ngot %s\nwant %s", got, want)
+	}
+	if _, err := LoadWallConfig("../../examples/config.organized.json"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPublicEnvironmentAliasWinsAndCLIReallyReplacesIt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(`{"cols":1}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{"CASS_WALL_COLS": "2", "OPENCLAW_COCKPIT_COLS": "3"}
+	lookup := func(key string) (string, bool) { value, ok := env[key]; return value, ok }
+	cfg, _, err := ResolveWallConfig(path, nil, lookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Columns != 3 {
+		t.Fatalf("public alias lost: %d", cfg.Columns)
+	}
+	cfg, _, err = ResolveWallConfig(path, map[string]string{"cols": "4"}, lookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Columns != 4 {
+		t.Fatalf("CLI lost: %d", cfg.Columns)
 	}
 }

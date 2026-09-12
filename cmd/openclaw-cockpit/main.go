@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -18,16 +19,7 @@ import (
 	"github.com/cassthebandit/openclaw-cockpit/internal/ui"
 )
 
-const (
-	productName                 = "OpenClaw Cockpit"
-	defaultOpenClawRuntimeLimit = 80
-	// The runtime snapshot adapter reads OpenClaw's SQLite control plane
-	// read-only in a few tens of milliseconds, so the cards can refresh far
-	// more often than the retired three-subprocess acquisition allowed. This
-	// is independent of --interval, which stays at the one-second tmux
-	// sampling cadence.
-	defaultOpenClawRuntimeInterval = 5 * time.Second
-)
+const productName = "OpenClaw Cockpit"
 
 var version = "0.9.5"
 
@@ -36,29 +28,19 @@ func main() {
 	zone.NewGlobal()
 
 	var (
-		interval         = flag.Duration("interval", time.Second, "tmux poll interval")
-		fps              = flag.Int("fps", 60, "maximum UI render frames per second")
-		cols             = flag.Int("cols", 0, "preferred number of preview columns in overview mode (0 = auto)")
-		captureBudget    = flag.Int("capture-budget", 0, "maximum unfocused pane captures per tick (default 6)")
-		tmuxBin          = flag.String("tmux", "", "path to tmux binary (defaults to PATH lookup)")
-		showVer          = flag.Bool("version", false, "print version and exit")
-		showBuildInfo    = flag.Bool("build-info", false, "print machine-readable build identity JSON and exit")
-		dump             = flag.Bool("dump", false, "print current tmux snapshot as JSON and exit")
-		monitor          = flag.Bool("monitor-only", true, "compatibility flag; monitor-only is always enabled unless --control is set")
-		control          = flag.Bool("control", false, "enable interactive control actions such as key forwarding")
-		organize         = flag.Bool("organize", false, "organize overview cards into cockpit groups")
-		openclaw         = flag.Bool("openclaw-runtime", false, "include read-only OpenClaw runtime cards")
-		openclawScript   = flag.String("openclaw-runtime-script", "", "path to OpenClaw runtime snapshot script")
-		openclawLimit    = flag.Int("openclaw-runtime-limit", defaultOpenClawRuntimeLimit, "maximum OpenClaw runtime cards to show")
-		openclawInterval = flag.Duration("openclaw-runtime-interval", defaultOpenClawRuntimeInterval, "OpenClaw runtime card refresh interval (cards load off the tmux snapshot path and merge from cache)")
-		janitorStatus    = flag.String("janitor-status", "", "path to tmux janitor status JSON")
-		colors           = flag.Bool("preserve-colors", false, "preserve ANSI colours in captured pane previews")
-		exclude          = flag.String("exclude-session", "", "comma-separated tmux session names to hide from snapshots")
-		simulate         = flag.String("debug-click", "", "simulate a mouse left-click at the given coordinates (x,y)")
-		traceMouse       = flag.Bool("trace-mouse", false, "log mouse hit testing details to stderr")
-		configPath       = flag.String("config", "", "path to wall config JSON (default ~/.config/openclaw-cockpit/config.json)")
-		dumpConfig       = flag.Bool("dump-config", false, "print the effective wall config as JSON and exit")
+		showVer        = flag.Bool("version", false, "print version and exit")
+		showBuildInfo  = flag.Bool("build-info", false, "print machine-readable build identity JSON and exit")
+		dump           = flag.Bool("dump", false, "print current tmux snapshot as JSON and exit")
+		monitor        = flag.Bool("monitor-only", true, "compatibility flag; monitor-only is always enabled unless --control is set")
+		control        = flag.Bool("control", false, "enable interactive control actions such as key forwarding")
+		simulate       = flag.String("debug-click", "", "simulate a mouse left-click at the given coordinates (x,y)")
+		traceMouse     = flag.Bool("trace-mouse", false, "log mouse hit testing details to stderr")
+		configPath     = flag.String("config", "", "path to wall config JSON (default ~/.config/openclaw-cockpit/config.json)")
+		validateConfig = flag.Bool("validate-config", false, "validate effective settings without starting tmux or the TUI")
+		explainConfig  = flag.Bool("explain-config", false, "print explicit setting override sources to stderr")
+		dumpConfig     = flag.Bool("dump-config", false, "print the effective wall config as JSON and exit")
 	)
+	registerWallFlags(flag.CommandLine)
 	flag.Parse()
 
 	if *showVer {
@@ -75,12 +57,50 @@ func main() {
 		return
 	}
 
-	wallConfig, configErr := ui.LoadWallConfig(*configPath)
+	overrides := map[string]string{}
+	explicitConfig := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "config" {
+			explicitConfig = true
+		}
+		if key, ok := configFlagKeys[f.Name]; ok {
+			overrides[key] = f.Value.String()
+		}
+	})
+	if !explicitConfig {
+		if path, ok := os.LookupEnv("OPENCLAW_COCKPIT_CONFIG"); ok {
+			*configPath = path
+		}
+	}
+	wallConfig, sources, configErr := ui.ResolveWallConfig(*configPath, overrides, os.LookupEnv)
+	if *explainConfig {
+		keys := make([]string, 0, len(sources))
+		for key := range sources {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		path := *configPath
+		if path == "" {
+			path = ui.DefaultWallConfigPath()
+		}
+		fmt.Fprintf(os.Stderr, "config file: %s (missing default file uses built-ins)\n", path)
+		for _, key := range keys {
+			fmt.Fprintf(os.Stderr, "%s: %s\n", key, sources[key])
+		}
+	}
+
 	if configErr != nil {
 		// Invalid config fails visibly and falls back safely to defaults; it
 		// must never silently change what the wall means.
 		fmt.Fprintf(os.Stderr, "wall config error: %v (using built-in defaults)\n", configErr)
 		wallConfig = ui.DefaultWallConfig()
+	}
+	if *validateConfig && !*dumpConfig {
+		if configErr != nil {
+			os.Exit(1)
+		}
+		fmt.Println("configuration valid")
+		return
 	}
 	if *dumpConfig {
 		enc := json.NewEncoder(os.Stdout)
@@ -118,14 +138,14 @@ func main() {
 		}
 	}
 
-	client, err := tmux.NewClient(*tmuxBin)
+	client, err := tmux.NewClient(wallConfig.Tmux)
 	// If tmux isn't running, inform the user early.
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to set up tmux client: %v\n", err)
 		os.Exit(1)
 	}
-	client.SetPreserveColors(*colors)
-	client.SetExcludedSessions(parseSessionList(*exclude))
+	client.SetPreserveColors(wallConfig.PreserveColors)
+	client.SetExcludedSessions(wallConfig.ExcludeSessions)
 	monitorOnly := effectiveMonitorOnly(*monitor, *control)
 	client.SetMonitorOnly(monitorOnly)
 
@@ -137,7 +157,8 @@ func main() {
 			fmt.Fprintf(os.Stderr, "failed to fetch tmux snapshot: %v\n", err)
 			os.Exit(1)
 		}
-		snap = ui.AppendOpenClawRuntimeSessions(snap, runtimeSource(*openclaw, *openclawScript, *openclawLimit))
+		source := ui.RuntimeSource{Enabled: wallConfig.OpenClawRuntime, Script: wallConfig.RuntimeScript, Limit: wallConfig.RuntimeLimit, Timeout: time.Duration(wallConfig.DumpRuntimeTimeout)}
+		snap = ui.AppendOpenClawRuntimeSessions(snap, source)
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(snap); err != nil {
@@ -147,21 +168,14 @@ func main() {
 		return
 	}
 
-	model := ui.NewModel(client, *interval, *captureBudget, debugMsgs, *traceMouse, monitorOnly)
+	model := ui.NewModel(client, time.Duration(wallConfig.Interval), wallConfig.CaptureBudget, debugMsgs, *traceMouse, monitorOnly)
 	model.ApplyWallConfig(wallConfig)
 	if configErr != nil {
 		model.SetStartupError(fmt.Errorf("wall config error: %w (using built-in defaults)", configErr))
 	}
-	model.SetPreferredColumns(*cols)
-	model.SetOrganized(*organize)
-	model.SetJanitorStatusFile(*janitorStatus)
-	if *openclaw {
-		model.SetOpenClawRuntimeSource(*openclawScript, *openclawLimit, 20*time.Second)
-		model.SetOpenClawRuntimeInterval(*openclawInterval)
-	}
 	restoreTabs := disableHardTabOptimization()
 	defer restoreTabs()
-	program := tea.NewProgram(model, tea.WithFPS(*fps))
+	program := tea.NewProgram(model, tea.WithFPS(wallConfig.FPS))
 
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "%s exited with error: %v\n", productName, err)
@@ -173,28 +187,28 @@ func effectiveMonitorOnly(_ bool, control bool) bool {
 	return !control
 }
 
-func runtimeSource(enabled bool, script string, limit int) ui.RuntimeSource {
-	if !enabled {
-		return ui.RuntimeSource{}
-	}
-	if limit <= 0 {
-		limit = defaultOpenClawRuntimeLimit
-	}
-	return ui.RuntimeSource{
-		Enabled: true,
-		Script:  script,
-		Limit:   limit,
-		Timeout: 45 * time.Second,
-	}
+// Only explicitly visited flags enter the override layer; parser defaults do
+// not mask file values (including false booleans and automatic columns).
+var configFlagKeys = map[string]string{
+	"interval": "interval", "fps": "fps", "cols": "cols", "capture-budget": "capture_budget", "tmux": "tmux",
+	"organize": "organize", "preserve-colors": "preserve_colors", "exclude-session": "exclude_sessions",
+	"openclaw-runtime": "openclaw_runtime", "openclaw-runtime-script": "runtime_script", "openclaw-runtime-limit": "runtime_limit",
+	"openclaw-runtime-interval": "runtime_interval", "janitor-status": "janitor_status",
 }
 
-func parseSessionList(value string) []string {
-	var out []string
-	for _, part := range strings.Split(value, ",") {
-		name := strings.TrimSpace(part)
-		if name != "" {
-			out = append(out, name)
-		}
-	}
-	return out
+func registerWallFlags(flags *flag.FlagSet) {
+	cfg := ui.DefaultWallConfig()
+	flags.Duration("interval", time.Duration(cfg.Interval), "tmux poll interval")
+	flags.Int("fps", cfg.FPS, "maximum UI render frames per second")
+	flags.Int("cols", cfg.Columns, "preferred overview columns (0 = auto)")
+	flags.Int("capture-budget", cfg.CaptureBudget, "maximum background pane captures per tick")
+	flags.String("tmux", cfg.Tmux, "path to tmux binary (defaults to PATH)")
+	flags.Bool("organize", cfg.Organize, "organize overview cards into cockpit groups")
+	flags.Bool("preserve-colors", cfg.PreserveColors, "preserve ANSI colors in pane previews")
+	flags.String("exclude-session", strings.Join(cfg.ExcludeSessions, ","), "comma-separated exact tmux session names to exclude")
+	flags.Bool("openclaw-runtime", cfg.OpenClawRuntime, "include optional read-only OpenClaw runtime cards")
+	flags.String("openclaw-runtime-script", cfg.RuntimeScript, "path to public runtime snapshot script")
+	flags.Int("openclaw-runtime-limit", cfg.RuntimeLimit, "maximum OpenClaw runtime cards to deliver")
+	flags.Duration("openclaw-runtime-interval", time.Duration(cfg.RuntimeInterval), "independent runtime-card refresh interval")
+	flags.String("janitor-status", cfg.JanitorStatus, "optional janitor status JSON path")
 }

@@ -111,21 +111,21 @@ func computeCockpitGroupFor(m *Model, session tmux.Session) cockpitGroup {
 	if sessionHasViewerKind(session) {
 		return groupViewers
 	}
-	if sessionIsService(session) {
+	if m.sessionIsService(session) {
 		return groupServices
 	}
 	chrome := sessionChromeText(session)
-	if containsAny(chrome, "tmuxwatch", "cass-agents", "dashboard", " mux ") {
+	if containsKeywords(chrome, m.groupingConfig().DashboardKeywords) {
 		return groupDashboard
 	}
 	if sessionHasViewerKind(session) ||
-		containsAny(chrome, "-html", "localhost", "http://", "vite", "library-matrix") {
+		containsKeywords(chrome, m.groupingConfig().ViewerKeywords) {
 		return groupViewers
 	}
 
 	// 4. Sessions that look like agent runs by name but carry no managed metadata
 	//    (e.g. a raw committee/codex shell) still route by lifecycle.
-	if containsAny(chrome, agentNameTokens...) {
+	if containsKeywords(chrome, m.groupingConfig().AgentKeywords) {
 		return agentLifecycleGroup(m, session, state)
 	}
 
@@ -462,7 +462,7 @@ func paneAttentionState(m *Model, session tmux.Session, pane tmux.Pane) string {
 			if pane.Dead {
 				return "done"
 			}
-			if m != nil && m.isStale(session.ID) && isQuietLiveServiceSession(session) {
+			if m != nil && m.isStale(session.ID) && m.isQuietLiveServiceSession(session) {
 				return "quiet"
 			}
 			if m != nil && m.isStale(session.ID) {
@@ -491,7 +491,7 @@ func paneAttentionState(m *Model, session tmux.Session, pane tmux.Pane) string {
 		return "done"
 	}
 	if m != nil && m.isStale(session.ID) {
-		if isServiceSession(session) {
+		if m.isServiceSession(session) {
 			return "quiet"
 		}
 		return "stale"
@@ -558,8 +558,8 @@ func sessionHasManagedAgent(session tmux.Session) bool {
 
 // sessionIsService reports a genuine service session: matched either by chrome
 // keywords (name/window/title/command) or by an explicit service-kind pane.
-func sessionIsService(session tmux.Session) bool {
-	if isServiceSession(session) {
+func (m *Model) sessionIsService(session tmux.Session) bool {
+	if m.isServiceSession(session) {
 		return true
 	}
 	for _, window := range session.Windows {
@@ -611,8 +611,8 @@ func sessionChromeText(session tmux.Session) string {
 	return strings.ToLower(b.String())
 }
 
-func isServiceSession(session tmux.Session) bool {
-	return containsAny(sessionChromeText(session), "go2rtc", "frigate", "camera", "pantry", "detector", "alerts", "notification-watcher", "smonitor")
+func (m *Model) isServiceSession(session tmux.Session) bool {
+	return containsKeywords(sessionChromeText(session), m.groupingConfig().ServiceKeywords)
 }
 
 // sessionRuntimePresentationGroup returns the presentationGroup of a session's
@@ -630,8 +630,8 @@ func sessionRuntimePresentationGroup(session tmux.Session) string {
 	return ""
 }
 
-func isQuietLiveServiceSession(session tmux.Session) bool {
-	return (sessionIsService(session) || sessionHasViewerKind(session)) && !sessionAllPanesDead(session)
+func (m *Model) isQuietLiveServiceSession(session tmux.Session) bool {
+	return (m.sessionIsService(session) || sessionHasViewerKind(session)) && !sessionAllPanesDead(session)
 }
 
 func isShellOnly(session tmux.Session) bool {
@@ -823,4 +823,10 @@ func assignmentTerminalState(meta *tmux.CockpitMeta) string {
 
 func retainedUntilExit(row janitorSessionStatus) bool {
 	return row.JanitorState == "retained_until_exit" || row.LastRefusal == "live_session_requires_explicit_retirement" || row.Reason == "live_session_requires_explicit_retirement"
+}
+
+// Direct test/display callers share the default policy without a second body.
+
+func isQuietLiveServiceSession(session tmux.Session) bool {
+	return (*Model)(nil).isQuietLiveServiceSession(session)
 }

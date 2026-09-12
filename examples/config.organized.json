@@ -1,0 +1,14 @@
+{
+  "organize": true,
+  "cols": 3,
+  "interval": "2s",
+  "expanded_groups": [
+    "Completed Agent Runs"
+  ],
+  "grouping": {
+    "service_keywords": [
+      "my-watcher",
+      "go2rtc"
+    ]
+  }
+}

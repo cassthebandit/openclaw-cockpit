@@ -94,6 +94,8 @@ The `[x]` card control only hides a card from the current view. It does not stop
 --config PATH                    load wall settings from JSON
 --dump                           print a tmux snapshot as JSON and exit
 --dump-config                    print effective wall settings and exit
+--validate-config                validate settings without starting the TUI
+--explain-config                 explain explicit overrides on stderr
 --control                        enable partial key forwarding to focused panes
 --janitor-status PATH            read an optional cleanup-status sidecar
 --openclaw-runtime               include optional OpenClaw runtime cards
@@ -101,6 +103,18 @@ The `[x]` card control only hides a card from the current view. It does not stop
 ```
 
 Run `openclaw-cockpit -h` for the complete current list.
+
+## User settings
+
+Copy [the complete defaults example](examples/config.example.json) to
+`~/.config/openclaw-cockpit/config.json`, edit it, run
+`openclaw-cockpit --validate-config`, then restart Cockpit. Use
+`--dump-config --explain-config` to inspect resolved values and overrides.
+Explicit CLI flags win over supported environment variables, which win over
+the file and built-in defaults. See the [settings reference](docs/config-contract.md)
+for ranges, grouping keywords, integration paths and compatibility aliases.
+The optional sibling `lifecycle.json` is helper-owned; no display setting can
+close a terminal or change a hold.
 
 ## Optional OpenClaw integration
 

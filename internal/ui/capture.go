@@ -60,7 +60,7 @@ func (m *Model) takeCaptureToken(now time.Time) bool {
 		m.captureWindowStart = now
 		m.captureTokensSpent = 0
 	}
-	if m.captureTokensSpent >= aggregateCaptureBudgetPerSecond {
+	if m.captureTokensSpent >= m.effectiveCaptureRate() {
 		return false
 	}
 	m.captureTokensSpent++
@@ -432,7 +432,7 @@ func (m *Model) admitCapture(sessionID, paneID string, preview *sessionPreview) 
 	m.captureGeneration++
 	preview.captureGeneration = m.captureGeneration
 	m.fastCaptureActive[sessionID] = struct{}{}
-	return captureRequest{sessionID: sessionID, paneID: paneID, lines: captureLinesFor(preview.viewport.Height()), generation: m.captureGeneration}
+	return captureRequest{sessionID: sessionID, paneID: paneID, lines: m.captureLines(preview.viewport.Height()), generation: m.captureGeneration}
 }
 
 // fastCaptureTarget is shared by admission and the signal watcher. Bookkeeping
@@ -460,4 +460,21 @@ func (m *Model) fastCaptureTarget(session tmux.Session) (tmux.Pane, *sessionPrev
 		return tmux.Pane{}, nil, false, false
 	}
 	return pane, preview, true, false
+}
+
+func (m *Model) effectiveCaptureRate() int {
+	if m.captureRate > 0 {
+		return m.captureRate
+	}
+	return aggregateCaptureBudgetPerSecond
+}
+
+func (m *Model) captureLines(height int) int {
+	if m.captureMinLines <= 0 || m.captureMaxLines <= 0 {
+		return captureLinesFor(height)
+	}
+	if height <= 0 {
+		return m.captureMinLines
+	}
+	return min(m.captureMaxLines, max(m.captureMinLines, height+m.captureSlackLines))
 }

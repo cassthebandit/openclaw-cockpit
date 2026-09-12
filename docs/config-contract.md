@@ -1,146 +1,129 @@
-# Configuration Contract
+# Configuration
 
-Cockpit needs a durable configuration surface so timers, colors, group policies, and layout behavior stop living as scattered constants. This document defines what should become configurable and what must remain owned by lifecycle authorities.
+The Go application reads `~/.config/openclaw-cockpit/config.json`. Start with
+[`examples/config.example.json`](../examples/config.example.json), which lists
+all supported settings with built-in defaults, or the smaller
+[`config.organized.json`](../examples/config.organized.json). Missing keys keep
+their defaults. A missing default file is normal; an explicitly selected missing
+file is an error. No rebuild is needed. **All settings take effect on restart;
+there is no hot reload.**
 
-## Principles
-
-- Defaults must reproduce the golden wall fixture defined in [`layout-contract.md`](layout-contract.md) without a config file.
-- Config tunes presentation and timing; it does not invent lifecycle truth.
-- Every setting needs one owner, a default, and a testable effect.
-- Config should be reloadable only when the implementation can prove the wall updates without corrupting render state.
-- Invalid config should fail visibly and fall back safely, not silently change cleanup meaning.
-
-## Candidate Config File
-
-Implemented first pass (stdlib-parseable, no new dependency):
-
-```text
-~/.config/openclaw-cockpit/config.json
+```sh
+mkdir -p ~/.config/openclaw-cockpit
+cp examples/config.example.json ~/.config/openclaw-cockpit/config.json
+# Edit the file, then validate without starting tmux or the TUI:
+openclaw-cockpit --validate-config
+openclaw-cockpit --dump-config --explain-config
+openclaw-cockpit --config examples/config.organized.json
 ```
 
-overridable with `--config <path>`; `--dump-config` prints the effective
-config. A TOML surface (`config.toml`) remains an allowed future migration once
-a TOML dependency is justified.
+## Ownership and supported settings
 
-Project/test fixtures can use repo-local config files, but the installed wall should read the user config path unless overridden by CLI flag or environment variable.
+All keys below belong to the Go app and require restart. Durations are strings
+accepted by Go's duration parser, such as `500ms`, `3m`, or `1h30m`. No setting
+grants control/cleanup authority; interactive key forwarding still requires the
+explicit `--control` flag.
 
-## Implemented Settings (first pass)
+| Key | Type; default | Allowed values and effect |
+| --- | --- | --- |
+| `interval` | duration; `1s` | `100ms`–`1h`; tmux snapshot polling |
+| `fps` | integer; `60` | 1–120; maximum render frames per second |
+| `cols` | integer; `0` | 0–32; overview preference, 0 automatic; group width policy still applies |
+| `capture_budget` | integer; `6` | 1–120; background captures per structural tick |
+| `capture_rate` | integer; `60` | 1–120; aggregate capture dispatches per second across both paths |
+| `capture_min_lines` | integer; `80` | 1–5000; minimum capture depth |
+| `capture_max_lines` | integer; `600` | minimum depth–5000; maximum capture depth |
+| `capture_slack_lines` | integer; `40` | 0–1000; lines beyond viewport, bounded by min/max |
+| `organize` | boolean; `false` | group/sort overview cards |
+| `preserve_colors` | boolean; `false` | preserve supported preview ANSI colors, never unsafe terminal controls |
+| `exclude_sessions` | string array; `[]` | exact tmux session names omitted from snapshots |
+| `footer_max_height` | integer; `4` | ≥1 lines; status footer bound |
+| `janitor_stale_after` | duration; `3m` | positive; sidecar freshness display only |
+| `stale_threshold` | duration; `1h` | positive; quiet-session stale display only |
+| `collapsed_groups` | string array; `[]` | registered group names initially collapsed |
+| `expanded_groups` | string array; `[]` | registered group names initially expanded; cannot also be collapsed |
+| `tmux` | string; empty | binary path/name; empty resolves from PATH |
+| `openclaw_runtime` | boolean; `false` | enable optional read-only runtime source |
+| `runtime_script` | string; empty | Python source location; empty discovers the public helper bundle |
+| `runtime_limit` | integer; `80` | 1–1000 delivered cards; shown/total counts remain distinct |
+| `runtime_interval` | duration; `5s` | `100ms`–`1h`; independent source refresh |
+| `runtime_timeout` | duration; `20s` | `100ms`–`5m`; live source deadline |
+| `dump_runtime_timeout` | duration; `45s` | `100ms`–`5m`; deliberately longer one-shot dump deadline |
+| `janitor_status` | string; empty | optional sidecar path; empty disables sidecar reading |
+| `grouping.agent_keywords` | string array; example defaults | fallback agent classification by chrome |
+| `grouping.service_keywords` | string array; example defaults | fallback service classification by chrome |
+| `grouping.dashboard_keywords` | string array; example defaults | fallback dashboard classification by chrome |
+| `grouping.viewer_keywords` | string array; example defaults | fallback viewer classification by chrome |
 
-- `footer_max_height` (int, default 4);
-- `janitor_stale_after` (duration string, default "3m") — sidecar freshness display only;
-- `stale_threshold` (duration string, default "1h") — session stale display only;
-- `collapsed_groups` / `expanded_groups` (registry group names) — default accordion state overrides; manual operator toggles still win.
+Grouping arrays replace the corresponding built-in list, including an empty
+array to disable that heuristic. Keywords are case-insensitive substrings (up
+to 100 entries of 100 bytes, nonempty safe text). Only name/window/title/command
+chrome is matched, never goal or transcript text. Explicit managed-agent and
+runtime source identities retain precedence. Personal installation keywords are
+not public defaults; add your own through these lists. Manual collapse wins
+after initial group seeding. Group ranks, colors, body-size policy and urgent
+**auto-open remain fixed or future work**, not config settings.
 
-Unknown fields are rejected (strict decoding), so no cleanup-authority setting
-can be introduced through config. Invalid config prints a visible error and
-falls back to built-in defaults. Group policy tables, theme tokens, and layout
-column settings remain future extractions under this contract.
+Paths support `~/`; relative paths resolve against the process working directory.
+The dump contains resolved integration locations. Empty `runtime_script` searches
+`~/.local/share/openclaw-cockpit/helpers/openclaw_runtime/cockpit_snapshot.py`,
+then the helper bundle beside the executable/its sibling share directory, then
+`helpers/openclaw_runtime/cockpit_snapshot.py` in the current checkout. A missing
+optional source is reported when enabled; validation does not execute it. Source
+execution is fixed to `python3 SCRIPT --limit N --format json`, without a shell
+or arbitrary command/argument configuration. A Go-only install works without
+Python helpers; `go install` does not install their source files.
 
-## Settings To Extract First
+## Precedence and diagnostics
 
-### Display Timers
+1. Explicit CLI flags.
+2. Explicit supported environment variables (public alias before legacy alias).
+3. User JSON file.
+4. Built-in defaults.
 
-- failed visible grace window;
-- janitor status stale-after duration;
-- stale session threshold.
+Only flags actually supplied override the file. For example,
+`--organize=false` and `--cols=0` are real overrides; parser defaults are not.
+`--config PATH` selects the file; otherwise `OPENCLAW_COCKPIT_CONFIG` may select
+it. `--dump-config` prints effective JSON. `--explain-config` reports the file
+and explicit per-key override sources to stderr. `--validate-config` exits
+without executing tmux, loading runtime cards, or starting the TUI.
 
-These tune presentation only. They do not decide whether a session is eligible to kill.
+Supported CLI settings are `--interval`, `--fps`, `--cols`, `--capture-budget`,
+`--tmux`, `--organize`, `--preserve-colors`, `--exclude-session`,
+`--openclaw-runtime`, `--openclaw-runtime-script`, `--openclaw-runtime-limit`,
+`--openclaw-runtime-interval`, and `--janitor-status`. Other settings are file-only.
 
-### Janitor-Derived Timers
+Supported environment variables, with retained launcher compatibility aliases:
 
-- completed idle mark delay;
-- mark-to-kill grace window;
-- kill_not_before timestamp.
+| Public variable | Legacy alias | Setting |
+| --- | --- | --- |
+| `OPENCLAW_COCKPIT_COLS` | `CASS_WALL_COLS` | `cols` |
+| `OPENCLAW_COCKPIT_FPS` | `CASS_WALL_FPS` | `fps` |
+| `OPENCLAW_COCKPIT_INTERVAL` | `CASS_WALL_INTERVAL` | `interval` |
+| `OPENCLAW_COCKPIT_CAPTURE_BUDGET` | `CASS_WALL_CAPTURE_BUDGET` | `capture_budget` |
+| `OPENCLAW_COCKPIT_RUNTIME_LIMIT` | `CASS_WALL_RUNTIME_LIMIT` | `runtime_limit` |
+| `OPENCLAW_COCKPIT_RUNTIME_INTERVAL` | `CASS_WALL_RUNTIME_INTERVAL` | `runtime_interval` |
+| `OPENCLAW_COCKPIT_EXCLUDE_SESSIONS` | `CASS_WALL_EXCLUDE_SESSIONS` | `exclude_sessions` (comma-separated) |
+| `OPENCLAW_COCKPIT_JANITOR_STATUS` | `CASS_TMUX_HYGIENE_STATUS_FILE` | `janitor_status` |
+| `OPENCLAW_COCKPIT_RUNTIME_SCRIPT` | none | `runtime_script` |
 
-These are janitor-authority values. Cockpit may expose them in effective config or display settings, but it must read, derive, or reconcile them from janitor policy/status. If Cockpit config and janitor status disagree, the UI displays the janitor sidecar's actual `kill_not_before` and surfaces the config conflict.
+Launcher-only variables such as `OPENCLAW_COCKPIT_FORCE_TMUX` /
+`TMUXWATCH_FORCE_TMUX` and daemon-log variables remain owned by the development
+scripts; they are not presentation settings. Wrapper-injected explicit CLI flags
+naturally win over a file, so launchers should not pass defaults unnecessarily.
 
-### Group Policies
+Invalid/unknown fields, wrong types (including null), out-of-range values,
+conflicting groups and trailing JSON produce setting/path diagnostics. Validation
+and dump exit nonzero. Interactive startup retains the compatibility behavior:
+a visible error and safe built-in fallback, never silent partial application.
 
-For each group:
+## Lifecycle is a separate owner
 
-- display label;
-- rank/order;
-- default collapsed/open;
-- auto-open policy;
-- max/min body height;
-- preferred columns;
-- compact mode;
-- whether it can steal focus/attention.
-
-### Layout
-
-- preferred maximum columns;
-- active-agent minimum body height;
-- service/completed compact body height;
-- footer max height;
-- capture lines;
-- poll interval;
-- fast capture budget;
-- runtime-card refresh interval.
-
-### Theme
-
-- group colors;
-- border colors;
-- header colors;
-- severity colors;
-- stale/blocked/held/failed/marked colors;
-- scroll indicator color.
-
-Color settings should use named tokens in code. Hardcoded numeric colors should be defaults in one theme definition, not scattered constants.
-
-### Integration Paths
-
-- janitor status sidecar path;
-- runtime-card source path;
-- default launcher geometry behavior;
-- dashboard self-exclusion session/window names.
-
-Runtime-card source commands are out of scope for the first config pass. Adding executable config requires a separate security model and explicit approval.
-
-## Explicit Non-Config
-
-These should not be configurable in Cockpit because they belong to other authorities:
-
-- whether a session is safe to kill;
-- whether evidence is valid enough for cleanup;
-- whether a hold can be ignored;
-- exact tmux kill target selection;
-- external model/provider routing;
-- Gateway or OpenClaw config mutation;
-- public/human-send behavior.
-
-## Precedence
-
-Recommended precedence:
-
-1. Janitor status sidecar for cleanup countdown facts and `kill_not_before`.
-2. CLI flags for one-run presentation overrides.
-3. Environment variables for launcher-controlled defaults.
-4. User config file.
-5. Built-in defaults.
-
-The final effective config should be inspectable through a debug or dump path.
-
-## Validation
-
-Config validation should reject:
-
-- negative durations;
-- zero-width/zero-height layout settings where a positive value is required;
-- duplicate group ranks;
-- unknown group policy names;
-- invalid colors;
-- janitor-derived timers that conflict with status sidecar data without surfacing the conflict;
-- cleanup-affecting settings that Cockpit is not allowed to own.
-
-## Acceptance test inventory
-
-- Default config reproduces the golden wall fixture in `layout-contract.md` at 120x40.
-- Invalid config returns a visible error and does not corrupt the UI.
-- Theme defaults are centralized.
-- Group auto-open behavior can be changed in config.
-- Footer max height can be changed in config.
-- Janitor status path can be configured.
-- Effective config can be dumped for debugging.
-- Config cannot make Cockpit override janitor `kill_not_before`.
+The optional sibling `~/.config/openclaw-cockpit/lifecycle.json` belongs to the
+public lifecycle helpers, not the Go application. Display-only installations
+need no lifecycle file. The UI cannot change holds, closeout, eligibility,
+archive paths, janitor timing or `kill_not_before`; sidecar timestamps and exact
+pane identity are observed facts, not editable predictions. See
+[`lifecycle-contract.md`](lifecycle-contract.md) and the helper installation
+instructions for that separate component. Full theme editing and urgent-event
+auto-open are not shipped settings.
