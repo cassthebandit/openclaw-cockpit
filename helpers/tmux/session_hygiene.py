@@ -3,7 +3,8 @@
 
 Default posture is dry-run. Destructive cleanup requires either a complete
 managed @oc_* contract with an eligible cleanup policy or an exact
---allow-session override.
+--allow-session selection. Apply still requires a dead, single-pane, unlinked,
+ungrouped session; selection never overrides those topology safeguards.
 """
 
 from __future__ import annotations
@@ -551,14 +552,9 @@ def resolve_adopted_codex_evidence(pane: Pane) -> tuple[Path | None, str]:
 def pane_identity(panes: list[Pane]) -> str:
     """Deterministic identity of a *complete* pane set.
 
-    Apply-time revalidation has to notice the replacement of any pane, not only
-    the primary one. `--allow-session <exact-name>` deliberately lets a
-    multi-pane session reach a kill decision, so a same-count swap of a
-    secondary pane would otherwise still archive, ledger a kill attempt, and
-    kill a session whose planned pane set no longer exists. Each pane
-    contributes its tmux pane ID and its creation identity, so a recycled pane
-    ID with a new creation time still reads as a different pane set. Sorting
-    makes the value independent of tmux listing order.
+    Revalidation detects replacement of any pane in the planned set. Explicit
+    selection does not permit live or multi-pane retirement at apply. Sorting
+    keeps this identity independent of tmux listing order.
     """
     return "|".join(sorted(f"{pane.server_session_id}:{pane.pane}@{pane.created}:{pane.pid}:{pane.process_started}" for pane in panes))
 
@@ -1413,7 +1409,7 @@ def status_payload(items: list[dict[str, Any]], args: argparse.Namespace) -> dic
             elif item.get("action") == "refuse" and str(item.get("reason", "")).startswith("hold_reason_active"):
                 state = "protected"
             elif item.get("action") == "refuse":
-                state = "cleanup_blocked"
+                state = refusal_state(str(item.get("reason", "")))
             elif item.get("action") == "skip":
                 state = "active"
         sessions[session] = {
@@ -1511,11 +1507,19 @@ def revalidate_target(item: dict[str, Any], *, allow_hold: bool, args: argparse.
     return panes, "ok"
 
 
+def refusal_state(reason: str) -> str:
+    if reason.startswith("hold_reason_active"):
+        return "protected"
+    if reason in {"explicit_keep_open", "explicit_keep_open_at_apply", "live_session_requires_explicit_retirement"}:
+        return "retained_until_exit"
+    return "cleanup_blocked"
+
+
 def apply_refusal(item: dict[str, Any], reason: str) -> dict[str, Any]:
     applied = dict(item)
     applied["action"] = "refuse"
     applied["reason"] = reason
-    applied["janitor_state"] = "protected" if reason.startswith("hold_reason_active") else "cleanup_blocked"
+    applied["janitor_state"] = refusal_state(reason)
     return applied
 
 
@@ -1529,8 +1533,8 @@ def dead_retirement_expectations(pane: Pane) -> dict[str, str]:
 
 
 def dead_retirement_refusal(panes: list[Pane]) -> str:
-    if len(panes) != 1 or not panes[0].dead:
-        return "live_or_multi_pane_requires_explicit_retirement"
+    if len(panes) != 1:
+        return "multi_pane_requires_explicit_retirement"
     pane = panes[0]
     if not re.fullmatch(r"\$[0-9]+", pane.server_session_id) or not re.fullmatch(r"%[0-9]+", pane.pane):
         return "server_identity_unknown"
@@ -1544,6 +1548,8 @@ def dead_retirement_refusal(panes: list[Pane]) -> str:
     # the final boundary. Preserve all contract checks, including free text.
     if any(any(c in str(v) for c in "#,{}\n\r") for v in dead_retirement_expectations(pane).values()):
         return "unsafe_guard_literal"
+    if not pane.dead:
+        return "live_session_requires_explicit_retirement"
     return ""
 
 

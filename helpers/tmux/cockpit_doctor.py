@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -241,6 +242,42 @@ def check_janitor_session(session: str, runner: Runner = run_command) -> Check:
     return ok("janitor_session", f"{session} running", {"command": command, "pid": pid})
 
 
+def public_hygiene_command(argv: list[str]) -> bool:
+    argv = list(argv)
+    if argv and Path(argv[0]).name == "env":
+        argv.pop(0)
+        while argv and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", argv[0]):
+            argv.pop(0)
+    if not argv or not re.fullmatch(r"python(?:[0-9]+(?:\.[0-9]+)*)?", Path(argv[0]).name):
+        return False
+    if len(argv) > 2 and Path(argv[1]).name == "services.py":
+        return argv[2] == "hygiene"
+    if argv[1:4] == ["-m", "helpers.tmux.services", "hygiene"]:
+        return True
+    if len(argv) < 2 or Path(argv[1]).name != "cockpit_public.py":
+        return False
+    index = 2
+    helper = None
+    while index < len(argv):
+        token = argv[index]
+        option, separator, value = token.partition("=")
+        if option not in {"--install-config", "--helper"}:
+            break
+        if not separator:
+            index += 1
+            if index >= len(argv) or argv[index].startswith("--"):
+                return False
+            value = argv[index]
+        if not value:
+            return False
+        if option == "--helper":
+            if helper is not None:
+                return False
+            helper = value
+        index += 1
+    return helper == "tmux.services" and argv[index:index + 1] == ["hygiene"]
+
+
 def check_janitor_command(session: str, runner: Runner = run_command) -> Check:
     pane = tmux_display(session + ":0.0", "#{pane_pid}", runner)
     if pane.returncode != 0:
@@ -258,11 +295,7 @@ def check_janitor_command(session: str, runner: Runner = run_command) -> Check:
         argv = []
     # The public foreground service owns both apply cycles. Recognize its
     # executable/module position, not a coincidental substring in an argument.
-    is_python = bool(argv) and Path(argv[0]).name.startswith("python")
-    direct = is_python and len(argv) > 2 and Path(argv[1]).name == "services.py" and argv[2] == "hygiene"
-    module = is_python and argv[1:4] == ["-m", "helpers.tmux.services", "hygiene"]
-    forwarded = is_python and len(argv) > 4 and Path(argv[1]).name == "cockpit_public.py" and argv[2:5] == ["--helper", "tmux.services", "hygiene"]
-    if direct or module or forwarded:
+    if public_hygiene_command(argv):
         return ok("janitor_command", "public hygiene service owns smoke and kill-safe cycles")
     required = [
         "session_hygiene.py apply --policy smoke --json",
@@ -702,16 +735,24 @@ def overall(checks: list[Check]) -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Check OpenClaw Cockpit health.")
+    try:
+        if __package__:
+            from . import lifecycle
+        else:
+            import lifecycle
+        policy, _ = lifecycle.load()
+    except ValueError as error:
+        parser.error(str(error))
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--binary", default=default_binary())
     parser.add_argument("--source", default=default_cockpit_source(), help="Cockpit source repo for build-identity parity")
     parser.add_argument("--wall-target", default=DEFAULT_WALL_TARGET)
     parser.add_argument("--janitor-session", default=DEFAULT_JANITOR_SESSION)
     parser.add_argument("--inspector-session", default=DEFAULT_INSPECTOR_SESSION)
-    parser.add_argument("--hygiene-log", default=str(DEFAULT_HYGIENE_LOG))
-    parser.add_argument("--hygiene-status", default=str(DEFAULT_HYGIENE_STATUS))
-    parser.add_argument("--inspector-log", default=str(DEFAULT_INSPECTOR_LOG))
-    parser.add_argument("--ledger-root", default=str(DEFAULT_LEDGER_ROOT))
+    parser.add_argument("--hygiene-log", default=str(Path(policy["log_dir"]) / "janitor.log"))
+    parser.add_argument("--hygiene-status", default=policy["status_file"])
+    parser.add_argument("--inspector-log", default=str(Path(policy["inspector_log_dir"]) / "inspector.log"))
+    parser.add_argument("--ledger-root", default=policy["archive_dir"])
     parser.add_argument("--runtime-snapshot-script", default=str(DEFAULT_RUNTIME_SNAPSHOT_SCRIPT))
     parser.add_argument("--max-log-age", type=int, default=180)
     parser.add_argument("--max-inspector-log-age", type=int, default=30)

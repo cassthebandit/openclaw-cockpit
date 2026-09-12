@@ -100,10 +100,12 @@ func (m *Model) planFastCaptures() []captureRequest {
 		if !eligible {
 			continue
 		}
+		previousSignal := preview.signal
 		if !m.fastCaptureSignalChanged(session, pane, preview) {
 			continue
 		}
 		if !m.takeCaptureToken(now) {
+			preview.signal = previousSignal // Observe only admitted captures.
 			// Budget exhausted: park the cursor on this session so the next
 			// window resumes exactly where rotation stopped.
 			m.fastCaptureOffset = (start + i) % n
