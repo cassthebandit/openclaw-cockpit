@@ -1266,6 +1266,8 @@ class AgentWallClaudeTests(unittest.TestCase):
         self.assertNotIn(("kill-session", "-t", "=timeout-codex-lane"), calls)
         failure_updates = [call for call in calls if call[:2] == ("set_pane_options", "%1")]
         self.assertEqual(failure_updates[-1][2]["end_reason"], "readiness_timeout")
+        self.assertEqual(failure_updates[-1][2]["state"], "waiting")
+        self.assertNotIn("completed_at", failure_updates[-1][2])
         self.assertIn("no output", failure_updates[-1][2]["route_failure_reason"])
         self.assertEqual(injected, [])
 

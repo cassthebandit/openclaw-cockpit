@@ -1,3 +1,4 @@
+PYTHON ?= python3
 GOFUMPT ?= gofumpt
 GOLANGCI_LINT ?= golangci-lint
 
@@ -13,6 +14,7 @@ test:
 	@command -v tmux >/dev/null
 	go test ./...
 	python3 -m unittest discover -s scripts -p 'test_*.py'
+	$(PYTHON) -m pytest helpers/tests -q
 race:
 	go test -race ./...
 cross-build:
