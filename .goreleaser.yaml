@@ -26,9 +26,13 @@ archives:
       - LICENSE*
       - README.md
       - helpers/**/*.py
+      - helpers/openclaw_runtime/tests/fixtures/*.json
       - helpers/README.md
       - examples/**/*
-      - docs/lifecycle-contract.md
+      - VISION.md
+      - DESIGN_BRIEF.md
+      - docs/*.md
+      - docs/images/*
     formats:
       - tar.gz
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"

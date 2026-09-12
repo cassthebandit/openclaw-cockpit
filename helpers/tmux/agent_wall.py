@@ -21,10 +21,11 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 try:
-    from . import assignment
+    from . import assignment, lifecycle
     from .runtime_commands import build_claude_tui_command, build_codex_tui_command, build_agy_tui_command
 except ImportError:
     import assignment
+    import lifecycle
     from runtime_commands import build_claude_tui_command, build_codex_tui_command, build_agy_tui_command
 
 STATE_DIR = Path(os.environ.get("OPENCLAW_COCKPIT_STATE_DIR", str(Path.home() / ".local/state/openclaw-cockpit"))).expanduser() / "agent-wall"
@@ -367,6 +368,9 @@ def metadata_from_args(args: argparse.Namespace, *, state: str | None) -> dict[s
     values = {
         "contract_version": "1",
         "managed_by": "agent_wall",
+        "keep_open": "1" if getattr(args, "keep_open", False) else "0",
+        "completed_retention_seconds": str(getattr(args, "completed_retention_seconds", 60)),
+        "failed_retention_seconds": str(getattr(args, "failed_retention_seconds", 180)),
         "kind": args.kind,
         "agent": args.agent,
         "owner": args.owner,
@@ -459,9 +463,9 @@ def validate_launch_contract(args: argparse.Namespace, *, generic: bool) -> None
         if not getattr(args, "why_headless", "").strip():
             raise SystemExit("batch-worker requires --why-headless")
         require_path_under_run_root(getattr(args, "progress_path", ""), args.run_root, "--progress-path")
-        if getattr(args, "cleanup_policy", "") in {"", "manual"}:
+        if not getattr(args, "cleanup_policy", "") or (args.cleanup_policy == "manual" and not getattr(args, "_cleanup_policy_explicit", False)):
             args.cleanup_policy = "kill_on_done"
-        if args.cleanup_policy == "kill_after_ttl" and (not getattr(args, "ttl", "") or args.ttl == "never"):
+        if args.cleanup_policy == "kill_after_ttl" and (not getattr(args, "ttl", "") or args.ttl == "never") and not getattr(args, "_ttl_explicit", False):
             args.ttl = "5m"
         return
 
@@ -1132,9 +1136,9 @@ def resolve_pane_log(args: argparse.Namespace, run_root: Path, default_name: str
 
 
 def ensure_cleanup_defaults(args: argparse.Namespace, *, pane_log: str, run_root: Path) -> None:
-    if not getattr(args, "ttl", "") or args.ttl == "never":
+    if not getattr(args, "ttl", "") or (args.ttl == "never" and not getattr(args, "_ttl_explicit", False)):
         args.ttl = "60s"
-    if not getattr(args, "cleanup_policy", "") or args.cleanup_policy == "manual":
+    if not getattr(args, "cleanup_policy", "") or (args.cleanup_policy == "manual" and not getattr(args, "_cleanup_policy_explicit", False)):
         args.cleanup_policy = "kill_on_done"
     if not getattr(args, "evidence_path", ""):
         pane_log_path = Path(pane_log)
@@ -1651,6 +1655,13 @@ def cmd_release_hold(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_release_keep_open(args: argparse.Namespace) -> int:
+    pane = unique_pane_for_session(args.name)
+    set_pane_options(pane, {"keep_open": "0", "updated_at": utc_now()})
+    print(json.dumps({"pane": pane, "keep_open": False, "cleanup_performed": False}))
+    return 0
+
+
 def cmd_keep_open(args: argparse.Namespace) -> int:
     pane = unique_pane_for_session(args.name)
     if not args.hold_reason.strip():
@@ -1817,7 +1828,9 @@ def add_metadata_args(p: argparse.ArgumentParser, *, default_agent: str, default
 
 
 def add_tui_common_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--keep-open", action="store_true", help="Keep the runtime available after this assignment completes.")
+    closeout = p.add_mutually_exclusive_group()
+    closeout.add_argument("--keep-open", dest="keep_open", action="store_true", default=None, help="Keep the runtime available after this assignment completes.")
+    closeout.add_argument("--close-on-completion", dest="keep_open", action="store_false", help="Close after completion, overriding configured keep-open.")
     p.add_argument("--prompt-file", required=True)
     p.add_argument("--pane-log", default="")
     p.add_argument(
@@ -1841,6 +1854,7 @@ def add_tui_common_args(p: argparse.ArgumentParser) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Manage portable OpenClaw Cockpit tmux jobs.")
+    parser.add_argument("--lifecycle-config")
     sub = parser.add_subparsers(dest="subcommand", required=True)
 
 
@@ -1959,6 +1973,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     release.set_defaults(func=cmd_release_hold)
 
+    release_keep = sub.add_parser("release-keep-open", help="Release permanent retention; does not close or mark the terminal.")
+    release_keep.add_argument("--name", required=True)
+    release_keep.set_defaults(func=cmd_release_keep_open)
+
     keep = sub.add_parser("keep-open", help="Renew a terminal hold without changing cleanup authority or runtime state.")
     keep.add_argument("--name", required=True)
     keep.add_argument("--hold-reason", required=True)
@@ -2032,9 +2050,29 @@ def prompt_path_from_args(args: argparse.Namespace) -> Path:
     return prompt_path
 
 
+def configure_lifecycle_args(args: argparse.Namespace, actual_argv: list[str]) -> None:
+    config, _ = lifecycle.load(getattr(args, "lifecycle_config", None))
+    global STATE_DIR
+    STATE_DIR = Path(config["state_dir"]) / "agent-wall"
+    option_argv = actual_argv[:actual_argv.index("--")] if "--" in actual_argv else actual_argv
+    if hasattr(args, "hold_hours") and not any(a == "--hold-hours" or a.startswith("--hold-hours=") for a in option_argv):
+        args.hold_hours = config["temporary_hold_hours"]
+    if hasattr(args, "keep_open") and args.keep_open is None:
+        args.keep_open = config["closeout_default"] == "keep_open"
+    args.completed_retention_seconds = config["completed_retention_seconds"]
+    args.failed_retention_seconds = config["failed_retention_seconds"]
+    args._ttl_explicit = any(a == "--ttl" or a.startswith("--ttl=") for a in option_argv)
+    args._cleanup_policy_explicit = any(a == "--cleanup-policy" or a.startswith("--cleanup-policy=") for a in option_argv)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    actual_argv = list(sys.argv[1:] if argv is None else argv)
+    args = parser.parse_args(actual_argv)
+    try:
+        configure_lifecycle_args(args, actual_argv)
+    except ValueError as error:
+        parser.error(str(error))
     if getattr(args, "subcommand", None) == "spawn" and args.cmd_args and args.cmd_args[0] == "--":
         args.cmd_args = args.cmd_args[1:]
     return args.func(args)

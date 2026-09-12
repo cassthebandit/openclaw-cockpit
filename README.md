@@ -30,7 +30,7 @@ Cockpit started as a fork of Peter Steinberger's [tmuxwatch](https://github.com/
 - **Adds optional OpenClaw context.** Managed `@oc_*` tmux metadata, a janitor status sidecar, and runtime snapshot cards can add ownership and lifecycle detail when those sources are available.
 - **Supports scripts and debugging.** `--dump` returns the current tmux topology as JSON, and `--dump-config` prints the effective wall configuration.
 
-Cockpit is a viewer, not an orchestrator or process supervisor. tmux owns the sessions. Your agent runners own the jobs. External lifecycle tools own cleanup.
+The Cockpit Go binary is a viewer, not an orchestrator or process supervisor. tmux owns the sessions. The optional public Python helper suite owns managed launch, assignment closeout and guarded cleanup; those permissions never move into the UI.
 
 ## Quick start
 
@@ -41,6 +41,10 @@ You need tmux plus either Go 1.25.11 or Nix. macOS and Linux are the primary tar
 ```sh
 go install github.com/cassthebandit/openclaw-cockpit/cmd/openclaw-cockpit@latest
 ```
+
+### Optional managed-job helpers
+
+`go install` installs only the Go binary. The source checkout/source archive and release bundles include `helpers/` and `examples/`. The [helper guide](helpers/README.md) covers Python/tmux prerequisites, real interactive assignments, first-use runtime trust, keep-open and saved results. [Lifecycle configuration](docs/lifecycle-configuration.md) covers retention, intervals and portable environment examples. No private repository is required.
 
 ### Run with Nix
 
@@ -128,7 +132,7 @@ Missing optional sources appear as visible source errors. They never give Cockpi
 
 ## Configuration
 
-Cockpit reads `~/.config/openclaw-cockpit/config.json` unless `--config` names another file. The current config controls a small set of display choices:
+Cockpit reads `~/.config/openclaw-cockpit/config.json` unless `--config` names another file. For example, a minimal presentation configuration is:
 
 ```json
 {

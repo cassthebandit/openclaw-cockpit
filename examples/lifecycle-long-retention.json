@@ -1,0 +1,4 @@
+{
+  "completed_retention_seconds": 600,
+  "failed_retention_seconds": 900
+}
