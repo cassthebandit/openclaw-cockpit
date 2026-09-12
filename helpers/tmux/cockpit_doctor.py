@@ -248,7 +248,7 @@ def public_hygiene_command(argv: list[str]) -> bool:
         argv.pop(0)
         while argv and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", argv[0]):
             argv.pop(0)
-    if not argv or not re.fullmatch(r"python(?:[0-9]+(?:\.[0-9]+)*)?", Path(argv[0]).name):
+    if not argv or not re.fullmatch(r"python(?:[0-9]+(?:\.[0-9]+)*)?", Path(argv[0]).name.lower()):
         return False
     if len(argv) > 2 and Path(argv[1]).name == "services.py":
         return argv[2] == "hygiene"

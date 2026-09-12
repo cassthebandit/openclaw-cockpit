@@ -13,6 +13,7 @@ import cockpit_doctor as doctor
 class DoctorServiceTests(unittest.TestCase):
     def test_doctor_accepts_only_actual_service_argv(self):
         good = [
+            '/opt/homebrew/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python /x/cockpit_public.py --install-config /x/pin --helper tmux.services hygiene --config /x/config',
             'python3 /x/services.py hygiene --config /x/lifecycle.json',
             'python3 -m helpers.tmux.services hygiene',
             'python3 /x/cockpit_public.py --install-config /x/pin --helper tmux.services hygiene --config /x/config',
