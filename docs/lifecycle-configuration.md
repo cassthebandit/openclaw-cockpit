@@ -80,7 +80,14 @@ Permanent keep-open never expires with a temporary hold. Even manually exiting
 the retained runtime leaves the pane protected. Use
 `agent_wall.py release-keep-open --name EXACT_NAME` to release that protection;
 this metadata action does not close or mark the pane. Releasing a temporary
-hold remains the separate evidence-aware `release-hold` command.
+hold remains the separate evidence-aware `release-hold` command. Neither release
+rewrites the job outcome. A valid held completion is reconsidered automatically
+when retention is released or expires; new input or changed result blocks it.
+
+Review holds default to `temporary_hold_hours` (24). Renew with
+`agent_wall.py keep-open --name EXACT_NAME --hold-reason review --hold-hours 24`.
+Use `--indefinite` instead for an explicit until-released review hold. Existing
+holds with no deadline remain protected; new defaults are not applied to them.
 
 ## Foreground services and reload
 

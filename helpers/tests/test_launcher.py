@@ -15,9 +15,20 @@ import threading
 import unittest
 from unittest import mock
 from pathlib import Path
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tmux"))
 import agent_wall
+
+
+@pytest.fixture(autouse=True)
+def isolated_event_log(monkeypatch, tmp_path):
+    monkeypatch.setattr(agent_wall, "pane_session_name", lambda pane: "isolated-test-session")
+    append = agent_wall.event_log.append
+    def write(event, **fields):
+        fields["config"] = {"log_dir": str(tmp_path / "events")}
+        return append(event, **fields)
+    monkeypatch.setattr(agent_wall.event_log, "append", write)
 
 
 class AgentWallClaudeTests(unittest.TestCase):
@@ -717,8 +728,7 @@ class AgentWallClaudeTests(unittest.TestCase):
 
         # Hygiene is the single marking authority: release stamps completion
         # evidence only and leaves marking to the janitor's next cycle.
-        self.assertEqual(calls[0]["state"], "done")
-        self.assertEqual(calls[0]["end_reason"], "evidence_captured_release")
+        self.assertEqual(set(calls[0]), {"updated_at"})
         self.assertNotIn("janitor_state", calls[0])
         self.assertNotIn("teardown_reason", calls[0])
         self.assertNotIn("teardown_marked_at", calls[0])
@@ -1854,6 +1864,23 @@ class AgentWallReleaseHoldTests(unittest.TestCase):
         base.update(overrides)
         return argparse.Namespace(**base)
 
+    def test_release_log_uses_launch_identity(self) -> None:
+        self.assertIn("launch_id", agent_wall.OC_FIELDS)
+        with mock.patch.object(agent_wall, "read_pane_metadata", return_value={"launch_id": "stable-launch", "hold_reason": "review"}), \
+             mock.patch.object(agent_wall, "unset_hold_reason"), \
+             mock.patch.object(agent_wall, "set_pane_options"), \
+             mock.patch.object(agent_wall.event_log, "append") as append:
+            with contextlib.redirect_stdout(io.StringIO()):
+                agent_wall.cmd_release_hold(self._release_args(evidence_captured=True, allow_hygiene_after_release=True))
+        self.assertEqual(len(append.call_args_list), 2)
+        self.assertTrue(all(call.kwargs["identity"] == "stable-launch" for call in append.call_args_list))
+        self.assertTrue(all(call.kwargs["session"] == "isolated-test-session" for call in append.call_args_list))
+
+    def test_session_exists_uses_exact_name_not_prefix(self) -> None:
+        with mock.patch.object(agent_wall, "run_tmux", return_value=subprocess.CompletedProcess([], 1, "", "")) as run:
+            self.assertFalse(agent_wall.session_exists("worker"))
+        run.assert_called_once_with("has-session", "-t", "=worker", check=False)
+
     def test_release_hold_requires_exact_target(self) -> None:
         with self.assertRaises(SystemExit):
             agent_wall.cmd_release_hold(self._release_args(name="", pane=""))
@@ -1894,10 +1921,10 @@ class AgentWallReleaseHoldTests(unittest.TestCase):
         self.assertFalse(report["applied"])
         self.assertTrue(report["dry_run"])
         self.assertTrue(report["had_hold_reason"])
-        self.assertTrue(report["becomes_hygiene_eligible"])
+        self.assertFalse(report["becomes_hygiene_eligible"])
+        self.assertTrue(report["cleanup_rechecked"])
         self.assertEqual(report["planned_unset"], ["@oc_hold_reason"])
-        self.assertEqual(report["planned_set"]["state"], "done")
-        self.assertEqual(report["planned_set"]["exit_code"], "0")
+        self.assertEqual(set(report["planned_set"]), {"updated_at"})
         self.assertFalse(any(report["side_effects"].values()))
 
     def test_release_hold_real_requires_confirmation_flags(self) -> None:
@@ -1943,7 +1970,7 @@ class AgentWallReleaseHoldTests(unittest.TestCase):
             self.assertNotIn("detach", entry)
         # The only tmux mutations are the single hold unset and metadata set-options.
         self.assertIn(("set-option", "-p", "-u", "-t", "%12", "@oc_hold_reason"), calls)
-        self.assertTrue(any(call[:1] == ("set-option",) and "@oc_state" in call for call in calls))
+        self.assertFalse(any("@oc_state" in call or "@oc_exit_code" in call or "@oc_completed_at" in call for call in calls))
 
 
 

@@ -90,6 +90,50 @@ def test_inspector_manual_and_presupervisor_are_adoptable(tmp_path):
     assert not a.protection([p], config, adoption=True)
 
 
+@pytest.mark.parametrize("dead", [False, True])
+@pytest.mark.parametrize("deadline,held", [("2000-01-01T00:00:00Z", False),
+    ("2999-01-01T00:00:00Z", True), ("", True), ("bad", True)])
+def test_adoption_hold_expiry_never_proves_completion(tmp_path, dead, deadline, held):
+    p, config, args = fixture(tmp_path, dead=dead)
+    p.meta.update(hold_reason="review", hold_until=deadline)
+    item = a.plan(h, [p], args, {}, config, h.utc_now())
+    if held:
+        assert item["reason"] == "hold_reason_active"
+    elif dead:
+        assert item["action"] == "kill" and item["state"] == "exited_unknown_outcome"
+    else:
+        assert item["action"] == "skip" and item["reason"] == "owner_release_required"
+    assert not p.meta["completed_at"]
+
+
+@pytest.mark.parametrize("changed", [False, True])
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_prepare_preserves_original_activity_baseline(tmp_path, changed, dry_run):
+    p, _, args = fixture(tmp_path)
+    record = enrollment(tmp_path, p)
+    args.identity, args.profile, args.result = a.identity(p), record["profile"], record["result_path"]
+    args.reason, args.prepare, args.dry_run = "finished exact work", True, dry_run
+    p.meta.update(hold_reason="expired review", hold_until="2000-01-01T00:00:00Z")
+    first = {"capture_sha256": "original", "window_activity": "1000"}
+    second = {"capture_sha256": "new turn", "window_activity": "2000"} if changed else first
+    with patch.object(h, "list_panes", return_value=[p]), \
+         patch.object(h, "archive_cleanup", return_value={"archive_path": str(tmp_path / "archive")}), \
+         patch.object(h, "write_ledger_event"), patch.object(h, "log_event"), \
+         patch.object(h, "run_tmux", return_value=subprocess.CompletedProcess([], 0, "", "")), \
+         patch.object(a, "observe", side_effect=[(first, ""), (second, "")]), \
+         contextlib.redirect_stdout(io.StringIO()):
+        if changed:
+            with pytest.raises(ValueError, match="release_activity_changed"):
+                h.cmd_release(args)
+        else:
+            assert h.cmd_release(args) == 0
+    saved = h.load_status(args.status_file).get("adoptions", {})
+    if changed or dry_run:
+        assert not saved
+    else:
+        assert saved[args.identity]["baseline"] == first
+
+
 @pytest.mark.parametrize("field", ["server_pid", "server_started", "server_socket", "session", "pid", "created", "pane"])
 def test_identity_binds_incarnation(tmp_path, field):
     p, _, _ = fixture(tmp_path)
@@ -119,6 +163,36 @@ def test_dead_retention_plain_plan_does_not_write(tmp_path):
 def test_default_never_enrolls(tmp_path):
     p, _, args = fixture(tmp_path)
     assert a.plan(h, [p], args, {}, lifecycle.DEFAULTS, h.utc_now()) is None
+
+
+def test_smoke_pass_does_not_observe_or_consume_adopted_sessions(tmp_path):
+    p, config, args = fixture(tmp_path)
+    args.policy = 'smoke'
+    record = enrollment(tmp_path, p)
+    with patch.object(a, 'observe') as observe:
+        assert a.plan(h, [p], args, {'adoptions': {a.identity(p): record}}, config, h.utc_now()) is None
+    observe.assert_not_called()
+
+
+@pytest.mark.parametrize("policy", ["smoke", "kill-safe"])
+def test_enabled_adoption_does_not_take_over_unselected_managed_jobs(tmp_path, policy):
+    from test_hygiene import managed
+    p, config, args = fixture(tmp_path, dead=True)
+    p.meta = managed("oc-vis-smoke-new").meta
+    p.session = "oc-vis-smoke-new"
+    args.policy = policy
+    config["cleanup_whitelist"] = []
+    if policy == "kill-safe":
+        p.meta.update(kind="batch-worker", cleanup_policy="kill_on_done")
+        p.meta["run_root"] = str(tmp_path)
+        (tmp_path / "result.md").write_text("batch finished")
+        p.meta["evidence_path"] = "result.md"
+    expected = h.eligible_managed(p.session, [p], policy=policy, grace=0, now=h.utc_now())
+    with patch.object(h, "list_panes", return_value=[p]):
+        actual = h.build_plan(args)[0]
+    assert actual["action"] == expected["action"] == "kill"
+    assert actual["policy_source"] == "managed"
+    assert "adoption_identity" not in actual
 
 
 @pytest.mark.parametrize("text,reason", [("Claude Code v2.1.270\n✻ Worked for 1s\n────────\n❯ draft\n────────", "nonempty_or_unknown_prompt"),
@@ -253,6 +327,25 @@ def test_corrupt_state_never_reenrolls(tmp_path):
     assert a.plan(h, [p], args, state, config, h.utc_now())["reason"] == "owner_release_required"
 
 
+@pytest.mark.parametrize("consumed,dry_run", [(False, False), (False, True), (True, False)])
+def test_explicit_forget_frees_unused_slot_but_preserves_consumed_attempt(tmp_path, consumed, dry_run):
+    p, config, args = fixture(tmp_path)
+    config['log_dir'] = str(tmp_path / 'logs')
+    record = enrollment(tmp_path, p)
+    if consumed:
+        record['attempt'] = {'id': 'must-not-replay'}
+    args.identity, args.forget, args.dry_run = a.identity(p), True, dry_run
+    h.write_status(args.status_file, {'sessions': {}, 'adoptions': {args.identity: record}})
+    with contextlib.redirect_stdout(io.StringIO()):
+        if consumed:
+            with pytest.raises(ValueError, match='cannot_forget_consumed_exit_attempt'):
+                h.cmd_revoke(args)
+        else:
+            assert h.cmd_revoke(args) == 0
+    saved = h.load_status(args.status_file)['adoptions']
+    assert (args.identity in saved) == (consumed or dry_run)
+
+
 def test_activity_seen_at_final_boundary_invalidates_release(tmp_path):
     p, _, _ = fixture(tmp_path)
     record = enrollment(tmp_path, p)
@@ -304,6 +397,7 @@ def test_real_dead_adoption_preserves_sentinel(tmp_path, trial, native_dead_outc
             run("new-session", "-d", "-s", "sentinel", "sleep 60")
             target = run("new-session", "-d", "-P", "-F", "#{pane_id}", "-s", "temporary", "trap '' HUP; sleep 1; exit 0").stdout.strip()
             run("set-option", "-p", "-t", target, "remain-on-exit", "on")
+            run("set-option", "-p", "-t", target, "@oc_goal", "Finished a, then b {literal #{pane_id}} #()")
             # Use an explicit normal-exit fixture, independent of PTY hangup.
             # Missing/signal-only exit metadata must still be retained.
             for _ in range(150):
@@ -322,6 +416,8 @@ def test_real_dead_adoption_preserves_sentinel(tmp_path, trial, native_dead_outc
                 assert len(outcome["killed"]) == 1, outcome
                 assert run("has-session", "-t", "=temporary", check=False).returncode != 0
                 assert list((tmp_path / "archive").glob("*/metadata.json"))
+                metadata = json.loads(next((tmp_path / "archive").glob("*/metadata.json")).read_text())
+                assert metadata['panes'][0]['last_activity'].isdigit()
                 assert not h.load_status(args.status_file)["adoptions"]
                 native_dead_outcomes["removed"] += 1
             else:

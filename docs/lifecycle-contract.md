@@ -26,6 +26,14 @@ tool, approval or interrupted activity invalidates the pending receipt. Claude
 background task/wakeup state must be explicitly empty. Disabled or unsupported
 hooks do not authorize closeout.
 
+Claude workers without shell access can use the launch-local file route described
+in their prompt suffix: their last tool is Write to the exact `completion.json`,
+with the launch run_id, succeeded/failed outcome and full nonempty result text. A
+matching main PreToolUse/PostToolUse pair snapshots the saved result, and the
+final response must end with the launch-specific file marker. Other paths, stale
+files, failed writes and subsequent work do not complete the assignment. No
+user-global hooks or broad shell permission are required.
+
 The supervisor then retires only its directly owned runtime child and observes
 actual exit. Native Stop alone is not process exit. The immutable result snapshot
 and final response remain available after the terminal closes. This establishes
@@ -43,9 +51,24 @@ Temporary holds and permanent keep-open choices are different. A live held job
 remains active. A completed retained job is completed, not falsely running.
 
 `release-hold` requires the explicit evidence-captured and allow-hygiene flags. It
-clears hold_reason and stamps completion fields only. It does not pre-mark, archive,
-kill, hide or detach anything. Hygiene makes its own fresh decision on a later
-cycle; release is not proof that a live runtime exited.
+clears hold_reason and updates only the metadata timestamp. It never changes a
+running/failed outcome to success. It does not pre-mark, archive, kill, hide or
+detach anything. Hygiene makes its own fresh decision on a later cycle; release
+is not proof that a live runtime exited.
+
+Review holds expire after 24 hours by default (configurable), or can be renewed
+with `keep-open --hold-hours HOURS`. `keep-open --indefinite` explicitly retains
+until release. Legacy holds with no deadline or malformed deadlines stay held.
+Expiry removes retention, never establishes completion. All consumers use the
+same deadline interpretation.
+
+A retained managed completion is rechecked after release or expiry. It must still
+match the same generation, runtime session, pane and saved result. Resumed work,
+new tools, approval waits or interruption invalidate it. Delayed closure also
+checks the current composer and detached/single-pane topology; typed drafts and
+unknown state block closure. The supervisor requests shutdown once, logs first,
+and never escalates to SIGKILL. Pane keep-open metadata is the mutable authority,
+so releasing it is not defeated by an immutable launch default.
 
 ## Retirement boundary
 
@@ -58,7 +81,7 @@ Required evidence remains nonempty, regular, contained within the declared absol
 run root and valid under the policy. Hold, identity, topology and evidence checks
 are repeated before archive, ledger and removal. Archive/ledger failure preserves
 the terminal. A replaced pane, new hold or altered contract cancels/refuses the old
-plan. Unsupported format-bearing guard literals are refused, not interpolated.
+plan. Format-bearing values are escaped as tmux literals, never interpolated; control characters remain refused. Every metadata comparison remains in the final guard.
 
 The planner may describe completed live work or mark/cancel state. Those observations
 do not grant live-process removal. The apply boundary refuses live terminals even

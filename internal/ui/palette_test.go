@@ -122,3 +122,28 @@ func TestBuildCommandItemsDisablesKillActions(t *testing.T) {
 		}
 	}
 }
+
+func TestPaletteSearchActionAcceptsTyping(t *testing.T) {
+	m := NewModel(nil, 0, 4, nil, false, true)
+	m.searchQuery = "old"
+	m.openCommandPalette()
+	found := false
+	for index, item := range m.paletteCommands {
+		if item.label == "Focus search bar (/)" {
+			m.paletteIndex = index
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("search action missing")
+	}
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.paletteOpen || !m.searching || !m.searchInput.Focused() {
+		t.Fatal("palette action must close palette and focus search")
+	}
+	m.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	if m.searchQuery != "olda" || m.searchInput.Value() != "olda" {
+		t.Fatalf("palette search did not accept typing at cursor end: query=%q input=%q", m.searchQuery, m.searchInput.Value())
+	}
+}

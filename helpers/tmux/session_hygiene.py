@@ -22,16 +22,20 @@ import shlex
 import subprocess
 import sys
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 try:
-    from . import lifecycle, adoption
+    from . import lifecycle, adoption, event_log, holds, manual_close, format_guard
 except ImportError:
     import lifecycle
     import adoption
+    import event_log
+    import holds
+    import manual_close
+    import format_guard
 
 STATE_ROOT = Path(os.environ.get("OPENCLAW_COCKPIT_STATE_DIR", "~/.local/state/openclaw-cockpit")).expanduser()
 
@@ -420,6 +424,7 @@ def serialized_status(function):
     @functools.wraps(function)
     def call(args):
         writes = function.__name__ in {"cmd_apply", "cmd_release", "cmd_revoke"} or getattr(args, "write_status", False)
+        writes = writes or (function.__name__ == "cmd_manual_close" and getattr(args, "execute", False))
         with status_lock(getattr(args, "status_file", "")) if writes and not getattr(args, "dry_run", False) else contextlib.nullcontext():
             return function(args)
     return call
@@ -454,7 +459,7 @@ def list_panes() -> list[Pane]:
             "#{pane_current_command}",
             "#{pane_current_path}",
             "#{session_created}",
-            "#{pane_last_activity}",
+            "#{window_activity}",  # tmux has no pane_last_activity; window activity is conservative.
             "#{pane_dead}",
             "#{pane_dead_status}",
             "#{pane_pid}",
@@ -911,7 +916,7 @@ def adopted_completed_codex(
         return None
     if "codex" not in " ".join([meta.get("agent", ""), pane.command, pane.title, session]).lower():
         return None
-    if meta.get("hold_reason", "").strip():
+    if hold_is_active(pane, now):
         return result(session=session, action="refuse", reason="hold_reason_active_adopted", panes=panes, policy_source="adopted_codex")
     age = session_age_seconds(pane, now)
     if age is None:
@@ -1021,6 +1026,17 @@ def ledger_paths(item: dict[str, Any], panes: list[Pane], args: argparse.Namespa
     return unique
 
 
+def log_event(item: dict, args: argparse.Namespace, event: str, *, result: str = "", archive_path: str = "") -> None:
+    contracts = item.get("pane_contracts") or [{}]
+    identity = contracts[0].get("launch_id") or item.get("adoption_identity") or item.get("pane_identity", "")
+    event_log.append(event, session=item["session"], identity=identity,
+                     source="manual" if item.get("policy_source") in {"manual", "operator_allow_session"} else "automatic",
+                     result="".join(c if ord(c) >= 32 and ord(c) != 127 else " " for c in result),
+                     reason="".join(c if ord(c) >= 32 and ord(c) != 127 else " "
+                                    for c in redact_text(str(item.get("reason", "")))),
+                     archive_path=archive_path, config=effective_config(args))
+
+
 def write_ledger_event(
     item: dict[str, Any],
     panes: list[Pane],
@@ -1048,6 +1064,9 @@ def write_ledger_event(
         "kill_returncode": kill_returncode,
         "kill_stderr": kill_stderr,
     }
+    log_event(item, args, event,
+              result="attempt" if kill_returncode is None else "success" if kill_returncode == 0 else "failed",
+              archive_path=(archive or {}).get("archive_path", ""))
     errors: list[str] = []
     paths = ledger_paths(item, panes, args)
     for index, path in enumerate(paths):
@@ -1087,7 +1106,7 @@ def eligible_managed(
                      else "active_work" if screen_has_active_marker(text)
                      else "capture_empty" if not text.strip() else "")
         if protected:
-            if pane.meta.get("hold_reason", "").strip() and not override_hold:
+            if hold_is_active(pane, now) and not override_hold:
                 item = result(session=session, action="refuse", reason="hold_reason_active", panes=panes, policy_source="managed")
                 item["janitor_state"] = "protected"
                 return item
@@ -1410,7 +1429,7 @@ def build_plan(args: argparse.Namespace) -> list[dict[str, Any]]:
                 out.append(adopted)
                 continue
             if session in allowed:
-                has_hold = any(p.meta.get("hold_reason", "").strip() for p in panes)
+                has_hold = any(hold_is_active(p, now) for p in panes)
                 if has_hold and not override_hold_allows(args, session):
                     out.append(
                         result(
@@ -1480,6 +1499,23 @@ def cmd_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def record_status_changes(items: list[dict], args: argparse.Namespace) -> None:
+    previous = load_status(getattr(args, "status_file", "")).get("sessions", {})
+    for item in items:
+        old = previous.get(item["session"], {})
+        identity = item.get("pane_identity", "")
+        same = old.get("logged_identity") == identity
+        signatures = dict(old.get("logged_states", {})) if same else {}
+        if not same:
+            log_event(item, args, "discovered", result="observed")
+        policy = getattr(args, "policy", "")
+        signature = [item.get("action"), item.get("teardown_reason") or item.get("reason")]
+        if signatures.get(policy) != signature:
+            log_event(item, args, "cleanup_state", result=item.get("janitor_state") or item["action"])
+        signatures[policy] = signature
+        item.update(logged_identity=identity, logged_states=signatures)
+
+
 def status_payload(items: list[dict[str, Any]], args: argparse.Namespace) -> dict[str, Any]:
     previous = load_status(getattr(args, "status_file", ""))
     previous_sessions = previous.get("sessions") if isinstance(previous.get("sessions"), dict) else {}
@@ -1536,6 +1572,8 @@ def status_payload(items: list[dict[str, Any]], args: argparse.Namespace) -> dic
             "pane_created": item_created,
             "pane_pid": item.get("pane_pid", ""),
             "pane_identity": item.get("pane_identity", ""),
+            "logged_identity": item.get("logged_identity", prior.get("logged_identity", "")),
+            "logged_states": item.get("logged_states", prior.get("logged_states", {})),
             "existing_session": bool(item.get("adoption_identity")),
             "observations": item.get("observations", {}),
             "tail_hash": tail_hash,
@@ -1562,27 +1600,9 @@ def status_payload(items: list[dict[str, Any]], args: argparse.Namespace) -> dic
 
 
 def hold_is_active(pane: Pane, now: datetime) -> bool:
-    if not pane.meta.get("hold_reason", "").strip():
-        return False
-    deadline = parse_iso(pane.meta.get("hold_until", ""))
-    # Legacy/malformed holds stay protected; never infer an expiry retroactively.
-    if deadline is None or now < deadline:
-        return True
-    if pane.meta.get("kind") in {"service", "viewer", "runtime"}:
-        return True
-    if pane.dead:
-        return False
-    # A deadline alone is not completion. Require a fresh completed TUI screen
-    # or a terminal state on a shell with no running child/model work.
-    text = capture_pane_text(pane)
-    if screen_has_operator_prompt(text) or screen_has_active_marker(text):
-        return True
-    completed, _ = managed_tui_completion_time(pane, text)
-    if completed is not None:
-        return False
-    return not (pane.command in {"zsh", "bash", "sh", "fish"}
-                and effective_state(pane) in {"done", "failed"}
-                and parse_iso(pane.meta.get("completed_at", "")) is not None)
+    # Expiry removes only the review hold. Completion and ownership still have
+    # their own checks; a missing/malformed old deadline remains protected.
+    return holds.review_active(pane.meta, now)
 
 
 def revalidate_target(item: dict[str, Any], *, allow_hold: bool, args: argparse.Namespace | None = None) -> tuple[list[Pane], str]:
@@ -1616,7 +1636,8 @@ def revalidate_target(item: dict[str, Any], *, allow_hold: bool, args: argparse.
             config = effective_config(args)
         except ValueError as error:
             return panes, "policy_reload_failed:" + str(error)
-        if reason := adoption.protection(panes, config, adoption=bool(item.get("adoption_identity"))):
+        if reason := adoption.protection(panes, config, adoption=bool(item.get("adoption_identity")),
+                                        record=item.get("adoption_record")):
             return panes, reason
         if item.get("adoption_identity"):
             if reason := adoption.topology(panes):
@@ -1651,7 +1672,7 @@ def refusal_state(reason: str) -> str:
 def apply_refusal(item: dict[str, Any], reason: str) -> dict[str, Any]:
     applied = dict(item)
     record = dict(item.get("adoption_record", {}))
-    if record.get("release_id") and not record.get("attempt") and reason != "action_cap_deferred":
+    if record.get("release_id") and not record.get("attempt") and reason not in {"action_cap_deferred", "recovery_lock_busy"}:
         record["invalidated"] = reason
         record.pop("quiet_since", None)
         applied["adoption_record"] = record
@@ -1684,9 +1705,11 @@ def dead_retirement_refusal(panes: list[Pane]) -> str:
         return "grouped_or_unknown_session_requires_explicit_retirement"
     if pane.window_linked != "0":
         return "linked_or_unknown_window_requires_explicit_retirement"
-    # Refuse unsupported literals BEFORE archive/ledger I/O as well as at
-    # the final boundary. Preserve all contract checks, including free text.
-    if any(any(c in str(v) for c in "#,{}\n\r") for v in dead_retirement_expectations(pane).values()):
+    # Validate before archive I/O; literal escaping preserves every comparison,
+    # including free text, without interpreting user values as tmux formats.
+    try:
+        format_guard.all_equal(dead_retirement_expectations(pane))
+    except ValueError:
         return "unsafe_guard_literal"
     if not pane.dead:
         return "live_session_requires_explicit_retirement"
@@ -1704,11 +1727,7 @@ def guarded_dead_retirement(pane: Pane) -> subprocess.CompletedProcess[str]:
     """
     if reason := dead_retirement_refusal([pane]):
         return subprocess.CompletedProcess([], 1, "", reason)
-    checks = ["#{==:#{" + key + "}," + str(value) + "}"
-              for key, value in dead_retirement_expectations(pane).items()]
-    condition = checks[0]
-    for check in checks[1:]:
-        condition = "#{&&:" + condition + "," + check + "}"
+    condition = format_guard.all_equal(dead_retirement_expectations(pane))
     cp = run_tmux("if-shell", "-F", "-t", pane.server_session_id + ":", condition,
                   "kill-session -t " + shlex.quote(pane.server_session_id),
                   "display-message -p PR4_RETIREMENT_REFUSED", check=False)
@@ -1722,18 +1741,52 @@ def guarded_native_exit(pane: Pane, profile: dict) -> subprocess.CompletedProces
     expectations.update(pane_dead="0", session_attached="0", pane_in_mode="0",
                         pane_input_off="0", pane_pipe="0", **{"synchronize-panes": "0", "remain-on-exit": "on"},
                         pane_current_command=profile["command"])
-    if any(any(c in str(v) for c in "#,{}\n\r") for v in expectations.values()):
+    try:
+        condition = format_guard.all_equal(expectations)
+    except ValueError:
         return subprocess.CompletedProcess([], 1, "", "unsafe_guard_literal")
-    checks = ["#{==:#{" + key + "}," + str(value) + "}" for key, value in expectations.items()]
-    condition = checks[0]
-    for check in checks[1:]:
-        condition = "#{&&:" + condition + "," + check + "}"
     cp = run_tmux("if-shell", "-F", "-t", pane.server_session_id + ":", condition,
                   shlex.join(["send-keys", "-t", pane.pane, *profile["keys"]]),
                   "display-message -p ADOPTION_EXIT_REFUSED", check=False)
     if "ADOPTION_EXIT_REFUSED" in cp.stdout:
         return subprocess.CompletedProcess(cp.args, 1, cp.stdout, "tmux_guard_changed")
     return cp
+
+
+def prepare_enrollment(panes: list[Pane], record: dict, args: argparse.Namespace) -> tuple[list[Pane], dict]:
+    """Capture prior output and prepare known runtime exit/logging in one call."""
+    p = panes[0]
+    # Validate native identity and prompt before disabling the old pane pipe.
+    candidate = replace(p, pane_pipe="0", remain_on_exit="on")
+    evidence, reason = adoption.observe(sys.modules[__name__], candidate, record)
+    if reason:
+        raise ValueError(reason)
+    if getattr(args, "dry_run", False):
+        return [candidate], evidence
+    item = result(session=p.session, action="prepare", reason=args.reason, panes=panes, policy_source="manual")
+    item["adoption_identity"] = adoption.identity(p)
+    archive = archive_cleanup(item, panes, args)
+    write_ledger_event(item, panes, args, event="enrollment_prepare_attempt", archive=archive)
+    fresh = group_by_session(list_panes()).get(p.session, [])
+    config = effective_config(args)
+    if (pane_identity(fresh) != pane_identity(panes) or [x.meta for x in fresh] != [x.meta for x in panes]
+            or adoption.protection(fresh, config, adoption=True, record=record) or adoption.topology(fresh)
+            or config["live_retirement"] != "observed" or not adoption.selected(p.session, config)):
+        raise ValueError("enrollment preparation target or policy changed")
+    expected = dead_retirement_expectations(p)
+    expected.update(pane_dead="0", pane_pipe=p.pane_pipe, **{"remain-on-exit": p.remain_on_exit})
+    condition = format_guard.all_equal(expected)
+    command = shlex.join(["set-option", "-w", "-t", p.pane, "remain-on-exit", "on"])
+    command += " ; " + shlex.join(["pipe-pane", "-t", p.pane])
+    cp = run_tmux("if-shell", "-F", "-t", p.server_session_id + ":", condition,
+                  command, "display-message -p ENROLLMENT_PREPARE_REFUSED", check=False)
+    if cp.returncode or "ENROLLMENT_PREPARE_REFUSED" in cp.stdout:
+        raise ValueError("enrollment preparation guard failed")
+    prepared = group_by_session(list_panes()).get(p.session, [])
+    if pane_identity(prepared) != pane_identity(panes) or [x.meta for x in prepared] != [x.meta for x in panes]:
+        raise ValueError("enrollment preparation identity changed")
+    log_event(item, args, "enrollment_prepared", result="saved output; native exit retention ready", archive_path=archive["archive_path"])
+    return prepared, evidence
 
 
 @serialized_status
@@ -1751,22 +1804,30 @@ def cmd_release(args: argparse.Namespace) -> int:
     panes = group_by_session(list_panes()).get(p.session, [])
     if not panes or adoption.identity(panes[0]) != args.identity:
         raise ValueError("exact_incarnation_changed")
-    reason = adoption.protection(panes, config, adoption=True) or adoption.topology(panes)
+    reason = adoption.protection(panes, config) or adoption.topology(panes)
     if reason or p.dead or not adoption.selected(p.session, config):
         raise ValueError(reason or "live_selected_incarnation_required")
     data, digest = adoption.result_bytes(args.result)
     record = {"release_id": uuid.uuid4().hex, "released_at": isoformat(utc_now()),
+              "session": p.session,
               "reason": args.reason, "profile": args.profile, "result_path": args.result,
               "result_sha256": digest, "result_bytes": len(data), "attestation": adoption.RISK}
     if getattr(args, "attest_screen_sampling", False):
         record["screen_sampling"] = True
+    args._enrollment_pane = p
     extra = adoption.native_runtimes.enrollment(adoption.PROFILES[args.profile], args, adoption.result_bytes)
     if record.keys() & extra.keys():
         raise ValueError("adapter_enrollment_overwrites_common_fields")
     record.update(extra)
-    evidence, reason = adoption.observe(sys.modules[__name__], panes[0], record)
-    if reason:
+    if reason := adoption.protection(panes, config, adoption=True, record=record):
         raise ValueError(reason)
+    if getattr(args, "prepare", False):
+        panes, evidence = prepare_enrollment(panes, record, args)
+        p = panes[0]
+    else:
+        evidence, reason = adoption.observe(sys.modules[__name__], panes[0], record)
+        if reason:
+            raise ValueError(reason)
     record.update(baseline=evidence, last_observed=isoformat(utc_now()), quiet_since=isoformat(utc_now()))
     state = load_status(args.status_file)
     records = state.setdefault("adoptions", {})
@@ -1781,13 +1842,17 @@ def cmd_release(args: argparse.Namespace) -> int:
     if pane_identity(fresh) != pane_identity(panes) or [x.meta for x in fresh] != [x.meta for x in panes]:
         raise ValueError("release_identity_or_contract_changed")
     config = effective_config(args)
-    if (adoption.protection(fresh, config, adoption=True) or adoption.topology(fresh)
+    if (adoption.protection(fresh, config, adoption=True, record=record) or adoption.topology(fresh)
             or not adoption.selected(p.session, config) or config["live_retirement"] != "observed"):
         raise ValueError("release_policy_changed")
+    if getattr(args, "prepare", False) and getattr(args, "dry_run", False):
+        fresh = [replace(fresh[0], pane_pipe="0", remain_on_exit="on")]
     corroboration, reason = adoption.observe(sys.modules[__name__], fresh[0], record)
     if reason or corroboration != evidence:
         raise ValueError(reason or "release_activity_changed")
     if not getattr(args, "dry_run", False):
+        log_event(result(session=p.session, action="adopt", reason=args.reason, panes=panes, policy_source="manual"),
+                  args, "adopted", result="registered")
         records[args.identity] = record
         write_status(args.status_file, state)
     print(json.dumps({"identity": args.identity, "dry_run": getattr(args, "dry_run", False), "release": record}, indent=2))
@@ -1800,17 +1865,27 @@ def cmd_revoke(args: argparse.Namespace) -> int:
     record = state.get("adoptions", {}).get(args.identity)
     if not record:
         raise ValueError("exact_release_not_found")
+    forget = getattr(args, "forget", False)
+    if forget and record.get("attempt"):
+        raise ValueError("cannot_forget_consumed_exit_attempt")
     record["invalidated"] = "owner_revoked"
     record.pop("quiet_since", None)
+    if forget:
+        state["adoptions"].pop(args.identity)
     if not getattr(args, "dry_run", False):
+        event_log.append("adoption_forgotten" if forget else "adoption_revoked",
+                         session=record.get("session", "unknown-session"), identity=args.identity,
+                         source="manual", result="attempt", reason="owner_revoked",
+                         config=effective_config(args))
         write_status(args.status_file, state)
     print(json.dumps({"identity": args.identity, "revoked": True, "dry_run": getattr(args, "dry_run", False),
-                      "attempt_retained": bool(record.get("attempt"))}))
+                      "forgotten": forget, "attempt_retained": bool(record.get("attempt"))}))
     return 0
 
 
 def request_exit(item: dict, args: argparse.Namespace) -> dict:
     archive = {}
+    record = {}
     try:
         panes, reason = revalidate_target(item, allow_hold=False, args=args)
         if reason != "ok":
@@ -1844,31 +1919,56 @@ def request_exit(item: dict, args: argparse.Namespace) -> dict:
         if reason or evidence != record["baseline"]:
             return apply_refusal(item, reason or "new_activity_invalidated_release")
         request_config = effective_config(args)
-        attempt = {"id": uuid.uuid4().hex, "consumed_at": isoformat(utc_now()),
-                   "release_id": record["release_id"], **archive}
-        record["attempt"] = attempt
-        item["adoption_record"] = record
-        state = load_status(args.status_file)
-        current = state.get("adoptions", {}).get(item["adoption_identity"], {})
-        if current.get("release_id") != record["release_id"] or current.get("attempt") or current.get("invalidated"):
-            return apply_refusal(item, "release_authority_changed")
-        state["adoptions"][item["adoption_identity"]] = record
-        write_status(args.status_file, state)  # consumed BEFORE any native key
-        # Policy/protection and runtime evidence are checked again after disk I/O.
-        fresh = group_by_session(list_panes()).get(p.session, [])
-        config = effective_config(args)
-        reason = adoption.protection(fresh, config, adoption=True) or adoption.topology(fresh)
-        if (reason or config != request_config or pane_identity(fresh) != pane_identity(panes) or [x.meta for x in fresh] != [x.meta for x in panes]
-                or config["live_retirement"] != "observed" or not adoption.selected(p.session, config)):
-            return apply_refusal(item, reason or "consumed_request_revalidation_failed")
-        evidence, reason = adoption.observe(sys.modules[__name__], fresh[0], record)
-        if reason or evidence != record["baseline"]:
-            return apply_refusal(item, reason or "consumed_request_activity_changed")
-        cp = guarded_native_exit(fresh[0], adoption.PROFILES[record["profile"]])
+        guard_context = contextlib.nullcontext()
+        if record.get("assignment_recovery"):
+            try:
+                from . import assignment_recovery
+            except ImportError:
+                import assignment_recovery
+            guard_context = assignment_recovery.final_guard(record["assignment_recovery"])
+        with guard_context:
+            attempt = {"id": uuid.uuid4().hex, "consumed_at": isoformat(utc_now()),
+                       "release_id": record["release_id"], **archive}
+            state = load_status(args.status_file)
+            current = state.get("adoptions", {}).get(item["adoption_identity"], {})
+            if current.get("release_id") != record["release_id"] or current.get("attempt") or current.get("invalidated"):
+                return apply_refusal(item, "release_authority_changed")
+            record["attempt"] = attempt
+            item["adoption_record"] = record
+            state["adoptions"][item["adoption_identity"]] = record
+            write_status(args.status_file, state)  # consumed BEFORE any native key
+            # Policy/protection and runtime evidence are checked again after disk I/O.
+            fresh = group_by_session(list_panes()).get(p.session, [])
+            config = effective_config(args)
+            reason = adoption.protection(fresh, config, adoption=True, record=record) or adoption.topology(fresh)
+            if (reason or config != request_config or pane_identity(fresh) != pane_identity(panes) or [x.meta for x in fresh] != [x.meta for x in panes]
+                    or config["live_retirement"] != "observed" or not adoption.selected(p.session, config)):
+                return apply_refusal(item, reason or "consumed_request_revalidation_failed")
+            evidence, reason = adoption.observe(sys.modules[__name__], fresh[0], record)
+            if reason or evidence != record["baseline"]:
+                return apply_refusal(item, reason or "consumed_request_activity_changed")
+            cp = guarded_native_exit(fresh[0], adoption.PROFILES[record["profile"]])
+        write_ledger_event(item, fresh, args, event="exit_request_result", archive=archive,
+                           kill_returncode=cp.returncode, kill_stderr=cp.stderr.strip())
+        if cp.returncode and cp.stderr == "tmux_guard_changed":
+            # The synchronous false branch proves no key was sent. Preserve its
+            # archive history, but do not pretend there was an ambiguous send.
+            record["previous_attempt"] = record.pop("attempt")
+            record["invalidated"] = "tmux_guard_changed"
+            record.pop("quiet_since", None)
+            item["adoption_record"] = record
+            state["adoptions"][item["adoption_identity"]] = record
+            write_status(args.status_file, state)
+            return apply_refusal(item, "tmux_guard_changed")
         applied = dict(item)
         applied.update(archive, janitor_state="exit_requested" if cp.returncode == 0 else "shutdown_unconfirmed",
                        reason="native_exit_requested" if cp.returncode == 0 else "shutdown_unconfirmed:" + cp.stderr.strip())
         return applied
+    except BlockingIOError as error:
+        reason = "exit_request_failed:" + str(error) if record.get("attempt") else "recovery_lock_busy"
+        refused = apply_refusal(item, reason)
+        refused.update(archive)
+        return refused
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         refused = apply_refusal(item, "exit_request_failed:" + str(error))
         refused.update(archive)
@@ -1988,6 +2088,12 @@ def cmd_apply(args: argparse.Namespace) -> int:
             refused.append(apply_refusal(item, "live_session_requires_explicit_retirement"))
             continue
         cp = guarded_dead_retirement(panes[0])
+        if cp.returncode == 0:
+            try:
+                if any(p.server_session_id == panes[0].server_session_id for p in list_panes()):
+                    cp = subprocess.CompletedProcess(cp.args, 1, cp.stdout, "closure_unconfirmed")
+            except (OSError, ValueError, subprocess.SubprocessError):
+                cp = subprocess.CompletedProcess(cp.args, 1, cp.stdout, "closure_verification_unavailable")
         applied = dict(item)
         applied.update(archive)
         write_ledger_event(
@@ -2008,7 +2114,9 @@ def cmd_apply(args: argparse.Namespace) -> int:
             applied["reason"] = "tmux_kill_failed:" + (cp.stderr.strip() or "unknown")
             refused.append(applied)
     result_obj = {"requested": requested, "killed": killed, "marked": marked, "cancelled": canceled, "skipped": skipped, "refused": refused}
-    write_status(getattr(args, "status_file", ""), status_payload(killed + requested + marked + canceled + skipped + refused, args))
+    all_items = killed + requested + marked + canceled + skipped + refused
+    record_status_changes(all_items, args)
+    write_status(getattr(args, "status_file", ""), status_payload(all_items, args))
     if args.json:
         print(json.dumps(result_obj, indent=2, sort_keys=True))
     else:
@@ -2021,6 +2129,11 @@ def cmd_apply(args: argparse.Namespace) -> int:
         print(f"skipped: {len(skipped)}")
         print(f"refused: {len(refused)}")
     return 0
+
+
+@serialized_status
+def cmd_manual_close(args: argparse.Namespace) -> int:
+    return manual_close.run(sys.modules[__name__], args)
 
 
 def add_common(parser: argparse.ArgumentParser) -> None:
@@ -2079,19 +2192,32 @@ def build_parser() -> argparse.ArgumentParser:
     release.add_argument("--reason", required=True)
     release.add_argument("--wrapper", default="", help="Exact legacy Bash wrapper file for the known wrapper profile")
     release.add_argument("--profile", choices=sorted(adoption.PROFILES), required=True)
+    release.add_argument("--assignment-dir", help="Exact original assignment directory for supported obsolete-supervisor recovery")
+    release.add_argument("--owner-reviewed-result", action="store_true", help="Attest the saved report was reviewed and accepted for recovery")
+    release.add_argument("--allow-missing-receipt", action="store_true", help="Accept recovery without native receipt; original supervisor must record incomplete, not success")
     release.add_argument("--attest-no-background-work", action="store_true", required=True)
     release.add_argument("--attest-screen-sampling", action="store_true",
                          help="Accept sampled-screen quietness: identical redraws do not veto; changes between samples may be missed (required for AGY)")
     release.add_argument("--dry-run", action="store_true")
+    release.add_argument("--prepare", action="store_true", help="Archive existing output and prepare exit retention/logging before enrollment")
     release.set_defaults(func=cmd_release)
     revoke = sub.add_parser("revoke-existing", help="Revoke exact enrollment while preserving any consumed attempt.")
     add_common(revoke)
     revoke.add_argument("--identity", required=True)
     revoke.add_argument("--dry-run", action="store_true")
+    revoke.add_argument("--forget", action="store_true", help="Free an unused enrollment slot; refuses any consumed exit attempt")
     revoke.set_defaults(func=cmd_revoke)
 
+    close = sub.add_parser("kill-session", help="Preview exact-session archive-and-close; manual backup only.")
+    add_common(close)
+    close.add_argument("--name", required=True)
+    close.add_argument("--identity", default="", help="Exact identity returned by preview; required for --execute")
+    close.add_argument("--reason", default="operator requested closure")
+    close.add_argument("--execute", action="store_true")
+    close.set_defaults(func=cmd_manual_close)
+
     # Subcommand defaults must not erase options explicitly given before it.
-    for child in (list_p, plan, apply, release, revoke):
+    for child in (list_p, plan, apply, release, revoke, close):
         for action in child._actions:
             if action.dest != "help":
                 action.default = argparse.SUPPRESS
@@ -2134,7 +2260,7 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--adopted-grace must be >= 0")
     if getattr(args, "max_kills", 0) is not None and args.max_kills < 1:
         parser.error("--max-kills must be >= 1")
-    if getattr(args, "override_hold", False) and not getattr(args, "allow_session", None):
+    if getattr(args, "override_hold", False) and not getattr(args, "allow_session", None) and args.subcommand != "kill-session":
         # A blanket override would reap every held pane on the host. Overriding
         # a hold is only ever meant for named sessions the operator inspected.
         parser.error("--override-hold requires at least one explicit --allow-session <name>")

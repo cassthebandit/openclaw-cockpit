@@ -220,7 +220,7 @@ func normalizeSGRCardParams(params string, readableDarkForeground bool) string {
 				case "5":
 					i += min(2, len(parts)-1-i)
 				case "2":
-					i += min(5, len(parts)-1-i)
+					i += min(4, len(parts)-1-i)
 				}
 			}
 			continue
@@ -243,7 +243,22 @@ func normalizeSGRCardParams(params string, readableDarkForeground bool) string {
 					continue
 				}
 			}
-			kept = append(kept, part)
+			// Extended foreground mode and color values form one tuple;
+			// a channel such as 40 is not an independent background code.
+			count := 0
+			if i+1 < len(parts) {
+				switch parts[i+1] {
+				case "5":
+					count = 2
+				case "2":
+					count = 4
+				}
+			}
+			if count > 0 && i+count >= len(parts) {
+				return strings.Join(kept, ";") // Incomplete tuple is not valid SGR.
+			}
+			kept = append(kept, parts[i:i+count+1]...)
+			i += count
 		default:
 			kept = append(kept, part)
 		}

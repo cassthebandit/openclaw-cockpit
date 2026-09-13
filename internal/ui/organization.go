@@ -325,8 +325,8 @@ func sessionHasLiveEvidence(m *Model, session tmux.Session) bool {
 	return false
 }
 
-// Presentation only: an expired dead-worker lease is no longer a hold.
-// Live work remains conservatively retained pending the janitor's checks.
+// Presentation only: expiry ends retention, not the job. The janitor still
+// requires separate completion and shutdown evidence before cleanup.
 func paneHasDisplayHold(pane tmux.Pane, now time.Time) bool {
 	if pane.Cockpit == nil || strings.TrimSpace(pane.Cockpit.HoldReason) == "" {
 		return false
@@ -336,7 +336,7 @@ func paneHasDisplayHold(pane tmux.Pane, now time.Time) bool {
 		return true
 	}
 	until := parseCockpitTimestamp(pane.Cockpit.HoldUntil)
-	return until.IsZero() || now.Before(until) || !pane.Dead
+	return until.IsZero() || now.Before(until)
 }
 
 func sessionHasHold(session tmux.Session, now time.Time) bool {

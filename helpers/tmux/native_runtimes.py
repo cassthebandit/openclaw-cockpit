@@ -5,9 +5,11 @@ import os
 import re
 import sys
 try:
+    from . import assignment_recovery
     from .runtime_adapters import BUILTINS
     from .runtime_adapters.claude import legacy_wrapper
 except ImportError:
+    import assignment_recovery
     from runtime_adapters import BUILTINS
     from runtime_adapters.claude import legacy_wrapper
 
@@ -30,7 +32,7 @@ def registry(modules):
             profiles[key] = dict(profile)
     return adapters, profiles
 
-ADAPTERS, PROFILES = registry(BUILTINS)
+ADAPTERS, PROFILES = registry([*BUILTINS, assignment_recovery])
 
 def enrollment(profile, args, read_bytes):
     hook = getattr(ADAPTERS[profile["adapter"]], "enrollment", None)

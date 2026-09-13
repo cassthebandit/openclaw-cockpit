@@ -40,8 +40,8 @@ type Pane struct {
 	CurrentCmd      string
 	CurrentPath     string
 	TTY             string
-	LastActivity    time.Time
-	CreatedAt       time.Time
+	LastActivity    time.Time // Owning window activity; tmux has no pane activity timestamp.
+	CreatedAt       time.Time // Owning session creation, matching the janitor incarnation join.
 	Width, Height   int
 	PID             string
 	AlternateScreen bool

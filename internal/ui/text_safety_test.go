@@ -202,3 +202,32 @@ func TestPaneBodySGRPassthroughUnchanged(t *testing.T) {
 		t.Fatalf("pane body must still drop OSC/non-SGR CSI, got %q", got)
 	}
 }
+
+func TestExtendedSGRColorsAreConsumedAsTuples(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		input    string
+		readable bool
+		want     string
+	}{
+		{"38;2;255;40;40", true, "38;2;255;40;40"},
+		{"38;2;30;255;39;1", true, "38;2;30;255;39;1"},
+		{"38;2;90;49;255", false, "38;2;90;49;255"},
+		{"38;5;42", true, "38;5;42"},
+		{"38;5;49;1", false, "38;5;49;1"},
+		{"38;5;90", true, "38;5;90"},
+		{"38;2;40;40;40;1", true, "38;5;246;1"},
+		{"38;5;8;1", true, "38;5;246;1"},
+		{"48;2;255;0;0;1", true, "1"},
+		{"48;5;42;1;38;5;114", true, "1;38;5;114"},
+		{"38;2;255;40;40;48;2;20;30;40;1", true, "38;2;255;40;40;1"},
+		{"1;38;2;255;40", false, "1"},
+		{"1;38;5", false, "1"},
+	} {
+		t.Run(test.input, func(t *testing.T) {
+			if got := normalizeSGRCardParams(test.input, test.readable); got != test.want {
+				t.Fatalf("got %q, want %q", got, test.want)
+			}
+		})
+	}
+}

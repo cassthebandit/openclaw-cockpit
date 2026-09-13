@@ -43,7 +43,9 @@ var metadataFields = []metadataField{
 }
 
 func paneListFormat() string {
-	keys := []string{"session_id", "window_id", "pane_id", "pane_active", "pane_current_command", "pane_title", "pane_last_activity", "pane_created", "pane_width", "pane_height", "pane_tty", "pane_current_path", "pane_dead", "pane_dead_status"}
+	// tmux exposes window activity and session creation, not pane timestamps.
+	// These conservative owner-level values also match the janitor's join.
+	keys := []string{"session_id", "window_id", "pane_id", "pane_active", "pane_current_command", "pane_title", "window_activity", "session_created", "pane_width", "pane_height", "pane_tty", "pane_current_path", "pane_dead", "pane_dead_status"}
 	for _, field := range metadataFields {
 		keys = append(keys, field.key)
 	}
