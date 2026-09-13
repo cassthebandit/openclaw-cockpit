@@ -42,6 +42,19 @@ class AssignmentTests(unittest.TestCase):
         return dict(hook_event_name='Stop', session_id='session',
                     last_assistant_message='Finished.\n' + marker,
                     background_tasks=[], session_crons=[], **kwargs)
+    def test_exit_without_receipt_is_logged_as_incomplete_not_task_success(self):
+        guard = Guard()
+        self.assertEqual(a.supervise(self.root, [sys.executable, "-c", "pass"], guard=guard), 1)
+        rows = [json.loads(line) for line in (Path(self.temp.name) / "events" / "sessions.jsonl").read_text().splitlines()]
+        exited = rows[-1]
+        self.assertEqual(exited["event"], "exit")
+        self.assertEqual(exited["details"]["assignment_state"], "incomplete")
+        self.assertEqual(exited["details"]["process_state"], "exited")
+        self.assertEqual(exited["details"]["exit_code"], 0)
+        self.assertEqual(exited["details"]["action_outcome"], "succeeded")
+        self.assertEqual(exited["details"]["action"], "process_exit")
+        self.assertIsNone(exited["details"]["action_id"])
+
     def test_prepare_is_launch_local_without_bypass_and_cannot_reuse(self):
         self.assertEqual(self.prepared['command'][:2], ['claude', '--settings'])
         self.assertTrue((self.root/'hooks.json').exists())

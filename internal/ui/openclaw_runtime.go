@@ -248,6 +248,10 @@ func openClawRuntimeSession(card openClawRuntimeCard, index int, now time.Time) 
 	label := cardSafeLine(valueOr(card.DisplayTitle, valueOr(card.Label, runtime)))
 	state := runtimeCardState(card)
 	activity := runtimeCardActivity(card, now)
+	var created time.Time
+	if card.CreatedAgeMs != nil && *card.CreatedAgeMs >= 0 {
+		created = now.Add(-time.Duration(*card.CreatedAgeMs) * time.Millisecond)
+	}
 	sessionID := "openclaw-runtime:" + id
 	paneID := "%openclaw-runtime:" + id
 
@@ -260,7 +264,7 @@ func openClawRuntimeSession(card openClawRuntimeCard, index int, now time.Time) 
 		CurrentCmd:   "openclaw-runtime",
 		CurrentPath:  "OpenClaw Runtime",
 		LastActivity: activity,
-		CreatedAt:    activity,
+		CreatedAt:    created,
 		Width:        100,
 		Height:       24,
 		Cockpit: &tmux.CockpitMeta{
@@ -313,7 +317,7 @@ func openClawRuntimeSession(card openClawRuntimeCard, index int, now time.Time) 
 	return tmux.Session{
 		ID:           sessionID,
 		Name:         label,
-		CreatedAt:    activity,
+		CreatedAt:    created,
 		LastActivity: activity,
 		Windows: []tmux.Window{{
 			ID:       "@openclaw-runtime:" + id,

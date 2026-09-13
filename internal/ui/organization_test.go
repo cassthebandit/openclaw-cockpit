@@ -1728,3 +1728,40 @@ func withActivity(session tmux.Session, ts time.Time) tmux.Session {
 	}
 	return session
 }
+
+func TestNativeCardsKeepAllocatedHeight(t *testing.T) {
+	m := modelForAccordionSizing(300, 87)
+	m.sessions = []tmux.Session{sessionForGroup("native-fill", "claude", "/workspace", "Work")}
+	pane := &m.sessions[0].Windows[0].Panes[0]
+	pane.AlternateScreen = true
+	pane.Height = 45
+	pane.Width = 160
+	seedPreviewForSizingTest(m, m.sessions[0], 160, 45)
+	budget := m.cardBodyHeightsByGroup(m.sessions)[groupActiveAgents.name]
+	if budget <= 45 {
+		t.Fatalf("fixture must allocate beyond native height: %d", budget)
+	}
+	m.renderSessionPreviews(m.previewOffset)
+	if got := m.cardLineHeight[m.sessions[0].ID]; got < budget+2 {
+		t.Fatalf("rendered card height %d discarded allocated budget %d", got, budget)
+	}
+}
+
+func TestNativeCardFillResizeMatrix(t *testing.T) {
+	for _, size := range [][2]int{{80, 24}, {160, 50}, {300, 87}, {100, 30}} {
+		m := modelForAccordionSizing(size[0], size[1])
+		m.sessions = []tmux.Session{sessionForGroup("native-matrix", "claude", "/workspace", "Work")}
+		pane := &m.sessions[0].Windows[0].Panes[0]
+		pane.AlternateScreen = true
+		pane.Height = 45
+		pane.Width = 160
+		seedPreviewForSizingTest(m, m.sessions[0], 160, 45)
+		budget := m.cardBodyHeightsByGroup(m.sessions)[groupActiveAgents.name]
+		m.renderSessionPreviews(m.previewOffset)
+		got := m.cardLineHeight[m.sessions[0].ID]
+		if got < budget+2 {
+			t.Fatalf("%v: height %d below budget %d", size, got, budget)
+		}
+		t.Logf("terminal=%v allocated_body=%d rendered_card=%d", size, budget, got)
+	}
+}

@@ -741,6 +741,9 @@ func containsAny(text string, needles ...string) bool {
 }
 
 func sortSessionsForCockpit(m *Model, sessions []tmux.Session) {
+	if m != nil {
+		m.rememberSessionBirths(sessions)
+	}
 	sort.SliceStable(sessions, func(i, j int) bool {
 		left := sessions[i]
 		right := sessions[j]
@@ -749,17 +752,16 @@ func sortSessionsForCockpit(m *Model, sessions []tmux.Session) {
 		if leftGroup.rank != rightGroup.rank {
 			return leftGroup.rank < rightGroup.rank
 		}
-		leftDead := sessionAllPanesDead(left)
-		rightDead := sessionAllPanesDead(right)
-		if leftDead != rightDead {
-			return !leftDead
+		leftBirth := sessionBirthTime(left)
+		rightBirth := sessionBirthTime(right)
+		if m != nil {
+			leftBirth = m.sessionBirth[left.ID]
+			rightBirth = m.sessionBirth[right.ID]
 		}
-		leftActivity := sessionLatestActivity(left)
-		rightActivity := sessionLatestActivity(right)
-		if !leftActivity.Equal(rightActivity) {
-			return leftActivity.After(rightActivity)
+		if !leftBirth.Equal(rightBirth) {
+			return leftBirth.Before(rightBirth)
 		}
-		return strings.ToLower(left.Name) < strings.ToLower(right.Name)
+		return left.ID < right.ID
 	})
 }
 

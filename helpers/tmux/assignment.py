@@ -59,7 +59,7 @@ def _locked(root: Path):
         yield
 
 
-def prepare(runtime: str, run_dir: str | Path, command: list[str], *, keep_open: bool = False, bootstrap: bool = False, event_config: dict | None = None) -> dict:
+def prepare(runtime: str, run_dir: str | Path, command: list[str], *, keep_open: bool = False, bootstrap: bool = False, event_config: dict | None = None, model: str | None = None, working_directory: str | None = None) -> dict:
     """Create a unique launch directory and return command/prompt_suffix/run_id.
 
     command must be runtime argv (including optional env prefix), without an
@@ -71,7 +71,7 @@ def prepare(runtime: str, run_dir: str | Path, command: list[str], *, keep_open:
     root = Path(run_dir).expanduser().absolute()
     root.mkdir(parents=True, mode=0o700, exist_ok=False)
     run_id = str(uuid.uuid4())
-    manifest = {"run_id": run_id, "runtime": runtime, "keep_open": keep_open}
+    manifest = {"run_id": run_id, "runtime": runtime, "keep_open": keep_open, "model": model, "working_directory": working_directory}
     if event_config is not None:
         manifest["event_config"] = event_config
     if runtime == "codex" and bootstrap:
@@ -392,10 +392,26 @@ def supervise(root: Path, command: list[str], *, guard=None, retained_poll_secon
     if retained_poll_seconds <= 0:
         raise ValueError("retained polling interval must be positive")
 
-    def log(event, result="", reason=""):
+    action_id = None
+
+    def log(event, result="", reason="", evidence=None):
+        nonlocal action_id
+        if event == "exit_attempt":
+            action_id = uuid.uuid4().hex
+        details = {"run_id": launch["run_id"], "runtime": launch["runtime"],
+                   "working_directory": launch.get("working_directory"), "model": launch.get("model")}
+        if evidence:
+            details.update(assignment_state=evidence.get("outcome"), result_path=evidence.get("result_path"),
+                           completion_receipt_path=str(root / "outcome.json"))
+        if event in {"exit", "exit_attempt"}:
+            details.update(action_id=action_id, action="process_exit",
+                           action_outcome="succeeded" if result == "exited" else "unknown" if result == "unconfirmed" else "attempted",
+                           process_state="exited" if result == "exited" else "exit_requested" if result == "requested" else "unknown")
+            if evidence:
+                details["exit_code"] = evidence.get("process_exit_code")
         session = guard.current_session() if hasattr(guard, "current_session") else getattr(guard, "session", getattr(guard, "pane", ""))
         event_log.append(event, session=session, identity=launch["run_id"], source="automatic",
-                         result=result, reason=reason, config=launch.get("event_config"))
+                         result=result, reason=reason, config=launch.get("event_config"), component="assignment", details=details)
 
     # Establish required logging before launching a runtime that could complete.
     # A failed log setup is a visible launch error, not an inert live supervisor.
@@ -482,7 +498,7 @@ def supervise(root: Path, command: list[str], *, guard=None, retained_poll_secon
                         raise ValueError("saved result disappeared or changed before closeout")
                     held = guard.validate()
                     # Do not publish a completed outcome until its log is durable.
-                    log("completion", pending["outcome"], "held" if held else "close")
+                    log("completion", pending["outcome"], "held" if held else "close", pending)
                     completed = {**pending, "retained": held, "shutdown_status": "retained" if held else "ready"}
                     _write(root / "outcome.json", completed)
                     guard.stamp("done" if pending["outcome"] == "succeeded" else "failed",
@@ -517,12 +533,14 @@ def supervise(root: Path, command: list[str], *, guard=None, retained_poll_secon
             end_reason = "retained_assignment_exited" if completed["retained"] else "managed_assignment_exit"
             completed.update(process_exit_code=code, end_reason=end_reason, shutdown_status="exited")
             _write(root / "outcome.json", completed)
-            log("exit", "exited", end_reason)
+            log("exit", "exited", end_reason, completed)
             result_code = 0 if completed["outcome"] == "succeeded" and (not completed["retained"] or code == 0) else 1
             guard.stamp("done" if result_code == 0 else "failed", end_reason, completed=True, exit_code=result_code)
             return result_code
         _write(root / "outcome.json", {"run_id": launch["run_id"], "outcome": "incomplete", "process_exit_code": code,
                                       "end_reason": "process_exited_without_assignment_completion"})
+        log("exit", "exited", "process_exited_without_assignment_completion",
+            {"outcome": "incomplete", "process_exit_code": code})
         guard.stamp("failed", "process_exited_without_assignment_completion", completed=True, exit_code=1)
         return 1
     except (OSError, ValueError, subprocess.SubprocessError) as error:

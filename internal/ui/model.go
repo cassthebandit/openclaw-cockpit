@@ -175,6 +175,7 @@ type commandItem struct {
 
 // Model owns the Bubble Tea state machine and cached tmux snapshot data.
 type Model struct {
+	sessionBirth                                                     map[string]time.Time // Immutable display ordering for each observed identity.
 	grouping                                                         *GroupingConfig
 	captureRate, captureMinLines, captureMaxLines, captureSlackLines int
 	client                                                           *tmux.Client

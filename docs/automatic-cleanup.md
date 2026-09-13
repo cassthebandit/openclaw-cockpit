@@ -32,7 +32,7 @@ reasons. Each record includes time, session, stable identity, action, source,
 result and reason. Archive locations are included when relevant. It does not
 contain prompts or transcripts.
 
-The file is capped at **10,000,000 bytes**. Writers serialize access and trim the
+The file defaults to **10,000,000 bytes**, configurable with `session_log_max_bytes` in lifecycle.json (integer 65536..2147483647). `log_max_bytes` still controls the separate service log. All writers must be restarted or finished before relying on a changed cap. New records use schema_version=1 with typed details; unversioned historical records remain v0. See [structured events](structured-events.md). Writers serialize access and trim the
 oldest complete records. Saved results, captures and existing archive ledgers are
 separate evidence, not deleted when history is trimmed. A failed required history
 or archive write prevents the impending closure. An attempt is not confirmation.
