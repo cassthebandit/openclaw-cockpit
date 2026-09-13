@@ -282,7 +282,8 @@ def test_result_symlink_and_empty_refused(tmp_path):
     with pytest.raises(OSError): a.result_bytes(str(link))
 
 
-def test_real_dead_adoption_preserves_sentinel(tmp_path):
+@pytest.mark.parametrize("trial", range(10))
+def test_real_dead_adoption_preserves_sentinel(tmp_path, trial):
     """Real production discovery/archive/dead guard, isolated nondefault socket."""
     import tempfile
     import time
