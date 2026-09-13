@@ -296,11 +296,14 @@ def test_real_dead_adoption_preserves_sentinel(tmp_path, trial):
             run("new-session", "-d", "-s", "sentinel", "sleep 60")
             target = run("new-session", "-d", "-P", "-F", "#{pane_id}", "-s", "temporary", "sleep 1").stdout.strip()
             run("set-option", "-p", "-t", target, "remain-on-exit", "on")
-            for _ in range(100):
-                if run("display-message", "-p", "-t", target, "#{pane_dead}").stdout.strip() == "1":
+            # Linux tmux can expose pane_dead before wait status is collected.
+            # The production guard must retain that incomplete observation.
+            for _ in range(150):
+                observed = run("display-message", "-p", "-t", target, "#{pane_dead}:#{pane_dead_status}").stdout.strip()
+                if observed == "1:0":
                     break
                 time.sleep(.02)
-            assert run("display-message", "-p", "-t", target, "#{pane_dead}").stdout.strip() == "1"
+            assert observed == "1:0", observed
             _, _, args = fixture(tmp_path)
             args.config["live_retirement"] = "off"
             with patch.object(h, "run_tmux", side_effect=run), contextlib.redirect_stdout(io.StringIO()) as output:
