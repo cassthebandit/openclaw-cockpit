@@ -28,12 +28,13 @@ type janitorStatusFile struct {
 }
 
 type janitorSessionStatus struct {
-	JanitorState  string `json:"janitor_state"`
-	MarkedAt      string `json:"marked_at"`
-	Reason        string `json:"reason"`
-	KillNotBefore string `json:"kill_not_before"`
-	LastAction    string `json:"last_action"`
-	LastRefusal   string `json:"last_refusal"`
+	ExistingSession bool   `json:"existing_session"`
+	JanitorState    string `json:"janitor_state"`
+	MarkedAt        string `json:"marked_at"`
+	Reason          string `json:"reason"`
+	KillNotBefore   string `json:"kill_not_before"`
+	LastAction      string `json:"last_action"`
+	LastRefusal     string `json:"last_refusal"`
 	// PaneID, PanePID and PaneCreated carry the sidecar's pane identity for the row.
 	// Hygiene writes pane_id from tmux #{pane_id} and pane_created from the
 	// primary pane's #{session_created}; a row may only supply teardown or
@@ -46,12 +47,13 @@ type janitorSessionStatus struct {
 }
 
 type janitorCycleStatus struct {
-	Policy     string `json:"policy"`
-	Kill       int    `json:"kill"`
-	Mark       int    `json:"mark"`
-	CancelMark int    `json:"cancel_mark"`
-	Skip       int    `json:"skip"`
-	Refuse     int    `json:"refuse"`
+	RequestExit int    `json:"request_exit"`
+	Policy      string `json:"policy"`
+	Kill        int    `json:"kill"`
+	Mark        int    `json:"mark"`
+	CancelMark  int    `json:"cancel_mark"`
+	Skip        int    `json:"skip"`
+	Refuse      int    `json:"refuse"`
 }
 
 type janitorStatusView struct {
@@ -164,6 +166,9 @@ func (m *Model) janitorStatusLine(width int) string {
 	}
 	if status.Cycle.Kill > 0 {
 		parts = append(parts, fmt.Sprintf("cleanup pending %d", status.Cycle.Kill))
+	}
+	if status.Cycle.RequestExit > 0 {
+		parts = append(parts, fmt.Sprintf("exit requests %d", status.Cycle.RequestExit))
 	}
 	if status.Cycle.Refuse > 0 {
 		parts = append(parts, fmt.Sprintf("held/refused %d", status.Cycle.Refuse))

@@ -1,0 +1,30 @@
+
+[2m╭─────────────────────────────────────────────────╮[0m
+[2m│ [0m✨ Update available! [1m0.153.4 -> 0.154.0[0;2m         │[0m
+[2m│ [0mRun npm install -g @openai/codex to update.[2m     │[0m
+[2m│                                                 │[0m
+[2m│ [0mSee full release notes:[2m                         │[0m
+[2m│ [0m]8;;https://github.com/openai/codex/releases/latest\https://github.com/openai/codex/releases/latest]8;;\ │
+[2m╰─────────────────────────────────────────────────╯[0m
+
+[2m╭───────────────────────────────────────────────────────╮[0m
+[2m│ >_ [0;1mOpenAI Codex[0;2m (v0.153.4)                            │[0m
+[2m│                                                       │[0m
+[2m│ model:     [0mgpt-6-astra high[2m   [0m/model to change        │
+[2m│ directory: [0m/tmp/codex-fixture[2m │[0m
+[2m╰───────────────────────────────────────────────────────╯[0m
+
+  [1mTip:[0m Try the [1mDesktop app[0m. Run 'codex app' or visit https://chatgpt.com/codex?app-landing-page=true
+
+
+[1;2m› [0mReply exactly MULTIRUNTIME_FIXTURE_DONE. Do not use tools or start background work.
+
+
+[2m• [0mYou have 3 usage limit resets available. Run /usage to use one.
+
+[2m• [0mMULTIRUNTIME_FIXTURE_DONE
+
+
+[1m›[0m Ask Codex to do anything
+
+  gpt-6-astra high · /tmp/codex-fixture

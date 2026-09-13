@@ -10,7 +10,7 @@ This document describes the implementation that exists today. Product intent liv
 - `internal/zone`: ANSI-aware hit testing for mouse controls.
 - `scripts/`, `gorunfresh`, and `poltergeist.config.json`: optional local development launchers.
 
-Workspace launchers and cleanup tools are intentionally outside this repository. A typical OpenClaw installation keeps them under `~/.openclaw/workspace/tools/`, but Cockpit does not require that workspace to monitor ordinary tmux sessions.
+Optional public launchers, assignment supervision and session hygiene live in `helpers/tmux/`. Existing-session selection, observation and bounded native retirement are implemented in `adoption.py` under the hygiene owner. Built-in native process/prompt adapters and tested exit profiles live in `runtime_adapters/` with static dispatch in `native_runtimes.py`; they do not own policy, storage or terminal mutations. They use the existing hygiene status/archive stores; the Go dashboard is a reader. Cockpit does not require these helpers to monitor ordinary tmux sessions.
 
 ## Data flow
 
@@ -64,8 +64,10 @@ Changes to terminal behavior should also be exercised against a real disposable 
 
 ## Deliberate non-goals
 
-- automatic session cleanup or hold release;
+- cleanup authority in the dashboard, or automatic hold release;
 - Gateway, authentication, or OpenClaw configuration mutation;
 - a remote tmux API or plugin execution layer;
 - treating pane text as proof that a build or review was accepted;
 - persistence or restore without a separate safety contract.
+
+Additional runtime interfaces can be contributed using the [adapter contract](runtime-adapters.md).

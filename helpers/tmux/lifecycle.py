@@ -8,6 +8,9 @@ import os
 from pathlib import Path
 
 DEFAULTS = {
+    "adopt_existing_exited": False, "existing_session_mode": "selected-only",
+    "cleanup_whitelist": [], "cleanup_blacklist": [],
+    "live_retirement": "off", "live_retirement_quiet_seconds": 1800,
     "inspector_protected_sessions": [],
     "closeout_default": "close", "completed_retention_seconds": 60,
     "failed_retention_seconds": 180, "teardown_grace_seconds": 60,
@@ -28,7 +31,16 @@ ENVIRONMENT = {
     "CASS_TMUX_INSPECTOR_LOG_DIR": "inspector_log_dir",
 }
 PATHS = {"state_dir", "archive_dir", "status_file", "log_dir", "inspector_log_dir"}
-POSITIVE = {"cleanup_interval_seconds", "inspector_interval_seconds", "temporary_hold_hours", "max_kills", "log_max_bytes"}
+POSITIVE = {"cleanup_interval_seconds", "inspector_interval_seconds", "temporary_hold_hours", "max_kills", "log_max_bytes", "live_retirement_quiet_seconds"}
+
+
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
 
 
 def validate(values: dict) -> None:
@@ -36,7 +48,25 @@ def validate(values: dict) -> None:
     if unknown:
         raise ValueError("unknown lifecycle setting: " + ", ".join(sorted(unknown)))
     for key, value in values.items():
-        if key == "inspector_protected_sessions":
+        if key == "adopt_existing_exited":
+            if type(value) is not bool:
+                raise ValueError(f"{key}: expected boolean")
+        elif key in {"existing_session_mode", "live_retirement"}:
+            choices = ("selected-only", "all-except-protected") if key == "existing_session_mode" else ("off", "verified", "observed")
+            if value not in choices:
+                raise ValueError(f"{key}: expected one of {choices}")
+        elif key in {"cleanup_whitelist", "cleanup_blacklist"}:
+            if not isinstance(value, list) or len(value) > 256:
+                raise ValueError(f"{key}: expected at most 256 typed selectors")
+            for selector in value:
+                if not isinstance(selector, dict) or len(selector) != 1 or next(iter(selector)) not in {"exact", "glob"}:
+                    raise ValueError(f"{key}: selector requires exactly one exact or glob key")
+                kind, pattern = next(iter(selector.items()))
+                if not isinstance(pattern, str) or not 1 <= len(pattern) <= 256 or any(ord(c) < 32 or ord(c) == 127 for c in pattern):
+                    raise ValueError(f"{key}: selector must be 1..256 characters without controls")
+                if kind == "glob" and any(c in pattern for c in "?[]"):
+                    raise ValueError(f"{key}: glob supports only *")
+        elif key == "inspector_protected_sessions":
             if not isinstance(value, list) or any(not isinstance(item, str) or not item or any(ord(c) < 32 for c in item) for item in value):
                 raise ValueError("inspector_protected_sessions: expected nonempty session-name strings")
         elif key in PATHS:
@@ -69,7 +99,7 @@ def load(path: str | None = None, *, overrides: dict | None = None, environ=None
     sources = dict.fromkeys(values, "built-in")
     if source.exists() or explicit:
         try:
-            content = json.loads(source.read_text(encoding="utf-8"))
+            content = json.loads(source.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
         except (OSError, ValueError) as error:
             raise ValueError(f"lifecycle config {source}: {error}") from error
         if not isinstance(content, dict):

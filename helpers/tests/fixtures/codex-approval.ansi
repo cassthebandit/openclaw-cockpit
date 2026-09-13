@@ -1,0 +1,47 @@
+
+[2m╭─────────────────────────────────────────────────╮[0m
+[2m│ [0m✨ Update available! [1m0.153.4 -> 0.154.0[0;2m         │[0m
+[2m│ [0mRun npm install -g @openai/codex to update.[2m     │[0m
+[2m│                                                 │[0m
+[2m│ [0mSee full release notes:[2m                         │[0m
+[2m│ [0m]8;;https://github.com/openai/codex/releases/latest\https://github.com/openai/codex/releases/latest]8;;\ │
+[2m╰─────────────────────────────────────────────────╯[0m
+
+[2m╭───────────────────────────────────────────────────────╮[0m
+[2m│ >_ [0;1mOpenAI Codex[0;2m (v0.153.4)                            │[0m
+[2m│                                                       │[0m
+[2m│ model:     [0mgpt-6-astra high[2m   [0m/model to change        │
+[2m│ directory: [0m/tmp/codex-fixture[2m │[0m
+[2m╰───────────────────────────────────────────────────────╯[0m
+
+  [1mTip:[0m Try the [1mDesktop app[0m. Run 'codex app' or visit https://chatgpt.com/codex?app-landing-page=true
+
+
+[1;2m› [0mThis is a disposable permission-prompt preservation test. Use the shell tool to create /tmp/codex-
+  fixture/approval-fixture.txt containing FIXTURE_ONLY. Because the sandbox is read-only, request the required
+  permission rather than retrying or writing anywhere else. No other tools or actions.
+
+
+[2m• [0mYou have 3 usage limit resets available. Run /usage to use one.
+
+[2m• [0mI’ll request permission to create the fixture at the exact path, as required by the read-only sandbox.
+
+• [1mRunning[0m printf '%s\n' 'FIXTURE_ONLY' > /tmp/codex-fixture/
+  │ approval-fixture.txt
+
+
+  [1mWould you like to run the following command?[0m
+
+  Environment: [1mlocal[0m
+
+  Reason: [3mMay I create approval-fixture.txt containing FIXTURE_ONLY at the specified path? The sandbox is read-only.[0m
+
+  $ printf '%s\n' 'FIXTURE_ONLY' >
+  /tmp/codex-fixture/approval-fixture.txt
+
+› 1. Yes, proceed (y)
+  2. Yes, and don't ask again for commands that start with `printf '%s\n' 'FIXTURE_ONLY' > /tmp/codex-
+     session-fixture/approval-fixture.txt` ([2mp[0m)
+  3. No, and tell Codex what to do differently ([2mesc[0m)
+
+  [2mPress enter to confirm or esc to cancel
