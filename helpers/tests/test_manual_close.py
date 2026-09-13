@@ -37,6 +37,7 @@ def invoke(sock, cfg, *args):
 
 def test_manual_preview_then_exact_close_keeps_sentinel(server):
     run, sock, cfg = server
+    run('set-option', '-p', '-t', '=target:', '@oc_goal', 'Fix a, then b {literal #{pane_id}} #()')
     code, preview = invoke(sock, cfg)
     assert code == 0 and not preview['removed']
     assert run('has-session', '-t', '=target', check=False).returncode == 0

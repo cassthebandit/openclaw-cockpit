@@ -274,3 +274,34 @@ def test_request_exit_reuses_original_lock_only_during_final_observe_and_eof(rel
     assert events == ['exit_request_prepared', 'eof', 'exit_request_result']
     assert observed_lock == [False, True]
     with r.final_guard(record['assignment_recovery']): pass
+
+
+@pytest.mark.parametrize('refusal', ['busy_lock', 'tmux_guard'])
+def test_known_no_send_does_not_burn_an_exit_attempt(release_environment, tmp_path, refusal):
+    import contextlib
+    from helpers.tmux import session_hygiene as h
+    args = release_args(release_environment, tmp_path)
+    with patch.object(h, 'log_event'):
+        assert h.cmd_release(args) == 0
+    record = h.load_status(args.status_file)['adoptions'][args.identity]
+    pane = release_environment[0]
+    archive = tmp_path / 'request-archive'; archive.mkdir()
+    item = h.result(session=pane.session, action='request_exit', reason='observed', panes=[pane], policy_source='adopted_observed')
+    item.update(adoption_identity=args.identity, adoption_record=record)
+    guard = r.final_guard(record['assignment_recovery']) if refusal == 'busy_lock' else contextlib.nullcontext()
+    with guard, patch.object(h, 'revalidate_target', return_value=([pane], 'ok')), \
+         patch.object(h, 'archive_cleanup', return_value={'archive_path': str(archive)}), \
+         patch.object(h, 'write_ledger_event'), \
+         patch.object(h, 'guarded_native_exit', return_value=subprocess.CompletedProcess([], 1, '', 'tmux_guard_changed')) as send:
+        applied = h.request_exit(item, args)
+    saved = h.load_status(args.status_file)['adoptions'][args.identity]
+    assert not saved.get('attempt')
+    if refusal == 'busy_lock':
+        send.assert_not_called()
+        assert applied['reason'] == 'recovery_lock_busy'
+        assert not applied['adoption_record'].get('invalidated')
+        assert not saved.get('invalidated')
+    else:
+        send.assert_called_once()
+        assert applied['reason'] == saved['invalidated'] == 'tmux_guard_changed'
+        assert saved['previous_attempt']['archive_path'] == str(archive)

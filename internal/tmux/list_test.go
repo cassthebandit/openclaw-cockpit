@@ -3,9 +3,49 @@ package tmux
 
 import (
 	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 )
+
+func TestNativePaneOwnerTimestamps(t *testing.T) {
+	bin, err := exec.LookPath("tmux")
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory, err := os.MkdirTemp("/tmp", "timestamps-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(directory); err != nil {
+			t.Error(err)
+		}
+	})
+	socket := filepath.Join(directory, "s")
+	run := func(ctx context.Context, _ string, args ...string) ([]byte, error) {
+		return exec.CommandContext(ctx, bin, append([]string{"-S", socket}, args...)...).CombinedOutput()
+	}
+	ctx := context.Background()
+	if out, err := run(ctx, bin, "new-session", "-d", "-s", "timestamps", "sleep 30"); err != nil {
+		t.Fatalf("start: %s: %v", out, err)
+	}
+	t.Cleanup(func() {
+		if out, err := run(ctx, bin, "kill-server"); err != nil {
+			t.Errorf("cleanup: %s: %v", out, err)
+		}
+	})
+	c := &Client{bin: bin, run: run}
+	panes, skipped, err := c.listPanes(ctx)
+	if err != nil || skipped != 0 || len(panes) != 1 {
+		t.Fatalf("panes=%v skipped=%d err=%v", panes, skipped, err)
+	}
+	if panes[0].CreatedAt.IsZero() || panes[0].LastActivity.IsZero() {
+		t.Fatalf("native timestamps missing: %+v", panes[0])
+	}
+}
 
 // TestParseUnix ensures numeric strings convert to time correctly.
 func TestParseUnix(t *testing.T) {

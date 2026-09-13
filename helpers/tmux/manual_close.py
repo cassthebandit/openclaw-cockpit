@@ -52,8 +52,7 @@ def inspect(h, args, *, expected=None):
         raise ValueError("session identity changed since preview")
     expectations = h.dead_retirement_expectations(p)
     expectations.update(pane_dead="1" if p.dead else "0", session_attached="0", pane_in_mode="0")
-    if any(any(c in str(v) for c in "#,{}\n\r") for v in expectations.values()):
-        raise ValueError("unsafe_guard_literal")
+    h.format_guard.all_equal(expectations)
     if expected is not None and expectations != expected:
         raise ValueError("session identity, hold or topology changed")
     return panes, identity, expectations
@@ -91,10 +90,7 @@ def run(h, args):
     panes, _, expected = inspect(h, args, expected=expected)
     # No archive or log I/O after this reread. tmux itself compares immutable
     # identity, exact contract, attachment and topology in the action queue.
-    checks = ["#{==:#{" + k + "}," + str(v) + "}" for k, v in expected.items()]
-    condition = checks[0]
-    for check in checks[1:]:
-        condition = "#{&&:" + condition + "," + check + "}"
+    condition = h.format_guard.all_equal(expected)
     cp = h.run_tmux("if-shell", "-F", "-t", panes[0].server_session_id + ":", condition,
                     "kill-session -t " + shlex.quote(panes[0].server_session_id),
                     "display-message -p MANUAL_CLOSE_REFUSED", check=False)

@@ -107,7 +107,7 @@ normal exact identity, selection and background-work checks. When the accepted
 report lacks a native completion receipt, `--allow-missing-receipt` is also
 required; the original supervisor records **incomplete**, never invented success.
 Other supervisor versions remain protected. The janitor holds the original
-assignment lock only across its final checks and native exit request, then lets
+assignment lock across attempt persistence, final checks and native exit request, then lets
 the original supervisor reap and classify its child before dead-pane cleanup.
 
 Enrollment history is bounded to256 records. A temporary disappearance is not
@@ -116,3 +116,11 @@ permission to discard a consumed shutdown request. For an unused enrollment,
 frees its slot (`--dry-run` previews). Consumed exit attempts cannot be forgotten
 this way. Confirmed automatic or manual closure removes that exact enrollment;
 archives and action logs remain.
+
+Automatic same-session Claude compaction is not new work and does not discard a
+saved completion receipt. Submitted input, session replacement and new tool work
+still invalidate it. A busy original-supervisor lock defers recovery without
+consuming an exit attempt. An explicit tmux guard refusal records that no key was
+sent and invalidates that release; an ambiguous send remains consumed and is
+never automatically retried. Punctuation in goals or hold reasons is matched
+literally, not rejected or evaluated as a tmux format.

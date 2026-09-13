@@ -81,7 +81,7 @@ Required evidence remains nonempty, regular, contained within the declared absol
 run root and valid under the policy. Hold, identity, topology and evidence checks
 are repeated before archive, ledger and removal. Archive/ledger failure preserves
 the terminal. A replaced pane, new hold or altered contract cancels/refuses the old
-plan. Unsupported format-bearing guard literals are refused, not interpolated.
+plan. Format-bearing values are escaped as tmux literals, never interpolated; control characters remain refused. Every metadata comparison remains in the final guard.
 
 The planner may describe completed live work or mark/cancel state. Those observations
 do not grant live-process removal. The apply boundary refuses live terminals even

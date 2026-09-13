@@ -128,7 +128,9 @@ def observe(h, p, record):
         return {}, "screen_sampling_attestation_required"
     if not profile["proof"] or profile.get("proof_pending"):
         return {}, "runtime_profile_unproven:" + record["profile"]
-    if any(any(c in str(v) for c in "#,{}\n\r") for v in h.dead_retirement_expectations(p).values()):
+    try:
+        h.format_guard.all_equal(h.dead_retirement_expectations(p))
+    except ValueError:
         return {}, "unsafe_guard_literal"
     if p.remain_on_exit != "on":
         return {}, "exit_retention_unavailable"
@@ -162,6 +164,8 @@ def observe(h, p, record):
 
 
 def plan(h, panes, args, state, config, now):
+    if getattr(args, "policy", "kill-safe") == "smoke":
+        return None  # Existing-session observation/retirement belongs to kill-safe.
     p = panes[0]
     record = record_for(state, p)
     enabled = config["adopt_existing_exited"] or config["live_retirement"] != "off" or bool(record)

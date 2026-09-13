@@ -83,6 +83,44 @@ class AssignmentTests(unittest.TestCase):
         self.assertTrue(a.is_ready(root))
         self.assertIsNone(a._read(root/'state.json')['pending'])
         self.assertFalse((root/'outcome.json').exists())
+    def test_automatic_compaction_preserves_same_session_receipt(self):
+        for file_route in (False, True):
+            self.event(dict(hook_event_name="UserPromptSubmit", session_id="session"))
+            mark = self.file_completion()[0] if file_route else self.finish()
+            before = a._read(self.root / "state.json")
+            self.event(dict(hook_event_name="SessionStart", source="compact", session_id="session"))
+            self.assertEqual(a._read(self.root / "state.json"), before)
+            self.assertIsNotNone(self.event(self.stop(mark)))
+
+    def test_manual_compact_and_replaced_session_still_invalidate(self):
+        for file_route in (False, True):
+            for changed_session in (False, True):
+                self.event(dict(hook_event_name="UserPromptSubmit", session_id="session"))
+                mark = self.file_completion()[0] if file_route else self.finish()
+                if not changed_session:
+                    self.event(dict(hook_event_name="UserPromptSubmit", session_id="session", prompt="/compact"))
+                self.event(dict(hook_event_name="SessionStart", source="compact", session_id="new" if changed_session else "session"))
+                self.assertIsNone(self.event(self.stop(mark)))
+                self.assertIsNone(a._read(self.root / "state.json")["receipt"])
+
+    def test_compaction_cannot_bind_an_uninitialized_launch(self):
+        state = a._read(self.root / "state.json")
+        state["session_id"] = None
+        a._write(self.root / "state.json", state)
+        self.event(dict(hook_event_name="SessionStart", source="compact", session_id="new"))
+        self.assertFalse(a.is_bound(self.root))
+        self.assertEqual(a._read(self.root / "state.json")["generation"], state["generation"])
+        self.assertIsNone(self.event(self.stop("COCKPIT_FILE_FINISHED:" + self.prepared["run_id"])))
+
+    def test_noncompact_start_and_other_runtime_compact_invalidate(self):
+        for runtime, source in (("claude", "resume"), ("codex", "compact")):
+            launch = a._read(self.root / "launch.json")
+            launch["runtime"] = runtime
+            a._write(self.root / "launch.json", launch)
+            mark = self.finish()
+            self.event(dict(hook_event_name="SessionStart", source=source, session_id="session"))
+            self.assertIsNone(self.event(self.stop(mark, turn_id="turn")))
+
     def test_generic_stop_cannot_close(self):
         self.assertIsNone(self.event(self.stop('work continues')))
         self.finish()
@@ -402,6 +440,27 @@ else:
                 child.send_signal.assert_called_once_with(a.signal.SIGTERM)
                 self.assertGreaterEqual(guard.delayed_close_reason.call_count, 4)
                 self.assertIn(mock.call(1.0), sleep.call_args_list)
+
+    def test_renewed_hold_logs_its_own_end_after_transient_refusal(self):
+        self.event(self.stop(self.finish()))
+        guard = Guard(held=True)
+        guard.delayed_close_reason = lambda runtime: "attached"
+        events = []
+        polls = 0
+        def poll():
+            nonlocal polls
+            polls += 1
+            guard.held = polls in (1, 3)
+            return None if polls < 5 else 0
+        with mock.patch.object(a.event_log, "append", side_effect=lambda event, **kwargs: events.append(event)), \
+             mock.patch.object(a.subprocess, "Popen") as popen, mock.patch.object(a.time, "sleep"):
+            child = popen.return_value
+            child.pid = 123
+            child.poll.side_effect = poll
+            child.returncode = 0
+            self.assertEqual(a.supervise(self.root, ["fake"], guard=guard), 0)
+            child.send_signal.assert_not_called()
+        self.assertEqual(events.count("hold_end"), 2)
 
     def test_start_log_failure_does_not_launch_inert_runtime(self):
         with mock.patch.object(a.event_log, "append", side_effect=OSError("log full")), mock.patch.object(a.subprocess, "Popen") as popen:

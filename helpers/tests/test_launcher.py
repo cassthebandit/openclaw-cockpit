@@ -1876,6 +1876,11 @@ class AgentWallReleaseHoldTests(unittest.TestCase):
         self.assertTrue(all(call.kwargs["identity"] == "stable-launch" for call in append.call_args_list))
         self.assertTrue(all(call.kwargs["session"] == "isolated-test-session" for call in append.call_args_list))
 
+    def test_session_exists_uses_exact_name_not_prefix(self) -> None:
+        with mock.patch.object(agent_wall, "run_tmux", return_value=subprocess.CompletedProcess([], 1, "", "")) as run:
+            self.assertFalse(agent_wall.session_exists("worker"))
+        run.assert_called_once_with("has-session", "-t", "=worker", check=False)
+
     def test_release_hold_requires_exact_target(self) -> None:
         with self.assertRaises(SystemExit):
             agent_wall.cmd_release_hold(self._release_args(name="", pane=""))

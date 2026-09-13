@@ -214,7 +214,7 @@ class ReadinessTimeout(RuntimeError):
 
 
 def session_exists(name: str) -> bool:
-    return run_tmux("has-session", "-t", name, check=False).returncode == 0
+    return run_tmux("has-session", "-t", "=" + name, check=False).returncode == 0
 
 
 def pane_rows(target: str) -> list[dict[str, str]]:

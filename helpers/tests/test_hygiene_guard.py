@@ -134,8 +134,8 @@ def test_grouped_or_unknown_session_refused_before_any_side_effect(tmp_path, gro
     assert 'grouped_or_unknown_session_requires_explicit_retirement' in output.getvalue()
 
 
-def test_comma_metadata_never_archives_on_repeated_apply(tmp_path):
-    p=managed('probe',kind='agent',state='done',cleanup_policy='kill_on_done',goal='a, b',
+def test_control_metadata_never_archives_on_repeated_apply(tmp_path):
+    p=managed('probe',kind='agent',state='done',cleanup_policy='kill_on_done',goal='a\tb',
               completed_at='2026-09-10T10:00:00Z',run_root=str(tmp_path),evidence_path='result.md')
     p.dead=True
     (tmp_path/'result.md').write_text('done')

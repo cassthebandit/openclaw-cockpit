@@ -264,7 +264,7 @@ def observe(pane, record, *, process_path=None):
 
 @contextlib.contextmanager
 def final_guard(record):
-    """Hold original generation lock across caller's final observe + native EOF.
+    """Hold original generation lock across consumption, final observe + native EOF.
 
     Caller must re-read live pane identity and enforce all ordinary policy,
     archive/logging and native-proof requirements inside this context. Never

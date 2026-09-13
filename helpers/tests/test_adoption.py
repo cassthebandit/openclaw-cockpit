@@ -165,6 +165,15 @@ def test_default_never_enrolls(tmp_path):
     assert a.plan(h, [p], args, {}, lifecycle.DEFAULTS, h.utc_now()) is None
 
 
+def test_smoke_pass_does_not_observe_or_consume_adopted_sessions(tmp_path):
+    p, config, args = fixture(tmp_path)
+    args.policy = 'smoke'
+    record = enrollment(tmp_path, p)
+    with patch.object(a, 'observe') as observe:
+        assert a.plan(h, [p], args, {'adoptions': {a.identity(p): record}}, config, h.utc_now()) is None
+    observe.assert_not_called()
+
+
 @pytest.mark.parametrize("policy", ["smoke", "kill-safe"])
 def test_enabled_adoption_does_not_take_over_unselected_managed_jobs(tmp_path, policy):
     from test_hygiene import managed
@@ -388,6 +397,7 @@ def test_real_dead_adoption_preserves_sentinel(tmp_path, trial, native_dead_outc
             run("new-session", "-d", "-s", "sentinel", "sleep 60")
             target = run("new-session", "-d", "-P", "-F", "#{pane_id}", "-s", "temporary", "trap '' HUP; sleep 1; exit 0").stdout.strip()
             run("set-option", "-p", "-t", target, "remain-on-exit", "on")
+            run("set-option", "-p", "-t", target, "@oc_goal", "Finished a, then b {literal #{pane_id}} #()")
             # Use an explicit normal-exit fixture, independent of PTY hangup.
             # Missing/signal-only exit metadata must still be retained.
             for _ in range(150):
@@ -406,6 +416,8 @@ def test_real_dead_adoption_preserves_sentinel(tmp_path, trial, native_dead_outc
                 assert len(outcome["killed"]) == 1, outcome
                 assert run("has-session", "-t", "=temporary", check=False).returncode != 0
                 assert list((tmp_path / "archive").glob("*/metadata.json"))
+                metadata = json.loads(next((tmp_path / "archive").glob("*/metadata.json")).read_text())
+                assert metadata['panes'][0]['last_activity'].isdigit()
                 assert not h.load_status(args.status_file)["adoptions"]
                 native_dead_outcomes["removed"] += 1
             else:

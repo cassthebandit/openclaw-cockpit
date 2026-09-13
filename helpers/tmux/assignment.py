@@ -201,6 +201,11 @@ def accept_event(root: Path, payload: dict) -> str | None:
             state.update(blocked_reason="runtime session replaced; start a new managed assignment", pending=None, receipt=None)
             _write(root / "state.json", state)
         return None
+    if event == "SessionStart" and launch["runtime"] == "claude" and payload.get("source") == "compact":
+        # Automatic compaction preserves the same runtime session and work.
+        # It cannot bind a new launch. A manual /compact already invalidated the
+        # receipt through UserPromptSubmit; replacement sessions were rejected above.
+        return None
     if not state["session_id"]:
         if event not in {"SessionStart", "UserPromptSubmit"}:
             return None
@@ -487,11 +492,16 @@ def supervise(root: Path, command: list[str], *, guard=None, retained_poll_secon
                     accepted_now = True
                     if not held:
                         attempt_exit(delayed=False)
-                if completed and completed["retained"] and not accepted_now and not guard.validate():
-                    if not completed.get("hold_end_logged"):
-                        log("hold_end", "released_or_expired")
-                        completed["hold_end_logged"] = True
-                    attempt_exit(delayed=True)
+                if completed and completed["retained"] and not accepted_now:
+                    if guard.validate():
+                        # A renewed hold can expire independently of the previous
+                        # one while a transient attachment/composer refusal persists.
+                        completed.pop("hold_end_logged", None)
+                    else:
+                        if not completed.get("hold_end_logged"):
+                            log("hold_end", "released_or_expired")
+                            completed["hold_end_logged"] = True
+                        attempt_exit(delayed=True)
             if shutdown_deadline is not None and time.monotonic() >= shutdown_deadline:
                 log("exit", "unconfirmed", "owned worker did not exit after managed SIGTERM")
                 guard.stamp("blocked", "owned worker did not exit after managed SIGTERM")

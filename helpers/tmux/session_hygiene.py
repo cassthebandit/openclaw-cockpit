@@ -28,13 +28,14 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from . import lifecycle, adoption, event_log, holds, manual_close
+    from . import lifecycle, adoption, event_log, holds, manual_close, format_guard
 except ImportError:
     import lifecycle
     import adoption
     import event_log
     import holds
     import manual_close
+    import format_guard
 
 STATE_ROOT = Path(os.environ.get("OPENCLAW_COCKPIT_STATE_DIR", "~/.local/state/openclaw-cockpit")).expanduser()
 
@@ -458,7 +459,7 @@ def list_panes() -> list[Pane]:
             "#{pane_current_command}",
             "#{pane_current_path}",
             "#{session_created}",
-            "#{pane_last_activity}",
+            "#{window_activity}",  # tmux has no pane_last_activity; window activity is conservative.
             "#{pane_dead}",
             "#{pane_dead_status}",
             "#{pane_pid}",
@@ -1671,7 +1672,7 @@ def refusal_state(reason: str) -> str:
 def apply_refusal(item: dict[str, Any], reason: str) -> dict[str, Any]:
     applied = dict(item)
     record = dict(item.get("adoption_record", {}))
-    if record.get("release_id") and not record.get("attempt") and reason != "action_cap_deferred":
+    if record.get("release_id") and not record.get("attempt") and reason not in {"action_cap_deferred", "recovery_lock_busy"}:
         record["invalidated"] = reason
         record.pop("quiet_since", None)
         applied["adoption_record"] = record
@@ -1704,9 +1705,11 @@ def dead_retirement_refusal(panes: list[Pane]) -> str:
         return "grouped_or_unknown_session_requires_explicit_retirement"
     if pane.window_linked != "0":
         return "linked_or_unknown_window_requires_explicit_retirement"
-    # Refuse unsupported literals BEFORE archive/ledger I/O as well as at
-    # the final boundary. Preserve all contract checks, including free text.
-    if any(any(c in str(v) for c in "#,{}\n\r") for v in dead_retirement_expectations(pane).values()):
+    # Validate before archive I/O; literal escaping preserves every comparison,
+    # including free text, without interpreting user values as tmux formats.
+    try:
+        format_guard.all_equal(dead_retirement_expectations(pane))
+    except ValueError:
         return "unsafe_guard_literal"
     if not pane.dead:
         return "live_session_requires_explicit_retirement"
@@ -1724,11 +1727,7 @@ def guarded_dead_retirement(pane: Pane) -> subprocess.CompletedProcess[str]:
     """
     if reason := dead_retirement_refusal([pane]):
         return subprocess.CompletedProcess([], 1, "", reason)
-    checks = ["#{==:#{" + key + "}," + str(value) + "}"
-              for key, value in dead_retirement_expectations(pane).items()]
-    condition = checks[0]
-    for check in checks[1:]:
-        condition = "#{&&:" + condition + "," + check + "}"
+    condition = format_guard.all_equal(dead_retirement_expectations(pane))
     cp = run_tmux("if-shell", "-F", "-t", pane.server_session_id + ":", condition,
                   "kill-session -t " + shlex.quote(pane.server_session_id),
                   "display-message -p PR4_RETIREMENT_REFUSED", check=False)
@@ -1742,12 +1741,10 @@ def guarded_native_exit(pane: Pane, profile: dict) -> subprocess.CompletedProces
     expectations.update(pane_dead="0", session_attached="0", pane_in_mode="0",
                         pane_input_off="0", pane_pipe="0", **{"synchronize-panes": "0", "remain-on-exit": "on"},
                         pane_current_command=profile["command"])
-    if any(any(c in str(v) for c in "#,{}\n\r") for v in expectations.values()):
+    try:
+        condition = format_guard.all_equal(expectations)
+    except ValueError:
         return subprocess.CompletedProcess([], 1, "", "unsafe_guard_literal")
-    checks = ["#{==:#{" + key + "}," + str(value) + "}" for key, value in expectations.items()]
-    condition = checks[0]
-    for check in checks[1:]:
-        condition = "#{&&:" + condition + "," + check + "}"
     cp = run_tmux("if-shell", "-F", "-t", pane.server_session_id + ":", condition,
                   shlex.join(["send-keys", "-t", pane.pane, *profile["keys"]]),
                   "display-message -p ADOPTION_EXIT_REFUSED", check=False)
@@ -1778,12 +1775,7 @@ def prepare_enrollment(panes: list[Pane], record: dict, args: argparse.Namespace
         raise ValueError("enrollment preparation target or policy changed")
     expected = dead_retirement_expectations(p)
     expected.update(pane_dead="0", pane_pipe=p.pane_pipe, **{"remain-on-exit": p.remain_on_exit})
-    if any(any(c in str(v) for c in "#,{}\n\r") for v in expected.values()):
-        raise ValueError("unsafe_guard_literal")
-    checks = ["#{==:#{" + key + "}," + str(value) + "}" for key, value in expected.items()]
-    condition = checks[0]
-    for check in checks[1:]:
-        condition = "#{&&:" + condition + "," + check + "}"
+    condition = format_guard.all_equal(expected)
     command = shlex.join(["set-option", "-w", "-t", p.pane, "remain-on-exit", "on"])
     command += " ; " + shlex.join(["pipe-pane", "-t", p.pane])
     cp = run_tmux("if-shell", "-F", "-t", p.server_session_id + ":", condition,
@@ -1893,6 +1885,7 @@ def cmd_revoke(args: argparse.Namespace) -> int:
 
 def request_exit(item: dict, args: argparse.Namespace) -> dict:
     archive = {}
+    record = {}
     try:
         panes, reason = revalidate_target(item, allow_hold=False, args=args)
         if reason != "ok":
@@ -1926,16 +1919,6 @@ def request_exit(item: dict, args: argparse.Namespace) -> dict:
         if reason or evidence != record["baseline"]:
             return apply_refusal(item, reason or "new_activity_invalidated_release")
         request_config = effective_config(args)
-        attempt = {"id": uuid.uuid4().hex, "consumed_at": isoformat(utc_now()),
-                   "release_id": record["release_id"], **archive}
-        record["attempt"] = attempt
-        item["adoption_record"] = record
-        state = load_status(args.status_file)
-        current = state.get("adoptions", {}).get(item["adoption_identity"], {})
-        if current.get("release_id") != record["release_id"] or current.get("attempt") or current.get("invalidated"):
-            return apply_refusal(item, "release_authority_changed")
-        state["adoptions"][item["adoption_identity"]] = record
-        write_status(args.status_file, state)  # consumed BEFORE any native key
         guard_context = contextlib.nullcontext()
         if record.get("assignment_recovery"):
             try:
@@ -1944,6 +1927,16 @@ def request_exit(item: dict, args: argparse.Namespace) -> dict:
                 import assignment_recovery
             guard_context = assignment_recovery.final_guard(record["assignment_recovery"])
         with guard_context:
+            attempt = {"id": uuid.uuid4().hex, "consumed_at": isoformat(utc_now()),
+                       "release_id": record["release_id"], **archive}
+            state = load_status(args.status_file)
+            current = state.get("adoptions", {}).get(item["adoption_identity"], {})
+            if current.get("release_id") != record["release_id"] or current.get("attempt") or current.get("invalidated"):
+                return apply_refusal(item, "release_authority_changed")
+            record["attempt"] = attempt
+            item["adoption_record"] = record
+            state["adoptions"][item["adoption_identity"]] = record
+            write_status(args.status_file, state)  # consumed BEFORE any native key
             # Policy/protection and runtime evidence are checked again after disk I/O.
             fresh = group_by_session(list_panes()).get(p.session, [])
             config = effective_config(args)
@@ -1957,10 +1950,25 @@ def request_exit(item: dict, args: argparse.Namespace) -> dict:
             cp = guarded_native_exit(fresh[0], adoption.PROFILES[record["profile"]])
         write_ledger_event(item, fresh, args, event="exit_request_result", archive=archive,
                            kill_returncode=cp.returncode, kill_stderr=cp.stderr.strip())
+        if cp.returncode and cp.stderr == "tmux_guard_changed":
+            # The synchronous false branch proves no key was sent. Preserve its
+            # archive history, but do not pretend there was an ambiguous send.
+            record["previous_attempt"] = record.pop("attempt")
+            record["invalidated"] = "tmux_guard_changed"
+            record.pop("quiet_since", None)
+            item["adoption_record"] = record
+            state["adoptions"][item["adoption_identity"]] = record
+            write_status(args.status_file, state)
+            return apply_refusal(item, "tmux_guard_changed")
         applied = dict(item)
         applied.update(archive, janitor_state="exit_requested" if cp.returncode == 0 else "shutdown_unconfirmed",
                        reason="native_exit_requested" if cp.returncode == 0 else "shutdown_unconfirmed:" + cp.stderr.strip())
         return applied
+    except BlockingIOError as error:
+        reason = "exit_request_failed:" + str(error) if record.get("attempt") else "recovery_lock_busy"
+        refused = apply_refusal(item, reason)
+        refused.update(archive)
+        return refused
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         refused = apply_refusal(item, "exit_request_failed:" + str(error))
         refused.update(archive)
