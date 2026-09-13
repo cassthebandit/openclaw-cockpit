@@ -369,7 +369,7 @@ def check_janitor_status_file(path: Path, max_age_seconds: int) -> Check:
 
 def check_hygiene_plan(runner: Runner = run_command) -> Check:
     script = HELPERS / "tmux/session_hygiene.py"
-    cp = runner([sys.executable, str(script), "plan", "--policy", "kill-safe", "--json"])
+    cp = runner([sys.executable, "-B", str(script), "plan", "--policy", "kill-safe", "--json"])
     if cp.returncode != 0:
         return fail("hygiene_plan", cp.stderr.strip() or "session_hygiene.py plan failed")
     try:
@@ -402,7 +402,7 @@ def check_hygiene_plan(runner: Runner = run_command) -> Check:
 def check_openclaw_runtime_snapshot(script: Path, runner: Runner = run_command) -> Check:
     if not script.exists():
         return warn("openclaw_runtime_snapshot", f"missing {script}")
-    cp = runner([sys.executable, str(script), "--limit", "1"])
+    cp = runner([sys.executable, "-B", str(script), "--limit", "1"])
     if cp.returncode != 0:
         return warn("openclaw_runtime_snapshot", cp.stderr.strip() or cp.stdout.strip() or "runtime snapshot failed")
     try:
