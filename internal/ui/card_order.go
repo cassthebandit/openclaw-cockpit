@@ -37,8 +37,8 @@ func (m *Model) rememberSessionBirths(sessions []tmux.Session) {
 	}
 }
 
-// Logical order is oldest first. Paint each section in reverse so its oldest
-// card occupies the bottom-right slot and additions fill left, then upward.
+// Logical order is oldest first. Preserve reverse chronological paint order
+// within each section; row alignment is independent and always left-justified.
 func (m *Model) stackedSessions(sessions []tmux.Session) []tmux.Session {
 	if !m.organized || m.viewMode != viewModeOverview {
 		return sessions
@@ -54,8 +54,4 @@ func (m *Model) stackedSessions(sessions []tmux.Session) []tmux.Session {
 		start = end
 	}
 	return out
-}
-
-func leadingStackSlots(count, columns int) int {
-	return (columns - count%columns) % columns
 }

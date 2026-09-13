@@ -43,7 +43,7 @@ func TestJobOrderIgnoresUpdatesAndCompactsRemoval(t *testing.T) {
 	}
 	visual := m.stackedSessions(m.filteredSessions())
 	if visual[0].ID != "$new" || visual[1].ID != "$old" {
-		t.Fatal("oldest must paint at right/bottom")
+		t.Fatal("paint order must remain reverse chronological")
 	}
 }
 
@@ -67,14 +67,6 @@ func TestSyntheticBirthDoesNotFollowActivity(t *testing.T) {
 	m.rememberSessionBirths([]tmux.Session{openClawRuntimeSession(card, 0, now.Add(time.Hour))})
 	if !m.sessionBirth[missing.ID].Equal(birth) {
 		t.Fatal("first-seen order moved")
-	}
-}
-
-func TestStackPartialRows(t *testing.T) {
-	for _, tc := range []struct{ count, cols, want int }{{1, 3, 2}, {4, 3, 2}, {5, 3, 1}, {6, 3, 0}, {2, 1, 0}} {
-		if got := leadingStackSlots(tc.count, tc.cols); got != tc.want {
-			t.Fatalf("%+v: %d", tc, got)
-		}
 	}
 }
 

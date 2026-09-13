@@ -144,7 +144,7 @@ func (m *Model) cardBodyHeightsByGroup(sessions []tmux.Session) map[string]int {
 				}
 			}
 		}
-		if allNative && capHeight > 0 {
+		if m.nativeSizer == nil && allNative && capHeight > 0 {
 			c.max = min(c.max, capHeight)
 			c.min = min(c.min, c.max)
 		}

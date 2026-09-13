@@ -323,7 +323,7 @@ func (m *Model) cursorCells() []cursorCell {
 					row++
 				}
 				cols, width = m.cardLayoutForGroup(group, max(1, counts[group.name]))
-				col = leadingStackSlots(counts[group.name], cols)
+				col = 0
 				width += cardPadding*2 + 2
 				groupName = group.name
 			}

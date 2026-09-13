@@ -101,10 +101,17 @@ The `[x]` card control only hides a card from the current view. It does not stop
 --validate-config                validate settings without starting the TUI
 --explain-config                 explain explicit overrides on stderr
 --control                        enable partial key forwarding to focused panes
+--fit-native                     fit detached managed agent terminals to cards
 --janitor-status PATH            read an optional cleanup-status sidecar
 --openclaw-runtime               include optional OpenClaw runtime cards
 --openclaw-runtime-script PATH   choose the runtime snapshot producer
 ```
+
+`--fit-native` explicitly permits terminal geometry changes without enabling
+key forwarding or cleanup. It fits only detached, unlinked, single-pane managed
+agent windows. Direct attachment takes sizing back on the next poll; closing
+Cockpit or hiding/collapsing the card restores its prior size and sizing policy.
+It is off by default, and `--dump` never fits terminals.
 
 Run `openclaw-cockpit -h` for the complete current list.
 

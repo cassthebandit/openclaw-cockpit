@@ -178,6 +178,9 @@ type Model struct {
 	sessionBirth                                                     map[string]time.Time // Immutable display ordering for each observed identity.
 	grouping                                                         *GroupingConfig
 	captureRate, captureMinLines, captureMaxLines, captureSlackLines int
+	nativeSizer                                                      *tmux.NativeSizer
+	nativeTargets                                                    []tmux.NativeSize
+	nativeSizing                                                     bool
 	client                                                           *tmux.Client
 	pollInterval                                                     time.Duration
 	captureBudget                                                    int

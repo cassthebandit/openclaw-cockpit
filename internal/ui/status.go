@@ -33,6 +33,9 @@ func (m *Model) buildStatusLine(width int) string {
 	if m.monitorOnly {
 		authority = "monitor-only"
 	}
+	if m.nativeSizer != nil {
+		authority += " + native fit"
+	}
 	helper := fmt.Sprintf("%s · mouse scroll/click · %s/d detail · %s/%s collapse · keys / search, :/v filter, H hidden, q quit", authority, maximizeLabel, collapseLabel, expandLabel)
 	if m.monitorOnly {
 		helper += " · no cleanup/key forwarding"

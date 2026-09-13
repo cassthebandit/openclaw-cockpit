@@ -10,7 +10,7 @@ This document describes the implementation that exists today. Product intent liv
 - `internal/zone`: ANSI-aware hit testing for mouse controls.
 - `scripts/`, `gorunfresh`, and `poltergeist.config.json`: optional local development launchers.
 
-Optional public launchers, assignment supervision and session hygiene live in `helpers/tmux/`. Existing-session selection, observation and bounded native retirement are implemented in `adoption.py` under the hygiene owner. Built-in native process/prompt adapters and tested exit profiles live in `runtime_adapters/` with static dispatch in `native_runtimes.py`; they do not own policy, storage or terminal mutations. They use the existing hygiene status/archive stores; the Go dashboard is a reader. Cockpit does not require these helpers to monitor ordinary tmux sessions.
+Optional public launchers, assignment supervision and session hygiene live in `helpers/tmux/`. Existing-session selection, observation and bounded native retirement are implemented in `adoption.py` under the hygiene owner. Built-in native process/prompt adapters and tested exit profiles live in `runtime_adapters/` with static dispatch in `native_runtimes.py`; they do not own policy, storage or terminal mutations. They use the existing hygiene status/archive stores; the Go dashboard is a reader by default. Explicit `--fit-native` permits guarded terminal geometry changes only (see `layout-contract.md`); it does not grant input or lifecycle authority. Cockpit does not require these helpers to monitor ordinary tmux sessions.
 
 ## Data flow
 

@@ -16,11 +16,12 @@ type pathLookup func(string) (string, error)
 
 // Client wraps a tmux binary path and exposes high-level snapshot helpers.
 type Client struct {
-	bin             string
-	run             commandRunner
-	preserveColors  bool
-	excludeSessions map[string]bool
-	monitorOnly     bool
+	bin               string
+	run               commandRunner
+	preserveColors    bool
+	excludeSessions   map[string]bool
+	monitorOnly       bool
+	nativeSizeAllowed bool
 }
 
 // NewClient constructs a Client using the provided tmux binary. When tmuxPath
@@ -65,6 +66,9 @@ func (c *Client) SetExcludedSessions(names []string) {
 func (c *Client) SetMonitorOnly(enabled bool) {
 	c.monitorOnly = enabled
 }
+
+// SetNativeSizeAllowed explicitly permits geometry changes without permitting input.
+func (c *Client) SetNativeSizeAllowed(enabled bool) { c.nativeSizeAllowed = enabled }
 
 func runCommand(ctx context.Context, bin string, args ...string) ([]byte, error) {
 	return exec.CommandContext(ctx, bin, args...).Output()
