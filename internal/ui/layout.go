@@ -296,7 +296,7 @@ type cursorCell struct {
 }
 
 func (m *Model) cursorCells() []cursorCell {
-	sessions := m.filteredSessions()
+	sessions := m.stackedSessions(m.filteredSessions())
 	counts := sessionGroupCounts(m, sessions)
 	organized := m.organized && m.viewMode == viewModeOverview
 	if organized {
@@ -322,8 +322,8 @@ func (m *Model) cursorCells() []cursorCell {
 				if col > 0 {
 					row++
 				}
-				col = 0
 				cols, width = m.cardLayoutForGroup(group, max(1, counts[group.name]))
+				col = leadingStackSlots(counts[group.name], cols)
 				width += cardPadding*2 + 2
 				groupName = group.name
 			}

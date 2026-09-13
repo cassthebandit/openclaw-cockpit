@@ -22,5 +22,6 @@
   "archive_dir": "",
   "status_file": "",
   "log_dir": "",
-  "inspector_log_dir": ""
+  "inspector_log_dir": "",
+  "session_log_max_bytes": 10000000
 }

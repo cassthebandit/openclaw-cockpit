@@ -107,7 +107,8 @@ def run(h, args):
                   result="closed" if removed and not survivors else "incomplete")
     h.write_ledger_event(item, panes, args, event="manual_close_result", archive=archive,
                          kill_returncode=0 if removed and not survivors else 1,
-                         kill_stderr="surviving processes: " + ",".join(survivors) if survivors else cp.stderr.strip())
+                         kill_stderr="surviving processes: " + ",".join(survivors) if survivors else cp.stderr.strip(),
+                         surviving_processes=survivors)
     if removed and not survivors:
         state = h.load_status(args.status_file)
         if state.get("adoptions", {}).pop(identity, None) is not None:

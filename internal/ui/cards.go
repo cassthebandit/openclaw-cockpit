@@ -47,6 +47,7 @@ func (m *Model) renderSessionPreviews(int) string {
 // renderSessionCards renders the card wall for an already filtered/sorted
 // session list, letting View reuse one computation per frame.
 func (m *Model) renderSessionCards(sessions []tmux.Session) string {
+	sessions = m.stackedSessions(sessions)
 	m.cardLayout = m.cardLayout[:0]
 	m.groupZones = m.groupZones[:0]
 	m.cardTopLine = make(map[string]int)
@@ -86,12 +87,16 @@ func (m *Model) renderSessionCards(sessions []tmux.Session) string {
 		currentInnerWidth = max(20, (m.width/currentCols)-(cardPadding*2+2))
 	}
 	currentCellWidth := currentInnerWidth + cardPadding*2 + 2
+	leadingSlots := 0
 
 	flushRow := func() {
 		if len(currentRow) == 0 {
 			return
 		}
 		padded := make([]string, 0, len(currentRow)*2-1)
+		if leadingSlots > 0 {
+			padded = append(padded, strings.Repeat(" ", leadingSlots*(currentCellWidth+cardColumnGap)))
+		}
 		for i, card := range currentRow {
 			padded = append(padded, lipgloss.NewStyle().Width(currentCellWidth).Render(card))
 			if cardColumnGap > 0 && i < len(currentRow)-1 {
@@ -110,7 +115,7 @@ func (m *Model) renderSessionCards(sessions []tmux.Session) string {
 		if base := len(m.cardLayout) - len(currentRowIDs); base >= 0 {
 			for i := range currentRowIDs {
 				cb := &m.cardLayout[base+i]
-				cb.screenX0 = i * (currentCellWidth + cardColumnGap)
+				cb.screenX0 = (i + leadingSlots) * (currentCellWidth + cardColumnGap)
 				cb.screenX1 = cb.screenX0 + currentCellWidth - 1
 				cb.gridTop = lineCursor
 				cb.gridHeight = rowLines
@@ -121,6 +126,7 @@ func (m *Model) renderSessionCards(sessions []tmux.Session) string {
 		lineCursor += rowLines
 		currentRow = currentRow[:0]
 		currentRowIDs = currentRowIDs[:0]
+		leadingSlots = 0
 	}
 
 	groupIndex := 0
@@ -128,6 +134,7 @@ func (m *Model) renderSessionCards(sessions []tmux.Session) string {
 		flushRow()
 		currentCols, currentInnerWidth = m.cardLayoutForGroup(group, max(1, groupCounts[group.name]))
 		currentCellWidth = currentInnerWidth + cardPadding*2 + 2
+		leadingSlots = leadingStackSlots(groupCounts[group.name], currentCols)
 		currentGroupCollapsed = m.isGroupCollapsed(group.name)
 		summary := ""
 		if currentGroupCollapsed {
@@ -245,7 +252,7 @@ func (m *Model) renderSessionCards(sessions []tmux.Session) string {
 		}
 		if pane.AlternateScreen && pane.Height > 0 {
 			viewportHeight = min(viewportHeight, pane.Height)
-			bodyBudget = min(bodyBudget, viewportHeight+len(infoLines))
+			// Keep allocated card geometry even when native capture is shorter.
 		}
 		resizePreviewViewport(preview, innerWidth, viewportHeight)
 
@@ -264,6 +271,9 @@ func (m *Model) renderSessionCards(sessions []tmux.Session) string {
 			body = compactFinishedBody(innerWidth, body, state, bodyBudget)
 			body = compactOverviewBody(innerWidth, body, m.viewMode == viewModeOverview, bodyBudget)
 			body = preview.bodyCache.render(innerWidth, body, agentCLIColorPassthroughGroup(currentGroup))
+			if organizedOverview && !m.isCollapsed(session.ID) {
+				body = lipgloss.NewStyle().Height(bodyBudget).Render(body)
+			}
 		}
 		switch {
 		case state == "failed" || state == "route-fail" || state == "safety-fail":
@@ -314,7 +324,7 @@ func (m *Model) renderSessionCards(sessions []tmux.Session) string {
 			maximizeZoneID: maxID,
 			collapseZoneID: collapseID,
 		})
-		if len(currentRow) >= currentCols {
+		if len(currentRow)+leadingSlots >= currentCols {
 			flushRow()
 		}
 	}

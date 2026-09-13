@@ -241,6 +241,12 @@ func (m *Model) filteredSessionCount() int {
 // refreshMergedSessions applies either source independently without rescheduling polls.
 func (m *Model) refreshMergedSessions() tea.Cmd {
 	m.sessions = append(append([]tmux.Session(nil), m.tmuxSessions...), m.runtimeSessions...)
+	m.rememberSessionBirths(m.sessions)
+	for id := range m.sessionBirth {
+		if !m.sessionExists(id) {
+			delete(m.sessionBirth, id)
+		}
+	}
 	m.refreshArtifactOutcomes()
 	m.refreshLifecycleVerdicts()
 	m.pruneHiddenRuntimeSessions()

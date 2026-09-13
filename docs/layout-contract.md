@@ -157,3 +157,15 @@ wrap rows. Collapse and resize recompute navigation from the rendering policy.
 Runtime `shown` counts mean delivered cards after producer and consumer caps.
 Pre-limit visible totals are labeled `total`; truncation is explicit. Raw,
 grouped and hidden source counts remain distinct facts.
+
+
+## Native-source height versus card height
+Organized cards retain allocated body height even when an alternate-screen source is shorter. The source viewport remains bounded by its real screen; padding is not additional content. Lower section headers move down to use the dashboard body allocation. Collapse and scroll/control geometry remain owned by the renderer.
+
+Native CLI resizing is distinct from card sizing. Disposable local Claude and Codex grow/shrink tests preserve draft and session identity and show more content at greater height; see the build evidence for exact versions. The default monitor-only dashboard does not automatically resize source terminals. Current reader ownership has no resize lease or restore-on-attach contract. Automatic source fit is therefore not enabled by this patch; do not claim empty padding as useful additional native content. Existing launcher --cols/--rows remain explicit launch-time geometry options.
+
+## Stable job stacking
+
+Within each organized section, job precedence is oldest start first, not latest activity. The oldest card occupies the bottom-right slot; new jobs fill to its left and then in rows above. A partial top row is right-aligned. Removal compacts surviving cards without changing their chronological order. Section transitions still follow lifecycle state.
+
+Native launch start time (or session creation) establishes order. Synthetic runtime creation age is distinct from activity age. Once observed, an identity's ordering time is fixed for that dashboard process. Missing birth metadata uses first observation and stable identity ties; this fallback cannot reconstruct historical order after a dashboard restart. Output, label changes and shuffled snapshots do not reorder surviving jobs. Keyboard movement and hit testing use the same geometry.

@@ -1026,15 +1026,53 @@ def ledger_paths(item: dict[str, Any], panes: list[Pane], args: argparse.Namespa
     return unique
 
 
-def log_event(item: dict, args: argparse.Namespace, event: str, *, result: str = "", archive_path: str = "") -> None:
+# Explicit lifecycle operations: observations never inherit an action outcome.
+LOG_ACTIONS = {
+    "kill_attempt": ("session_close", True), "kill_result": ("session_close", False),
+    "manual_close_attempt": ("session_close", True), "manual_close_result": ("session_close", False),
+    "exit_request_prepared": ("native_exit_request", True), "exit_request_result": ("native_exit_request", False),
+    "enrollment_prepare_attempt": ("enrollment_prepare", True), "enrollment_prepared": ("enrollment_prepare", False),
+}
+
+
+def log_event(item: dict, args: argparse.Namespace, event: str, *, result: str = "", archive_path: str = "",
+              operation_error: str | None = None, outcome: str | None = None, surviving_processes: list[str] | None = None) -> None:
     contracts = item.get("pane_contracts") or [{}]
     identity = contracts[0].get("launch_id") or item.get("adoption_identity") or item.get("pane_identity", "")
+    details = {"assignment_state": item.get("state"), "process_state": "exited" if item.get("dead") else "unknown",
+               "decision": item.get("janitor_state") or item.get("action"),
+               "requires_intervention": None, "eligible_after": item.get("kill_not_before"),
+               "expires_at": contracts[0].get("hold_until") or None}
+    action = LOG_ACTIONS.get(event)
+    if not action:
+        item.pop("_log_action_id", None)
+    if action:
+        name, preparing = action
+        if preparing:
+            item["_log_action_id"] = uuid.uuid4().hex
+        details.update(action_id=item.get("_log_action_id"), action=name,
+                       action_outcome=outcome or ("attempted" if preparing else "succeeded" if result in {"success", "saved output; native exit retention ready"} else "failed" if result == "failed" else "unknown"))
+    reason_family = str(item.get("reason", "")).split(":", 1)[0]
+    if re.fullmatch(r"[a-z][a-z0-9_]*", reason_family):
+        if item.get("action") in {"skip", "refuse"}:
+            details["blocking_conditions"] = [reason_family]
+        if operation_error is None and (reason_family.endswith("_failed") or reason_family in {"archive_unavailable", "closure_verification_unavailable"}):
+            operation_error = reason_family
+    if operation_error:
+        details.update(error_code=operation_error, operation=action[0] if action else "cleanup_observation", retryable=None)
+    if surviving_processes is not None:
+        details["surviving_processes"] = surviving_processes
+    if archive_path:
+        details["archive_path"] = archive_path
     event_log.append(event, session=item["session"], identity=identity,
                      source="manual" if item.get("policy_source") in {"manual", "operator_allow_session"} else "automatic",
                      result="".join(c if ord(c) >= 32 and ord(c) != 127 else " " for c in result),
                      reason="".join(c if ord(c) >= 32 and ord(c) != 127 else " "
                                     for c in redact_text(str(item.get("reason", "")))),
-                     archive_path=archive_path, config=effective_config(args))
+                     archive_path=archive_path, config=effective_config(args),
+                     component="manual_close" if event.startswith("manual_close") else "adoption" if event in {"adopted", "enrollment_prepare_attempt", "enrollment_prepared", "exit_request_prepared", "exit_request_result"} else "janitor", details=details)
+    if action and not action[1]:
+        item.pop("_log_action_id", None)
 
 
 def write_ledger_event(
@@ -1046,6 +1084,7 @@ def write_ledger_event(
     archive: dict[str, Any] | None = None,
     kill_returncode: int | None = None,
     kill_stderr: str = "",
+    surviving_processes: list[str] | None = None,
 ) -> None:
     obj = {
         "event": event,
@@ -1064,9 +1103,19 @@ def write_ledger_event(
         "kill_returncode": kill_returncode,
         "kill_stderr": kill_stderr,
     }
+    operation_error = None
+    outcome = None
+    if kill_returncode not in {None, 0}:
+        # These are owner-generated status codes, not parsed exception prose.
+        if kill_stderr in {"closure_verification_unavailable", "closure_unconfirmed"}:
+            operation_error, outcome = kill_stderr, "unknown"
+        elif event == "exit_request_result" and kill_stderr != "tmux_guard_changed":
+            operation_error, outcome = "native_exit_request_unconfirmed", "unknown"
+        else:
+            operation_error, outcome = "tmux_guard_changed" if kill_stderr == "tmux_guard_changed" else "action_failed", "failed"
     log_event(item, args, event,
               result="attempt" if kill_returncode is None else "success" if kill_returncode == 0 else "failed",
-              archive_path=(archive or {}).get("archive_path", ""))
+              archive_path=(archive or {}).get("archive_path", ""), operation_error=operation_error, outcome=outcome, surviving_processes=surviving_processes)
     errors: list[str] = []
     paths = ledger_paths(item, panes, args)
     for index, path in enumerate(paths):
@@ -1509,7 +1558,8 @@ def record_status_changes(items: list[dict], args: argparse.Namespace) -> None:
         if not same:
             log_event(item, args, "discovered", result="observed")
         policy = getattr(args, "policy", "")
-        signature = [item.get("action"), item.get("teardown_reason") or item.get("reason")]
+        signature = [item.get("action"), item.get("teardown_reason") or item.get("reason"),
+                     item.get("kill_not_before"), [c.get("hold_until") for c in item.get("pane_contracts", [])]]
         if signatures.get(policy) != signature:
             log_event(item, args, "cleanup_state", result=item.get("janitor_state") or item["action"])
         signatures[policy] = signature
@@ -1875,8 +1925,8 @@ def cmd_revoke(args: argparse.Namespace) -> int:
     if not getattr(args, "dry_run", False):
         event_log.append("adoption_forgotten" if forget else "adoption_revoked",
                          session=record.get("session", "unknown-session"), identity=args.identity,
-                         source="manual", result="attempt", reason="owner_revoked",
-                         config=effective_config(args))
+                         source="manual", result="attempt", reason="owner_revoked", component="adoption",
+                         details={"action": "adoption_revoke", "action_outcome": "attempted", "action_id": uuid.uuid4().hex}, config=effective_config(args))
         write_status(args.status_file, state)
     print(json.dumps({"identity": args.identity, "revoked": True, "dry_run": getattr(args, "dry_run", False),
                       "forgotten": forget, "attempt_retained": bool(record.get("attempt"))}))
@@ -2095,6 +2145,7 @@ def cmd_apply(args: argparse.Namespace) -> int:
             except (OSError, ValueError, subprocess.SubprocessError):
                 cp = subprocess.CompletedProcess(cp.args, 1, cp.stdout, "closure_verification_unavailable")
         applied = dict(item)
+        applied.pop("_log_action_id", None)
         applied.update(archive)
         write_ledger_event(
             item,

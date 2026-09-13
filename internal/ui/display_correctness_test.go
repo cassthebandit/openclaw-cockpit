@@ -134,14 +134,20 @@ func TestGroupedNavigationMatchesRenderedRows(t *testing.T) {
 			}
 		}
 	}
+	for _, session := range m.sessions {
+		seedPreviewForSizingTest(m, session, 80, 20)
+	}
 	m.updatePreviewDimensions(len(m.sessions))
 	m.renderSessionCards(m.filteredSessions())
-	m.cursorSession = "$agent-1"
-	if !m.moveCursorDown() || m.cursorSession != "$agent-4" {
+	if len(m.cardLayout) != len(m.sessions) {
+		t.Fatalf("rendered %d/%d cards", len(m.cardLayout), len(m.sessions))
+	}
+	m.cursorSession = "$agent-5"
+	if !m.moveCursorDown() || m.cursorSession != "$agent-2" {
 		t.Fatalf("down used global cols: %s", m.cursorSession)
 	}
 	m.cursorSession = "$agent-3"
-	if !m.moveCursorDown() || m.cursorSession != "$agent-5" {
+	if !m.moveCursorUp() || m.cursorSession != "$agent-5" {
 		t.Fatalf("partial row did not pick nearest card: %s", m.cursorSession)
 	}
 	cells := m.cursorCells()

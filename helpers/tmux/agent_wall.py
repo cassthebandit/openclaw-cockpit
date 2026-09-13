@@ -1265,7 +1265,8 @@ def spawn_tui_session(
             command_kind.removesuffix("_tui"),
             run_root / "assignments" / uuid.uuid4().hex,
             command, keep_open=bool(getattr(args, "keep_open", False)), bootstrap=command_kind == "codex_tui",
-            event_config=getattr(args, "_event_config", None),
+            event_config=getattr(args, "_event_config", None), model=getattr(args, "model", None),
+            working_directory=str(Path(getattr(args, "cd", None) or Path.cwd()).expanduser().absolute()),
         )
         managed_prompt = Path(assignment_run["run_dir"]) / "prompt.md"
         managed_prompt.write_text(prompt_path.read_text(encoding="utf-8") + assignment_run["prompt_suffix"], encoding="utf-8")
@@ -1637,14 +1638,17 @@ def cmd_release_hold(args: argparse.Namespace) -> int:
             "--allow-hygiene-after-release; rerun with --dry-run to preview the plan"
         )
 
+    action_id = uuid.uuid4().hex
     log_session = args.name or pane_session_name(pane)
     event_log.append("hold_release", session=log_session, identity=current.get("launch_id") or pane,
-                     source="manual", result="attempt", config=getattr(args, "_event_config", None))
+                     source="manual", result="attempt", config=getattr(args, "_event_config", None), component="holds",
+                     details={"action_outcome": "attempted", "action_id": action_id, "action": "hold_change", "expires_at": current.get("hold_until") or None})
     unset_hold_reason(pane)
     set_pane_options(pane, planned_set)
     report["applied"] = True
     event_log.append("hold_release", session=log_session, identity=current.get("launch_id") or pane,
-                     source="manual", result="released", config=getattr(args, "_event_config", None))
+                     source="manual", result="released", config=getattr(args, "_event_config", None), component="holds",
+                     details={"action_outcome": "succeeded", "action_id": action_id, "action": "hold_change", "expires_at": current.get("hold_until") or None})
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0
 
@@ -1652,9 +1656,12 @@ def cmd_release_hold(args: argparse.Namespace) -> int:
 def cmd_release_keep_open(args: argparse.Namespace) -> int:
     pane = unique_pane_for_session(args.name)
     current = read_pane_metadata(pane)
-    event_log.append("keep_open_release", session=args.name, identity=current.get("launch_id") or pane, source="manual", result="attempt", config=getattr(args, "_event_config", None))
+    action_id = uuid.uuid4().hex
+    event_log.append("keep_open_release", session=args.name, identity=current.get("launch_id") or pane, source="manual", result="attempt", config=getattr(args, "_event_config", None), component="holds",
+                     details={"action_outcome": "attempted", "action_id": action_id, "action": "hold_change", "expires_at": current.get("hold_until") or None})
     set_pane_options(pane, {"keep_open": "0", "updated_at": utc_now()})
-    event_log.append("keep_open_release", session=args.name, identity=current.get("launch_id") or pane, source="manual", result="released", config=getattr(args, "_event_config", None))
+    event_log.append("keep_open_release", session=args.name, identity=current.get("launch_id") or pane, source="manual", result="released", config=getattr(args, "_event_config", None), component="holds",
+                     details={"action_outcome": "succeeded", "action_id": action_id, "action": "hold_change", "expires_at": current.get("hold_until") or None})
     print(json.dumps({"pane": pane, "keep_open": False, "cleanup_performed": False}))
     return 0
 
@@ -1665,14 +1672,17 @@ def cmd_keep_open(args: argparse.Namespace) -> int:
         raise SystemExit("keep-open requires a nonempty --hold-reason")
     deadline = hold_deadline(args)
     current = read_pane_metadata(pane)
+    action_id = uuid.uuid4().hex
     event_log.append("hold", session=args.name, identity=current.get("launch_id") or pane, source="manual", result="attempt",
-                     reason="indefinite" if not deadline else "expires:" + deadline, config=getattr(args, "_event_config", None))
+                     reason="indefinite" if not deadline else "expires:" + deadline, config=getattr(args, "_event_config", None), component="holds",
+                     details={"action_outcome": "attempted", "action_id": action_id, "action": "hold_change", "expires_at": deadline or None, "indefinite": not bool(deadline)})
     # Clear the previous deadline when explicitly switching to indefinite.
     if not deadline:
         run_tmux("set-option", "-pu", "-t", pane, "@oc_hold_until")
     set_pane_options(pane, {"hold_until": deadline, "hold_reason": args.hold_reason})
     event_log.append("hold", session=args.name, identity=current.get("launch_id") or pane, source="manual", result="set",
-                     reason="indefinite" if not deadline else "expires:" + deadline, config=getattr(args, "_event_config", None))
+                     reason="indefinite" if not deadline else "expires:" + deadline, config=getattr(args, "_event_config", None), component="holds",
+                     details={"action_outcome": "succeeded", "action_id": action_id, "action": "hold_change", "expires_at": deadline or None, "indefinite": not bool(deadline)})
     print(json.dumps({"pane": pane, "hold_until": deadline}))
     return 0
 

@@ -17,7 +17,7 @@ DEFAULTS = {
     "active_idle_mark_seconds": 180, "adopted_grace_seconds": 3600,
     "temporary_hold_hours": 24, "cleanup_interval_seconds": 60,
     "inspector_interval_seconds": 5, "inspector_stale_seconds": 1800,
-    "max_kills": 10, "log_max_bytes": 5242880,
+    "session_log_max_bytes": 10000000, "max_kills": 10, "log_max_bytes": 5242880,
     "state_dir": "~/.local/state/openclaw-cockpit", "archive_dir": "",
     "status_file": "", "log_dir": "", "inspector_log_dir": "",
 }
@@ -48,7 +48,10 @@ def validate(values: dict) -> None:
     if unknown:
         raise ValueError("unknown lifecycle setting: " + ", ".join(sorted(unknown)))
     for key, value in values.items():
-        if key == "adopt_existing_exited":
+        if key == "session_log_max_bytes":
+            if type(value) is not int or not 65536 <= value <= 2147483647:
+                raise ValueError("session_log_max_bytes: expected integer 65536..2147483647")
+        elif key == "adopt_existing_exited":
             if type(value) is not bool:
                 raise ValueError(f"{key}: expected boolean")
         elif key in {"existing_session_mode", "live_retirement"}:

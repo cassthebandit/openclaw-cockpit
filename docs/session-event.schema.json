@@ -1,0 +1,246 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cockpit session event v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "event_id",
+    "time",
+    "session",
+    "identity",
+    "event",
+    "source",
+    "result",
+    "reason",
+    "component",
+    "reason_code",
+    "details"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string"
+    },
+    "time": {
+      "type": "string"
+    },
+    "session": {
+      "type": "string"
+    },
+    "identity": {
+      "type": "string"
+    },
+    "event": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "automatic",
+        "manual"
+      ]
+    },
+    "result": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "component": {
+      "type": "string"
+    },
+    "reason_code": {
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "details": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "runtime": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "working_directory": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "task_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "assignment_state": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "process_state": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "exit_code": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "completion_receipt_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "result_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "archive_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hold_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "expires_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "indefinite": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "actor_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "decision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "blocking_conditions": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "eligible_after": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "requires_intervention": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "retry_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "action_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "action": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "action_outcome": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "attempted",
+            "succeeded",
+            "failed",
+            "unknown",
+            null
+          ]
+        },
+        "error_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "operation": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "retryable": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "history_incomplete": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "surviving_processes": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string",
+            "maxLength": 2048
+          }
+        }
+      }
+    }
+  }
+}
