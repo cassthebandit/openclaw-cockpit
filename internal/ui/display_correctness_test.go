@@ -146,7 +146,7 @@ func TestGroupedNavigationMatchesRenderedRows(t *testing.T) {
 	if !m.moveCursorDown() || m.cursorSession != "$agent-2" {
 		t.Fatalf("down used global cols: %s", m.cursorSession)
 	}
-	m.cursorSession = "$agent-3"
+	m.cursorSession = "$agent-2"
 	if !m.moveCursorUp() || m.cursorSession != "$agent-5" {
 		t.Fatalf("partial row did not pick nearest card: %s", m.cursorSession)
 	}

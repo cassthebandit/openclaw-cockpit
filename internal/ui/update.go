@@ -143,12 +143,17 @@ func (m *Model) handleMessage(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.markRenderDirty()
 			}
 		}
+	case nativeSizeMsg:
+		m.nativeSizing = false
+		if msg.err != nil {
+			m.showToast("Native terminal fit: " + msg.err.Error())
+		}
 	case tickMsg:
 		if m.inflight {
 			return m, nil
 		}
 		m.inflight = true
-		return m, fetchSnapshotCmd(m.client)
+		return m, tea.Batch(fetchSnapshotCmd(m.client), m.syncNativeSizeCmd())
 	case fastTickMsg:
 		// The arriving message is the outstanding watcher returning; clear the
 		// single-flight guard before dispatching so exactly one successor is

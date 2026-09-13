@@ -32,6 +32,7 @@ func main() {
 		showBuildInfo  = flag.Bool("build-info", false, "print machine-readable build identity JSON and exit")
 		dump           = flag.Bool("dump", false, "print current tmux snapshot as JSON and exit")
 		monitor        = flag.Bool("monitor-only", true, "compatibility flag; monitor-only is always enabled unless --control is set")
+		fitNative      = flag.Bool("fit-native", false, "allow fitting detached managed agent terminals to cards; does not enable key forwarding")
 		control        = flag.Bool("control", false, "enable interactive control actions such as key forwarding")
 		simulate       = flag.String("debug-click", "", "simulate a mouse left-click at the given coordinates (x,y)")
 		traceMouse     = flag.Bool("trace-mouse", false, "log mouse hit testing details to stderr")
@@ -148,6 +149,7 @@ func main() {
 	client.SetExcludedSessions(wallConfig.ExcludeSessions)
 	monitorOnly := effectiveMonitorOnly(*monitor, *control)
 	client.SetMonitorOnly(monitorOnly)
+	client.SetNativeSizeAllowed(*fitNative)
 
 	if *dump {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -169,6 +171,11 @@ func main() {
 	}
 
 	model := ui.NewModel(client, time.Duration(wallConfig.Interval), wallConfig.CaptureBudget, debugMsgs, *traceMouse, monitorOnly)
+	var nativeSizer *tmux.NativeSizer
+	if *fitNative {
+		nativeSizer = tmux.NewNativeSizer(client)
+		model.SetNativeSizer(nativeSizer)
+	}
 	model.ApplyWallConfig(wallConfig)
 	if configErr != nil {
 		model.SetStartupError(fmt.Errorf("wall config error: %w (using built-in defaults)", configErr))
@@ -177,7 +184,15 @@ func main() {
 	defer restoreTabs()
 	program := tea.NewProgram(model, tea.WithFPS(wallConfig.FPS))
 
-	if _, err := program.Run(); err != nil {
+	_, runErr := program.Run()
+	if nativeSizer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := nativeSizer.Close(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "native terminal restoration: %v\n", err)
+		}
+		cancel()
+	}
+	if err := runErr; err != nil {
 		fmt.Fprintf(os.Stderr, "%s exited with error: %v\n", productName, err)
 		os.Exit(1)
 	}
