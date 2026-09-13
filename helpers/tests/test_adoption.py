@@ -282,8 +282,16 @@ def test_result_symlink_and_empty_refused(tmp_path):
     with pytest.raises(OSError): a.result_bytes(str(link))
 
 
+@pytest.fixture(scope="module")
+def native_dead_outcomes():
+    outcomes = {"removed": 0, "preserved": 0}
+    yield outcomes
+    # Unavailable observations must not make every trial vacuously pass.
+    assert outcomes["removed"] > 0, outcomes
+
+
 @pytest.mark.parametrize("trial", range(10))
-def test_real_dead_adoption_preserves_sentinel(tmp_path, trial):
+def test_real_dead_adoption_preserves_sentinel(tmp_path, trial, native_dead_outcomes):
     """Real production discovery/archive/dead guard, isolated nondefault socket."""
     import tempfile
     import time
@@ -303,16 +311,28 @@ def test_real_dead_adoption_preserves_sentinel(tmp_path, trial):
                 if observed == "1:0":
                     break
                 time.sleep(.02)
-            assert observed == "1:0", run("display-message", "-p", "-t", target, "#{pane_dead}:#{pane_dead_status}:#{pane_dead_signal}").stdout
+            assert observed.startswith("1:"), observed
             _, _, args = fixture(tmp_path)
             args.config["live_retirement"] = "off"
             with patch.object(h, "run_tmux", side_effect=run), contextlib.redirect_stdout(io.StringIO()) as output:
                 h.cmd_apply(args)
-            assert len(json.loads(output.getvalue())["killed"]) == 1, output.getvalue()
-            assert run("has-session", "-t", "=temporary", check=False).returncode != 0
+            outcome = json.loads(output.getvalue())
             assert run("has-session", "-t", "=sentinel", check=False).returncode == 0
-            assert list((tmp_path / "archive").glob("*/metadata.json"))
-            assert not h.load_status(args.status_file)["adoptions"]
+            if observed == "1:0":
+                assert len(outcome["killed"]) == 1, outcome
+                assert run("has-session", "-t", "=temporary", check=False).returncode != 0
+                assert list((tmp_path / "archive").glob("*/metadata.json"))
+                assert not h.load_status(args.status_file)["adoptions"]
+                native_dead_outcomes["removed"] += 1
+            else:
+                # tmux 3.4 on Linux CI sometimes supplies neither exit status
+                # nor signal. This is a preservation case, not success or a skip.
+                assert not outcome["killed"] and not outcome["requested"], outcome
+                target_result = next(item for item in outcome["skipped"] if item["session"] == "temporary")
+                assert target_result["reason"] == "dead_exit_metadata_unavailable", outcome
+                assert run("has-session", "-t", "=temporary", check=False).returncode == 0
+                assert not list((tmp_path / "archive").glob("*/metadata.json"))
+                native_dead_outcomes["preserved"] += 1
         finally:
             run("kill-server", check=False)
 
