@@ -3,6 +3,7 @@ package ui
 import (
 	"encoding/json"
 	"os/exec"
+	"strings"
 	"testing"
 )
 
@@ -36,6 +37,19 @@ print(json.dumps(h.status_payload(items,argparse.Namespace())))`
 			}
 		} else if row.JanitorState != "cleanup_blocked" || got.name == groupCompletedAgents.name {
 			t.Fatalf("unsafe topology hidden: %s %+v %s", name, row, got.name)
+		}
+	}
+}
+
+func TestExistingSessionStatusDoesNotInferAssignmentSuccess(t *testing.T) {
+	session := agentSessionForGroup("legacy", "done")
+	pane := session.Windows[0].Panes[0]
+	for _, state := range []string{"observing", "retirement_ready", "exit_requested", "shutdown_unconfirmed", "retained_exited_to_shell"} {
+		row := sidecarRowFor(session, janitorSessionStatus{ExistingSession: true, JanitorState: state, Reason: "observed only"})
+		m := modelWithJanitorSidecar(map[string]janitorSessionStatus{"legacy": row})
+		line := cockpitCleanupLine(m, session, pane, m.clockNow())
+		if !strings.Contains(line, state) || strings.Contains(line, "assignment complete") {
+			t.Fatalf("existing-session fact misrepresented: %s", line)
 		}
 	}
 }

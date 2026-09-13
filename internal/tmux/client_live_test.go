@@ -2,12 +2,14 @@ package tmux
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -29,6 +31,19 @@ func disposableTmux(t *testing.T) string {
 	script := "#!/bin/sh\nexec " + real + " -L " + socket + " \"$@\"\n"
 	if err := os.WriteFile(wrapper, []byte(script), 0o755); err != nil {
 		t.Fatalf("write tmux wrapper: %v", err)
+	}
+	// Linux CI can transiently report ETXTBSY for this just-written fixture.
+	// Probe only -V before any server mutation; never retry a tmux action.
+	deadline := time.Now().Add(time.Second)
+	for {
+		err := exec.Command(wrapper, "-V").Run()
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, syscall.ETXTBSY) || time.Now().After(deadline) {
+			t.Fatalf("probe tmux fixture: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	t.Cleanup(func() {
 		// An already-exited server is the normal case, so this must never fail

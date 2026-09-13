@@ -10,6 +10,10 @@ ungrouped session; selection never overrides those topology safeguards.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
+import functools
+import uuid
 import hashlib
 import json
 import os
@@ -24,13 +28,15 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from . import lifecycle
+    from . import lifecycle, adoption
 except ImportError:
     import lifecycle
+    import adoption
 
 STATE_ROOT = Path(os.environ.get("OPENCLAW_COCKPIT_STATE_DIR", "~/.local/state/openclaw-cockpit")).expanduser()
 
 OC_FIELDS = [
+    "launch_id",
     "contract_version",
     "managed_by",
     "kind",
@@ -167,6 +173,25 @@ class Pane:
     server_session_id: str = ""
     window_linked: str = ""
     session_grouped: str = ""
+    server_socket: str = ""
+    server_pid: str = ""
+    server_started: str = ""
+    session_windows: str = ""
+    window_panes: str = ""
+    session_attached: str = ""
+    pane_in_mode: str = ""
+    pane_input_off: str = ""
+    pane_pipe: str = ""
+    pane_synchronized: str = ""
+    remain_on_exit: str = ""
+    window_activity: str = ""
+    self_ancestor: str = "0"
+
+
+OBS_FIELDS = ("socket_path", "pid", "start_time", "session_windows", "window_panes",
+              "session_attached", "pane_in_mode", "pane_input_off", "pane_pipe",
+              "synchronize-panes", "remain-on-exit", "window_activity")
+SOCKET_PATH = ""
 
 
 def utc_now() -> datetime:
@@ -176,7 +201,7 @@ def utc_now() -> datetime:
 def run_tmux(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
     # Preserve Unicode metadata even when called outside tmux in a C locale.
     return subprocess.run(
-        ["tmux", "-u", *args],
+        ["tmux", "-u", *(["-S", SOCKET_PATH] if SOCKET_PATH else []), *args],
         check=check,
         text=True, encoding="utf-8",
         stdout=subprocess.PIPE,
@@ -343,6 +368,11 @@ def load_status(path: str | Path | None) -> dict[str, Any]:
     sessions = payload.get("sessions")
     if not isinstance(sessions, dict):
         payload["sessions"] = {}
+    records = payload.get("adoptions", {})
+    if not isinstance(records, dict) or any(not isinstance(record, dict) for record in records.values()):
+        # Corrupt enrollment cannot authorize a native request. A new explicit
+        # owner decision is required; historical display fields never enroll.
+        payload["adoptions"] = {}
     return payload
 
 
@@ -358,10 +388,47 @@ def write_status(path: str | Path | None, payload: dict[str, Any]) -> None:
         with open(fd, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True)
             handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
         Path(tmp_name).replace(status_path)
+        directory = os.open(status_path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
     except Exception:
         Path(tmp_name).unlink(missing_ok=True)
         raise
+
+
+@contextlib.contextmanager
+def status_lock(path):
+    if not path:
+        yield
+        return
+    lock = Path(str(Path(path).expanduser()) + ".lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    with lock.open("a") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def serialized_status(function):
+    @functools.wraps(function)
+    def call(args):
+        writes = function.__name__ in {"cmd_apply", "cmd_release", "cmd_revoke"} or getattr(args, "write_status", False)
+        with status_lock(getattr(args, "status_file", "")) if writes and not getattr(args, "dry_run", False) else contextlib.nullcontext():
+            return function(args)
+    return call
+
+
+def effective_config(args):
+    if hasattr(args, "lifecycle_overrides"):
+        return lifecycle.load(getattr(args, "lifecycle_config", None), overrides=args.lifecycle_overrides)[0]
+    return getattr(args, "config", dict(lifecycle.DEFAULTS))
 
 
 def tmux_set_pane_options(pane: Pane, values: dict[str, str], *, unset: list[str] | None = None) -> None:
@@ -395,6 +462,7 @@ def list_panes() -> list[Pane]:
             "#{session_id}",
             "#{window_linked}",
             "#{session_grouped}",
+            *["#{" + field + "}" for field in OBS_FIELDS],
         ]
     )
     cp = run_tmux("list-panes", "-a", "-F", fmt, check=False)
@@ -419,11 +487,23 @@ def list_panes() -> list[Pane]:
                     continue
     except (OSError, subprocess.SubprocessError):
         pass  # Unknown live birth fails closed below; dead panes remain eligible.
+    ancestors = {str(os.getpid())}
+    ancestry_ok = False
+    try:
+        cp_ps = subprocess.run(["ps", "-axo", "pid=,ppid="], text=True, capture_output=True, timeout=5, check=True)
+        parents = dict(row.split() for row in cp_ps.stdout.splitlines() if len(row.split()) == 2)
+        current = str(os.getpid())
+        while current in parents and parents[current] not in ancestors:
+            current = parents[current]
+            ancestors.add(current)
+        ancestry_ok = "1" in ancestors or "0" in ancestors
+    except (OSError, subprocess.SubprocessError):
+        pass
     panes: list[Pane] = []
     skipped = 0
     for line in cp.stdout.splitlines():
         fields = line.split(TMUX_FIELD_SEP)
-        if len(fields) != 14 + len(OC_FIELDS):
+        if len(fields) != 14 + len(OC_FIELDS) + len(OBS_FIELDS):
             skipped += 1
             continue
         meta = dict(zip(OC_FIELDS, fields[11:11 + len(OC_FIELDS)]))
@@ -441,9 +521,13 @@ def list_panes() -> list[Pane]:
                 dead_status=fields[9],
                 pid=fields[10],
                 process_started=births.get(fields[10], ""),
-                server_session_id=fields[-3],
-                window_linked=fields[-2],
-                session_grouped=fields[-1],
+                server_session_id=fields[11 + len(OC_FIELDS)],
+                window_linked=fields[12 + len(OC_FIELDS)],
+                session_grouped=fields[13 + len(OC_FIELDS)],
+                **dict(zip(("server_socket", "server_pid", "server_started", "session_windows", "window_panes",
+                            "session_attached", "pane_in_mode", "pane_input_off", "pane_pipe", "pane_synchronized",
+                            "remain_on_exit", "window_activity"), fields[-len(OBS_FIELDS):])),
+                self_ancestor="1" if fields[10] in ancestors else ("0" if ancestry_ok else ""),
                 meta=meta,
             )
         )
@@ -556,7 +640,7 @@ def pane_identity(panes: list[Pane]) -> str:
     selection does not permit live or multi-pane retirement at apply. Sorting
     keeps this identity independent of tmux listing order.
     """
-    return "|".join(sorted(f"{pane.server_session_id}:{pane.pane}@{pane.created}:{pane.pid}:{pane.process_started}" for pane in panes))
+    return "|".join(sorted(f"{pane.server_socket}:{pane.server_pid}:{pane.server_started}:{pane.session}:{pane.server_session_id}:{pane.pane}@{pane.created}:{pane.pid}:{pane.process_started}" for pane in panes))
 
 
 def result(
@@ -598,8 +682,10 @@ def result(
 
 
 def archive_base_for(item: dict[str, Any], panes: list[Pane], args: argparse.Namespace) -> Path:
+    if item.get("pre_exit_archive"):
+        return Path(item["pre_exit_archive"]) / "final"
     primary = panes[0] if panes else None
-    run_root_raw = primary.meta.get("run_root", "").strip() if primary else ""
+    run_root_raw = primary.meta.get("run_root", "").strip() if primary and not item.get("adoption_identity") else ""
     if run_root_raw:
         run_root = Path(run_root_raw).expanduser()
         if run_root.is_absolute():
@@ -858,9 +944,9 @@ def archive_cleanup_at(item: dict[str, Any], panes: list[Pane], archive_base: Pa
     if not panes:
         raise RuntimeError("archive_panes_missing")
     now = utc_now()
-    stamp = now.strftime("%Y%m%dT%H%M%SZ")
+    stamp = now.strftime("%Y%m%dT%H%M%S%fZ")
     archive_dir = archive_base / f"{stamp}-{safe_slug(item['session'])}"
-    archive_dir.mkdir(parents=True, exist_ok=False)
+    archive_dir.mkdir(parents=True, mode=0o700, exist_ok=False)
     captures: list[dict[str, Any]] = []
     for index, pane in enumerate(panes, start=1):
         cp = run_tmux("capture-pane", "-p", "-J", "-S", "-", "-t", pane.pane, check=False)
@@ -914,11 +1000,13 @@ def append_jsonl(path: Path, obj: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(obj, sort_keys=True) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
 
 
 def ledger_paths(item: dict[str, Any], panes: list[Pane], args: argparse.Namespace) -> list[Path]:
     paths = [Path(args.archive_root).expanduser().resolve() / "cleanup.jsonl"]
-    if panes:
+    if panes and not item.get("adoption_identity"):
         run_root_raw = panes[0].meta.get("run_root", "").strip()
         if run_root_raw:
             run_root = Path(run_root_raw).expanduser()
@@ -956,6 +1044,7 @@ def write_ledger_event(
         "state": item["state"],
         "dead": item["dead"],
         "archive": archive or {},
+        "pre_exit_archive": item.get("pre_exit_archive", ""),
         "kill_returncode": kill_returncode,
         "kill_stderr": kill_stderr,
     }
@@ -1297,11 +1386,29 @@ def override_hold_allows(args: argparse.Namespace, session: str) -> bool:
 
 def build_plan(args: argparse.Namespace) -> list[dict[str, Any]]:
     now = utc_now()
+    config = effective_config(args)
     allowed = set(args.allow_session or [])
     status_state = load_status(getattr(args, "status_file", ""))
     out: list[dict[str, Any]] = []
     for session, panes in sorted(group_by_session(list_panes()).items()):
         try:
+            if reason := adoption.protection(panes, config):
+                item = result(session=session, action="refuse", reason=reason, panes=panes)
+                record = adoption.record_for(status_state, panes[0])
+                if record:
+                    if not record.get("attempt"):
+                        record["invalidated"] = reason
+                    item.update(adoption_identity=adoption.identity(panes[0]), adoption_record=record)
+                out.append(item)
+                continue
+            adopted = adoption.plan(sys.modules[__name__], panes, args, status_state, config, now)
+            if adopted is not None and session not in allowed:
+                if adopted.get("adoption_record"):
+                    # Reserve observation capacity within this cycle too. This
+                    # is local planning state; plain plan still writes nothing.
+                    status_state.setdefault("adoptions", {})[adopted["adoption_identity"]] = adopted["adoption_record"]
+                out.append(adopted)
+                continue
             if session in allowed:
                 has_hold = any(p.meta.get("hold_reason", "").strip() for p in panes)
                 if has_hold and not override_hold_allows(args, session):
@@ -1355,6 +1462,7 @@ def print_items(items: list[dict[str, Any]], *, as_json: bool) -> None:
         )
 
 
+@serialized_status
 def cmd_plan(args: argparse.Namespace) -> int:
     plan = build_plan(args)
     if getattr(args, "write_status", False):
@@ -1363,6 +1471,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
     return 0
 
 
+@serialized_status
 def cmd_list(args: argparse.Namespace) -> int:
     plan = build_plan(args)
     if getattr(args, "write_status", False):
@@ -1376,7 +1485,13 @@ def status_payload(items: list[dict[str, Any]], args: argparse.Namespace) -> dic
     previous_sessions = previous.get("sessions") if isinstance(previous.get("sessions"), dict) else {}
     now = utc_now()
     sessions: dict[str, Any] = {}
+    records = dict(previous.get("adoptions", {}))
     for item in items:
+        if item.get("adoption_identity"):
+            if item.get("removed"):
+                records.pop(item["adoption_identity"], None)
+            elif item.get("adoption_record"):
+                records[item["adoption_identity"]] = item["adoption_record"]
         session = str(item.get("session") or "")
         if not session:
             continue
@@ -1420,6 +1535,9 @@ def status_payload(items: list[dict[str, Any]], args: argparse.Namespace) -> dic
             "pane_id": item_pane_id,
             "pane_created": item_created,
             "pane_pid": item.get("pane_pid", ""),
+            "pane_identity": item.get("pane_identity", ""),
+            "existing_session": bool(item.get("adoption_identity")),
+            "observations": item.get("observations", {}),
             "tail_hash": tail_hash,
             "tail_hash_since": tail_hash_since,
             "last_action": item.get("action") or "",
@@ -1430,9 +1548,11 @@ def status_payload(items: list[dict[str, Any]], args: argparse.Namespace) -> dic
         "interval_s": getattr(args, "interval", 0),
         "policy": getattr(args, "policy", ""),
         "sessions": sessions,
+        "adoptions": records,
         "last_cycle": {
             "policy": getattr(args, "policy", ""),
             "kill": sum(1 for item in items if item.get("action") == "kill"),
+            "request_exit": sum(1 for item in items if item.get("action") == "request_exit"),
             "mark": sum(1 for item in items if item.get("action") == "mark"),
             "cancel_mark": sum(1 for item in items if item.get("action") == "cancel_mark"),
             "skip": sum(1 for item in items if item.get("action") == "skip"),
@@ -1491,6 +1611,19 @@ def revalidate_target(item: dict[str, Any], *, allow_hold: bool, args: argparse.
         return panes, "pane_identity_changed_at_apply"
     if str(item.get("pane_created") or "") != primary.created:
         return panes, "pane_identity_changed_at_apply"
+    if args is not None:
+        try:
+            config = effective_config(args)
+        except ValueError as error:
+            return panes, "policy_reload_failed:" + str(error)
+        if reason := adoption.protection(panes, config, adoption=bool(item.get("adoption_identity"))):
+            return panes, reason
+        if item.get("adoption_identity"):
+            if reason := adoption.topology(panes):
+                return panes, reason
+            fresh = adoption.plan(sys.modules[__name__], panes, args, load_status(args.status_file), config, utc_now())
+            if fresh is None or fresh["action"] != item["action"] or fresh["reason"] != item["reason"]:
+                return panes, "adoption_eligibility_changed_at_apply"
     if any(p.meta.get("keep_open") == "1" for p in panes):
         return panes, "explicit_keep_open_at_apply"
     if not allow_hold and any(hold_is_active(p, utc_now()) for p in panes):
@@ -1498,7 +1631,7 @@ def revalidate_target(item: dict[str, Any], *, allow_hold: bool, args: argparse.
     if item.get("action") != "cancel_mark":
         if item.get("pane_contracts") != [dict(p.meta) for p in panes]:
             return panes, "pane_contract_changed_at_apply"
-        if args is not None and item.get("policy_source") != "operator_allow_session":
+        if args is not None and item.get("policy_source") != "operator_allow_session" and not item.get("adoption_identity"):
             fresh = eligible_managed(session, panes, policy=args.policy, grace=args.grace,
                                      now=utc_now(), status_state=load_status(getattr(args, "status_file", "")),
                                      override_hold=allow_hold, adopted_grace=getattr(args, "adopted_grace", 3600))
@@ -1517,14 +1650,21 @@ def refusal_state(reason: str) -> str:
 
 def apply_refusal(item: dict[str, Any], reason: str) -> dict[str, Any]:
     applied = dict(item)
+    record = dict(item.get("adoption_record", {}))
+    if record.get("release_id") and not record.get("attempt") and reason != "action_cap_deferred":
+        record["invalidated"] = reason
+        record.pop("quiet_since", None)
+        applied["adoption_record"] = record
     applied["action"] = "refuse"
     applied["reason"] = reason
-    applied["janitor_state"] = refusal_state(reason)
+    applied["janitor_state"] = "shutdown_unconfirmed" if record.get("attempt") else refusal_state(reason)
     return applied
 
 
 def dead_retirement_expectations(pane: Pane) -> dict[str, str]:
-    return {"session_id": pane.server_session_id, "session_name": pane.session,
+    return {**({"socket_path": pane.server_socket, "pid": pane.server_pid, "start_time": pane.server_started,
+                "session_attached": pane.session_attached, "pane_in_mode": pane.pane_in_mode} if pane.server_socket else {}),
+            "session_id": pane.server_session_id, "session_name": pane.session,
             "pane_id": pane.pane, "pane_pid": pane.pid,
             "session_created": pane.created, "pane_dead": "1",
             "session_windows": "1", "window_panes": "1", "window_linked": "0",
@@ -1577,16 +1717,183 @@ def guarded_dead_retirement(pane: Pane) -> subprocess.CompletedProcess[str]:
     return cp
 
 
+def guarded_native_exit(pane: Pane, profile: dict) -> subprocess.CompletedProcess[str]:
+    expectations = dead_retirement_expectations(pane)
+    expectations.update(pane_dead="0", session_attached="0", pane_in_mode="0",
+                        pane_input_off="0", pane_pipe="0", **{"synchronize-panes": "0", "remain-on-exit": "on"},
+                        pane_current_command=profile["command"])
+    if any(any(c in str(v) for c in "#,{}\n\r") for v in expectations.values()):
+        return subprocess.CompletedProcess([], 1, "", "unsafe_guard_literal")
+    checks = ["#{==:#{" + key + "}," + str(value) + "}" for key, value in expectations.items()]
+    condition = checks[0]
+    for check in checks[1:]:
+        condition = "#{&&:" + condition + "," + check + "}"
+    cp = run_tmux("if-shell", "-F", "-t", pane.server_session_id + ":", condition,
+                  shlex.join(["send-keys", "-t", pane.pane, *profile["keys"]]),
+                  "display-message -p ADOPTION_EXIT_REFUSED", check=False)
+    if "ADOPTION_EXIT_REFUSED" in cp.stdout:
+        return subprocess.CompletedProcess(cp.args, 1, cp.stdout, "tmux_guard_changed")
+    return cp
+
+
+@serialized_status
+def cmd_release(args: argparse.Namespace) -> int:
+    config = effective_config(args)
+    if config["live_retirement"] != "observed":
+        raise ValueError("owner release requires live_retirement=observed")
+    if not args.reason.strip() or len(args.reason) > 2048 or any(ord(c) < 32 for c in args.reason):
+        raise ValueError("release reason must be nonempty bounded text without controls")
+    panes = [p for p in list_panes() if adoption.identity(p) == args.identity]
+    if not panes:
+        raise ValueError("exact_incarnation_not_found")
+    p = panes[0]
+    # Include the whole topology; don't filter away a sibling pane.
+    panes = group_by_session(list_panes()).get(p.session, [])
+    if not panes or adoption.identity(panes[0]) != args.identity:
+        raise ValueError("exact_incarnation_changed")
+    reason = adoption.protection(panes, config, adoption=True) or adoption.topology(panes)
+    if reason or p.dead or not adoption.selected(p.session, config):
+        raise ValueError(reason or "live_selected_incarnation_required")
+    data, digest = adoption.result_bytes(args.result)
+    record = {"release_id": uuid.uuid4().hex, "released_at": isoformat(utc_now()),
+              "reason": args.reason, "profile": args.profile, "result_path": args.result,
+              "result_sha256": digest, "result_bytes": len(data), "attestation": adoption.RISK}
+    if getattr(args, "attest_screen_sampling", False):
+        record["screen_sampling"] = True
+    extra = adoption.native_runtimes.enrollment(adoption.PROFILES[args.profile], args, adoption.result_bytes)
+    if record.keys() & extra.keys():
+        raise ValueError("adapter_enrollment_overwrites_common_fields")
+    record.update(extra)
+    evidence, reason = adoption.observe(sys.modules[__name__], panes[0], record)
+    if reason:
+        raise ValueError(reason)
+    record.update(baseline=evidence, last_observed=isoformat(utc_now()), quiet_since=isoformat(utc_now()))
+    state = load_status(args.status_file)
+    records = state.setdefault("adoptions", {})
+    if args.identity not in records and len(records) >= adoption.MAX_RECORDS:
+        raise ValueError("adoption_record_capacity_reached")
+    prior = records.get(args.identity, {})
+    if prior.get("attempt"):
+        # A new explicit owner decision can rearm, but retain the previous
+        # archive/attempt linkage as history in this same record.
+        record["previous_attempt"] = prior["attempt"]
+    fresh = group_by_session(list_panes()).get(p.session, [])
+    if pane_identity(fresh) != pane_identity(panes) or [x.meta for x in fresh] != [x.meta for x in panes]:
+        raise ValueError("release_identity_or_contract_changed")
+    config = effective_config(args)
+    if (adoption.protection(fresh, config, adoption=True) or adoption.topology(fresh)
+            or not adoption.selected(p.session, config) or config["live_retirement"] != "observed"):
+        raise ValueError("release_policy_changed")
+    corroboration, reason = adoption.observe(sys.modules[__name__], fresh[0], record)
+    if reason or corroboration != evidence:
+        raise ValueError(reason or "release_activity_changed")
+    if not getattr(args, "dry_run", False):
+        records[args.identity] = record
+        write_status(args.status_file, state)
+    print(json.dumps({"identity": args.identity, "dry_run": getattr(args, "dry_run", False), "release": record}, indent=2))
+    return 0
+
+
+@serialized_status
+def cmd_revoke(args: argparse.Namespace) -> int:
+    state = load_status(args.status_file)
+    record = state.get("adoptions", {}).get(args.identity)
+    if not record:
+        raise ValueError("exact_release_not_found")
+    record["invalidated"] = "owner_revoked"
+    record.pop("quiet_since", None)
+    if not getattr(args, "dry_run", False):
+        write_status(args.status_file, state)
+    print(json.dumps({"identity": args.identity, "revoked": True, "dry_run": getattr(args, "dry_run", False),
+                      "attempt_retained": bool(record.get("attempt"))}))
+    return 0
+
+
+def request_exit(item: dict, args: argparse.Namespace) -> dict:
+    archive = {}
+    try:
+        panes, reason = revalidate_target(item, allow_hold=False, args=args)
+        if reason != "ok":
+            return apply_refusal(item, reason)
+        p = panes[0]
+        record = dict(item["adoption_record"])
+        archive = archive_cleanup(item, panes, args)
+        data, digest = adoption.result_bytes(record["result_path"])
+        if digest != record["result_sha256"]:
+            return apply_refusal(item, "release_result_changed")
+        result_path = Path(archive["archive_path"]) / "released-result.bin"
+        with result_path.open("xb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        # All pre-exit evidence, including captures/metadata, must be durable
+        # before consumption. Any failure leaves the live pane untouched.
+        for path in Path(archive["archive_path"]).iterdir():
+            with path.open("rb") as stream:
+                os.fsync(stream.fileno())
+        directory = os.open(archive["archive_path"], os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+        write_ledger_event(item, panes, args, event="exit_request_prepared", archive=archive)
+        panes, reason = revalidate_target(item, allow_hold=False, args=args)
+        if reason != "ok":
+            return apply_refusal(item, reason)
+        evidence, reason = adoption.observe(sys.modules[__name__], panes[0], record)
+        if reason or evidence != record["baseline"]:
+            return apply_refusal(item, reason or "new_activity_invalidated_release")
+        request_config = effective_config(args)
+        attempt = {"id": uuid.uuid4().hex, "consumed_at": isoformat(utc_now()),
+                   "release_id": record["release_id"], **archive}
+        record["attempt"] = attempt
+        item["adoption_record"] = record
+        state = load_status(args.status_file)
+        current = state.get("adoptions", {}).get(item["adoption_identity"], {})
+        if current.get("release_id") != record["release_id"] or current.get("attempt") or current.get("invalidated"):
+            return apply_refusal(item, "release_authority_changed")
+        state["adoptions"][item["adoption_identity"]] = record
+        write_status(args.status_file, state)  # consumed BEFORE any native key
+        # Policy/protection and runtime evidence are checked again after disk I/O.
+        fresh = group_by_session(list_panes()).get(p.session, [])
+        config = effective_config(args)
+        reason = adoption.protection(fresh, config, adoption=True) or adoption.topology(fresh)
+        if (reason or config != request_config or pane_identity(fresh) != pane_identity(panes) or [x.meta for x in fresh] != [x.meta for x in panes]
+                or config["live_retirement"] != "observed" or not adoption.selected(p.session, config)):
+            return apply_refusal(item, reason or "consumed_request_revalidation_failed")
+        evidence, reason = adoption.observe(sys.modules[__name__], fresh[0], record)
+        if reason or evidence != record["baseline"]:
+            return apply_refusal(item, reason or "consumed_request_activity_changed")
+        cp = guarded_native_exit(fresh[0], adoption.PROFILES[record["profile"]])
+        applied = dict(item)
+        applied.update(archive, janitor_state="exit_requested" if cp.returncode == 0 else "shutdown_unconfirmed",
+                       reason="native_exit_requested" if cp.returncode == 0 else "shutdown_unconfirmed:" + cp.stderr.strip())
+        return applied
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        refused = apply_refusal(item, "exit_request_failed:" + str(error))
+        refused.update(archive)
+        return refused
+
+
+@serialized_status
 def cmd_apply(args: argparse.Namespace) -> int:
     plan = build_plan(args)
-    kill_items = [item for item in plan if item["action"] == "kill"]
+    kill_items = [item for item in plan if item["action"] in {"kill", "request_exit"}]
     allowed_kill_sessions = {item["session"] for item in kill_items[: args.max_kills]} if args.max_kills is not None else {item["session"] for item in kill_items}
+    requested: list[dict[str, Any]] = []
     killed: list[dict[str, Any]] = []
     marked: list[dict[str, Any]] = []
     canceled: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     refused: list[dict[str, Any]] = []
     for item in plan:
+        if item["action"] == "request_exit":
+            if item["session"] not in allowed_kill_sessions:
+                refused.append(apply_refusal(item, "action_cap_deferred"))
+                continue
+            applied = request_exit(item, args)
+            (requested if applied["action"] == "request_exit" else refused).append(applied)
+            continue
         if item["action"] == "mark":
             panes, status = revalidate_target(item, allow_hold=override_hold_allows(args, item["session"]), args=args)
             if status != "ok":
@@ -1693,16 +2000,19 @@ def cmd_apply(args: argparse.Namespace) -> int:
             kill_stderr=cp.stderr.strip(),
         )
         if cp.returncode == 0:
+            applied["removed"] = True
+            applied["janitor_state"] = "removed"
             killed.append(applied)
         else:
             applied["action"] = "refuse"
             applied["reason"] = "tmux_kill_failed:" + (cp.stderr.strip() or "unknown")
             refused.append(applied)
-    result_obj = {"killed": killed, "marked": marked, "cancelled": canceled, "skipped": skipped, "refused": refused}
-    write_status(getattr(args, "status_file", ""), status_payload(killed + marked + canceled + skipped + refused, args))
+    result_obj = {"requested": requested, "killed": killed, "marked": marked, "cancelled": canceled, "skipped": skipped, "refused": refused}
+    write_status(getattr(args, "status_file", ""), status_payload(killed + requested + marked + canceled + skipped + refused, args))
     if args.json:
         print(json.dumps(result_obj, indent=2, sort_keys=True))
     else:
+        print(f"requested: {len(requested)}")
         print(f"killed: {len(killed)}")
         for item in killed:
             print(f"  {item['session']} ({item['reason']})")
@@ -1715,6 +2025,7 @@ def cmd_apply(args: argparse.Namespace) -> int:
 
 def add_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--lifecycle-config", default=argparse.SUPPRESS)
+    parser.add_argument("--socket-path", default="", help="Use exactly this tmux server socket; no cross-server discovery.")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--include-unowned", action="store_true", help="Compatibility flag; unowned sessions are included by default.")
     parser.add_argument("--policy", choices=["kill-safe", "smoke"], default="kill-safe")
@@ -1729,7 +2040,7 @@ def add_common(parser: argparse.ArgumentParser) -> None:
             "and applies to those exact names only."
         ),
     )
-    parser.add_argument("--max-kills", type=int, default=10, help="Maximum kills per apply run. Use a larger value for explicit bulk cleanup.")
+    parser.add_argument("--max-kills", type=int, default=10, help="Maximum removals and native exit requests per apply run. Use a larger value for explicit bulk cleanup.")
     parser.add_argument(
         "--archive-root",
         default=str(default_archive_root()),
@@ -1740,7 +2051,7 @@ def add_common(parser: argparse.ArgumentParser) -> None:
         default=str(DEFAULT_STATUS_FILE),
         help="Versioned janitor status JSON sidecar written atomically after apply, or plan/list with --write-status.",
     )
-    parser.add_argument("--write-status", action="store_true", help="Allow plan/list to write the status sidecar.")
+    parser.add_argument("--write-status", action="store_true", help="Observation-only cycle: write status/observations without terminal mutations.")
     parser.add_argument("--interval", type=int, default=0, help="Loop interval hint for status JSON consumers.")
 
 
@@ -1761,8 +2072,26 @@ def build_parser() -> argparse.ArgumentParser:
     add_common(apply)
     apply.set_defaults(func=cmd_apply)
 
+    release = sub.add_parser("release-existing", help="Enroll an exact live incarnation; never clears holds or stamps success.")
+    add_common(release)
+    release.add_argument("--identity", required=True, help="Exact adoption_identity from plan JSON")
+    release.add_argument("--result", required=True, help="Absolute saved result file, at most 16 MiB")
+    release.add_argument("--reason", required=True)
+    release.add_argument("--wrapper", default="", help="Exact legacy Bash wrapper file for the known wrapper profile")
+    release.add_argument("--profile", choices=sorted(adoption.PROFILES), required=True)
+    release.add_argument("--attest-no-background-work", action="store_true", required=True)
+    release.add_argument("--attest-screen-sampling", action="store_true",
+                         help="Accept sampled-screen quietness: identical redraws do not veto; changes between samples may be missed (required for AGY)")
+    release.add_argument("--dry-run", action="store_true")
+    release.set_defaults(func=cmd_release)
+    revoke = sub.add_parser("revoke-existing", help="Revoke exact enrollment while preserving any consumed attempt.")
+    add_common(revoke)
+    revoke.add_argument("--identity", required=True)
+    revoke.add_argument("--dry-run", action="store_true")
+    revoke.set_defaults(func=cmd_revoke)
+
     # Subcommand defaults must not erase options explicitly given before it.
-    for child in (list_p, plan, apply):
+    for child in (list_p, plan, apply, release, revoke):
         for action in child._actions:
             if action.dest != "help":
                 action.default = argparse.SUPPRESS
@@ -1783,6 +2112,12 @@ def main(argv: list[str] | None = None) -> int:
         config, _ = lifecycle.load(getattr(args, "lifecycle_config", None), overrides=overrides)
     except ValueError as error:
         parser.error(str(error))
+    args.lifecycle_overrides = overrides
+    args.config = config
+    global SOCKET_PATH
+    SOCKET_PATH = args.socket_path
+    if SOCKET_PATH and not Path(SOCKET_PATH).is_absolute():
+        parser.error("--socket-path must be absolute")
     global STATE_ROOT, ACTIVE_IDLE_MARK_SECONDS, TEARDOWN_GRACE_SECONDS, FAILED_VISIBLE_SECONDS
     STATE_ROOT = Path(config["state_dir"])
     ACTIVE_IDLE_MARK_SECONDS = config["active_idle_mark_seconds"]
@@ -1803,7 +2138,10 @@ def main(argv: list[str] | None = None) -> int:
         # A blanket override would reap every held pane on the host. Overriding
         # a hold is only ever meant for named sessions the operator inspected.
         parser.error("--override-hold requires at least one explicit --allow-session <name>")
-    return args.func(args)
+    try:
+        return args.func(args)
+    except (OSError, ValueError) as error:
+        parser.exit(2, str(error) + "\n")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,10 @@
 {
+  "adopt_existing_exited": false,
+  "existing_session_mode": "selected-only",
+  "cleanup_whitelist": [],
+  "cleanup_blacklist": [],
+  "live_retirement": "off",
+  "live_retirement_quiet_seconds": 1800,
   "inspector_protected_sessions": [],
   "closeout_default": "close",
   "completed_retention_seconds": 60,

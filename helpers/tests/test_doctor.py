@@ -75,13 +75,15 @@ class DoctorTests(unittest.TestCase):
 
     def test_hygiene_plan_warns_on_pending_or_refused_sessions(self) -> None:
         def runner(args: list[str]) -> subprocess.CompletedProcess[str]:
-            payload = [{"session": "done-worker", "action": "kill"}, {"session": "held", "action": "refuse"}]
+            payload = [{"session": "done-worker", "action": "kill", "dead": True},
+                       {"session": "held", "action": "refuse"}, {"session": "live", "action": "kill", "dead": False}]
             return subprocess.CompletedProcess(args, 0, json.dumps(payload), "")
 
         check = doctor.check_hygiene_plan(runner)
         self.assertEqual(check.status, "warn")
         self.assertEqual(check.data["killable"], ["done-worker"])
         self.assertEqual(check.data["refused"], ["held"])
+        self.assertEqual(check.data["retained_live"], ["live"])
 
     def test_hygiene_plan_warns_on_detected_work_attention(self) -> None:
         def runner(args: list[str]) -> subprocess.CompletedProcess[str]:

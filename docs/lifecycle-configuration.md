@@ -97,3 +97,55 @@ after editing service intervals/log paths/inspector settings. Hygiene revalidate
 configuration on each child apply invocation; invalid changes stop that invocation
 without mutation. New launch policy is loaded on each launcher invocation. No hot
 reload or automatic service installation is implied.
+
+## Existing-session adoption
+
+These additions are off by default. `adopt_existing_exited` (boolean, default
+`false`) enables selected unknown **dead** sessions. `live_retirement` is `off`
+(default), `observed`, or `verified`. Initially `verified` has no adopted-session
+contract and reports `verified_unavailable_for_adopted`. It never falls back to
+observed. Live enrollment is independent of the dead-adoption switch; a consumed
+live attempt can finish dead cleanup while observed mode remains enabled.
+
+`existing_session_mode` defaults to `selected-only`; an empty `cleanup_whitelist`
+selects nothing. `all-except-protected` explicitly ignores whitelist selection.
+`cleanup_blacklist` always protects, including managed janitor cleanup and exact
+`--allow-session`. Neither list changes a managed supervisor's owned process exit.
+
+Each list contains at most 256 objects, each with exactly one `exact` or `glob`
+key and a 1–256 character string without controls. Matching is case sensitive and
+covers the whole name. Glob supports only `*`; `?`, `[` and `]` are errors in globs
+(and literal characters in exact selectors). Duplicate JSON keys are errors.
+
+```json
+{
+  "adopt_existing_exited": true,
+  "existing_session_mode": "selected-only",
+  "cleanup_whitelist": [{"exact": "temporary-review"}],
+  "cleanup_blacklist": [{"glob": "persistent-*"}],
+  "live_retirement": "off",
+  "live_retirement_quiet_seconds": 1800
+}
+```
+
+`live_retirement_quiet_seconds` is a positive integer. Fresh unchanged observations
+must cover this interval, followed by `teardown_grace_seconds`. Sampling gaps over
+three cleanup intervals (minimum five seconds) reset quiet timing. Observed new
+activity, result changes, missing evidence, protection or selection withdrawal
+invalidate the release itself; waiting cannot revive it.
+
+Configured `inspector_protected_sessions` also protect hygiene targets. Service,
+viewer and runtime metadata, Cockpit's command identity and the janitor's own
+process ancestry are preservation inputs. Missing ancestry observations fail
+closed. All adoption preserves holds, permanent keep-open and genuine manual/hide
+policy. The inspector's automatically generated `manual` annotation is passive.
+Any nonempty launch ID prevents adoption, including a partial managed contract.
+Pre-supervisor `managed_by=agent_wall` alone does not prevent enrollment.
+
+The same list/mode/timing settings apply to Claude, Codex and AGY. Runtime profiles
+are selected at exact-session enrollment, not configured as executable commands
+in this file. Unsupported runtime/version/process shapes remain protected; broad
+selection does not enable a generic live shutdown fallback.
+
+See the [existing-session runbook](lifecycle-contract.md#existing-session-runbook)
+for exact enrollment commands, native profile boundaries and recovery.

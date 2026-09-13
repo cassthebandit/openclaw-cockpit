@@ -225,14 +225,23 @@ func trimTrailingBlankLines(lines []string) []string {
 }
 
 func cockpitCleanupLine(m *Model, session tmux.Session, pane tmux.Pane, now time.Time) string {
-	if pane.Cockpit == nil {
+	row, join := m.janitorSessionRow(session)
+	hasRow := join == janitorJoinOK
+	if pane.Cockpit == nil && (!hasRow || !row.ExistingSession) {
 		return ""
 	}
 	meta := pane.Cockpit
-	row, join := m.janitorSessionRow(session)
-	hasRow := join == janitorJoinOK
+	if meta == nil {
+		meta = &tmux.CockpitMeta{}
+	}
 	parts := []string{}
-	if !pane.Dead && assignmentTerminalState(meta) != "" {
+	if hasRow && row.ExistingSession {
+		label := "existing session: " + row.JanitorState + " · " + row.Reason
+		if row.KillNotBefore != "" {
+			label += " · " + janitorCountdownText(row, join, now)
+		}
+		parts = append(parts, label)
+	} else if !pane.Dead && assignmentTerminalState(meta) != "" {
 		parts = append(parts, "assignment complete · retained until CLI exits")
 	} else if !pane.Dead {
 		if verdict := m.cachedLifecycleVerdict(pane, session); verdict.state == "delivered-idle" {

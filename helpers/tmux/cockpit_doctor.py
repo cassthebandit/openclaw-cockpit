@@ -376,7 +376,8 @@ def check_hygiene_plan(runner: Runner = run_command) -> Check:
         items = json.loads(cp.stdout)
     except json.JSONDecodeError as exc:
         return fail("hygiene_plan", f"invalid JSON: {exc}")
-    killable = [item["session"] for item in items if item.get("action") == "kill"]
+    killable = [item["session"] for item in items if item.get("action") == "kill" and item.get("dead")]
+    retained_live = [item["session"] for item in items if item.get("action") == "kill" and not item.get("dead")]
     refused = [item["session"] for item in items if item.get("action") == "refuse"]
     attention = [
         item["session"]
@@ -386,8 +387,14 @@ def check_hygiene_plan(runner: Runner = run_command) -> Check:
         and item.get("kind") == "detected-work"
     ]
     data = {"killable": killable, "refused": refused, "attention": attention}
+    requests = [item["session"] for item in items if item.get("action") == "request_exit"]
+    adoption_rows = [{key: item.get(key) for key in ("session", "reason", "janitor_state", "kill_not_before", "observations")}
+                     for item in items if item.get("adoption_identity")]
+    data.update(exit_requests=requests, existing_sessions=adoption_rows, retained_live=retained_live)
     detail = f"{len(killable)} killable, {len(refused)} refused, {len(attention)} attention"
-    if killable or refused or attention:
+    detail += f", {len(requests)} observed exit requests; {len(adoption_rows)} existing-session decisions"
+    detail += f", {len(retained_live)} legacy live plans retained by dead-only guard"
+    if killable or refused or attention or adoption_rows or retained_live:
         return warn("hygiene_plan", detail, data)
     return ok("hygiene_plan", detail, data)
 
