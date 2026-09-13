@@ -14,9 +14,9 @@ from fnmatch import fnmatchcase
 from pathlib import Path
 
 try:
-    from . import native_runtimes
+    from . import native_runtimes, holds
 except ImportError:
-    import native_runtimes
+    import native_runtimes, holds
 
 PROFILES = native_runtimes.PROFILES
 process_path = native_runtimes.process_path
@@ -47,7 +47,7 @@ def record_for(state, p):
     return dict(record) if isinstance(record, dict) else {}
 
 
-def protection(panes, config, *, adoption=False):
+def protection(panes, config, *, adoption=False, record=None):
     for p in panes:
         if matches(p.session, config["cleanup_blacklist"]):
             return "blacklist_protected"
@@ -57,10 +57,17 @@ def protection(panes, config, *, adoption=False):
             return "self_identity_unknown_or_protected"
         if adoption:
             if p.meta.get("launch_id"):
-                return "managed_launch_owns_closeout"
+                recovery = native_runtimes.assignment_recovery
+                if not record or not recovery.bound(p, record):
+                    return "managed_launch_owns_closeout"
+                if p.dead:
+                    if not record.get("attempt"):
+                        return "managed_recovery_exit_not_requested"
+                elif reason := recovery.observe(p, record["assignment_recovery"])[1]:
+                    return reason
             if p.meta.get("managed_by", "") not in {"", "agent_wall", "tmux_inspector"}:
                 return "ambiguous_owner_protected"
-            if p.meta.get("hold_reason", "").strip():
+            if holds.review_active(p.meta):
                 return "hold_reason_active"
             if p.meta.get("keep_open") == "1":
                 return "explicit_keep_open"
@@ -104,8 +111,8 @@ def result_bytes(path):
         os.close(fd)
 
 
-def legacy_wrapper(path):
-    return native_runtimes.legacy_wrapper(path, result_bytes)
+def legacy_wrapper(path, runtime_name="claude"):
+    return native_runtimes.legacy_wrapper(path, result_bytes, runtime_name)
 
 
 def runtime(p, profile, record):
@@ -119,7 +126,7 @@ def observe(h, p, record):
         return {}, "unsupported_runtime_profile"
     if profile.get("redraws_while_idle") and record.get("screen_sampling") is not True:
         return {}, "screen_sampling_attestation_required"
-    if not profile["proof"]:
+    if not profile["proof"] or profile.get("proof_pending"):
         return {}, "runtime_profile_unproven:" + record["profile"]
     if any(any(c in str(v) for c in "#,{}\n\r") for v in h.dead_retirement_expectations(p).values()):
         return {}, "unsafe_guard_literal"
@@ -160,9 +167,15 @@ def plan(h, panes, args, state, config, now):
     enabled = config["adopt_existing_exited"] or config["live_retirement"] != "off" or bool(record)
     if not enabled:
         return None
+    # Existing-session opt-in must not seize ordinary managed batch/smoke jobs.
+    # Explicitly selected legacy sessions (or an existing enrollment) still use
+    # adoption; unselected complete contracts keep their established owner.
+    if not record and not selected(p.session, config) and all(h.full_contract(pane) for pane in panes):
+        return None
     # Launch-owned jobs must continue through the original managed classifier.
     if any(pane.meta.get("launch_id") for pane in panes):
-        return None
+        if not record or not all(native_runtimes.assignment_recovery.bound(pane, record) for pane in panes):
+            return None
     item = h.result(session=p.session, action="skip", reason="not_selected", panes=panes,
                     policy_source="adopted_dead" if p.dead else "adopted_observed")
     item.update(adoption_identity=identity(p), adoption_record=record,
@@ -179,7 +192,7 @@ def plan(h, panes, args, state, config, now):
         elif reason == "owner_release_required" or reason.startswith("release_invalidated"):
             item["janitor_state"] = "release_pending_observation"
         return item
-    reason = protection(panes, config, adoption=True) or topology(panes)
+    reason = protection(panes, config, adoption=True, record=record) or topology(panes)
     if reason:
         return retain(reason)
     if not selected(p.session, config):

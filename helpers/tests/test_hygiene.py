@@ -1590,6 +1590,7 @@ class SessionHygieneTests(unittest.TestCase):
                         return subprocess.CompletedProcess(args, 0, "api_key=secret-value\nok\n", "")
                     if args[0] == "if-shell":
                         calls.append("kill")
+                        hygiene.list_panes = lambda: []
                         return subprocess.CompletedProcess(args, 0, "", "")
                     raise AssertionError(f"unexpected tmux call: {args}")
 

@@ -190,3 +190,51 @@ func TestTmuxKeysFromSeparatesLiteralAndNamed(t *testing.T) {
 		}
 	}
 }
+
+// Tab navigation must change the terminal that receives actual client commands,
+// not merely the title rendered above a stale focused preview.
+func TestDetailTabKeyboardForwardsToDisplayedPane(t *testing.T) {
+	log := filepath.Join(t.TempDir(), "commands")
+	t.Setenv("COCKPIT_TEST_TMUX_LOG", log)
+	binary := filepath.Join(t.TempDir(), "tmux")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$COCKPIT_TEST_TMUX_LOG\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	client, err := tmux.NewClient(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := NewModel(client, time.Second, 4, nil, false, false)
+	m.width, m.height = 120, 40
+	for i, id := range []string{"$1", "$2"} {
+		paneID := fmt.Sprintf("%%%d", i+101)
+		m.sessions = append(m.sessions, tmux.Session{
+			ID: id, Name: id,
+			Windows: []tmux.Window{{Active: true, Panes: []tmux.Pane{{ID: paneID, Active: true}}}},
+		})
+		vp := viewportFor(innerDimension{width: 60, height: 20})
+		m.previews[id] = &sessionPreview{viewport: &vp, paneID: paneID, autoFollow: true}
+	}
+	m.enterDetail("$1")
+	m.Update(tea.KeyPressMsg{Code: tea.KeyRight, Mod: tea.ModShift})
+	if m.detailSession != "$2" {
+		t.Fatalf("keyboard navigation did not display second session: %q", m.detailSession)
+	}
+	for _, key := range []tea.KeyPressMsg{{Code: 'a', Text: "a"}, {Code: 'c', Mod: tea.ModCtrl}} {
+		_, cmd := m.Update(key)
+		if cmd == nil {
+			t.Fatalf("key %q did not produce a forwarding command", key.String())
+		}
+		if msg := cmd(); msg != nil {
+			t.Fatalf("key %q forwarding returned %#v", key.String(), msg)
+		}
+	}
+	data, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "send-keys -l -t %102 -- a\nsend-keys -t %102 -- C-c\n"
+	if string(data) != want {
+		t.Fatalf("wrong terminal received input:\ngot %q\nwant %q", data, want)
+	}
+}

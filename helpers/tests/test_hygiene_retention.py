@@ -8,17 +8,19 @@ from test_hygiene import managed
 from test_inspector import pane
 
 class RetentionTests(unittest.TestCase):
-    def test_expiry_requires_completion_and_preserves_legacy(self):
+    def test_expiry_removes_hold_but_never_proves_completion(self):
         now = datetime.now(timezone.utc)
         p = managed("test", hold_reason="review", state="running")
         self.assertTrue(hygiene.hold_is_active(p, now))
         p.meta["hold_until"] = (now-timedelta(hours=1)).isoformat()
         with patch.object(hygiene, "capture_pane_text", return_value="still working"):
-            self.assertTrue(hygiene.hold_is_active(p, now))
+            self.assertFalse(hygiene.hold_is_active(p, now))
+            item = hygiene.eligible_managed(p.session, [p], policy="kill-safe", grace=0, now=now)
+            self.assertNotEqual(item["action"], "kill")
             p.meta.update(state="done", completed_at=(now-timedelta(minutes=10)).isoformat())
             self.assertFalse(hygiene.hold_is_active(p, now))
             p.command = "claude"
-            self.assertTrue(hygiene.hold_is_active(p, now))
+            self.assertFalse(hygiene.hold_is_active(p, now))
             p.dead = True
             self.assertFalse(hygiene.hold_is_active(p, now))
             p.meta["hold_until"] = (now+timedelta(hours=24)).isoformat()

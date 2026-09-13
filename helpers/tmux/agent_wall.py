@@ -21,11 +21,12 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 try:
-    from . import assignment, lifecycle
+    from . import assignment, lifecycle, event_log
     from .runtime_commands import build_claude_tui_command, build_codex_tui_command, build_agy_tui_command
 except ImportError:
     import assignment
     import lifecycle
+    import event_log
     from runtime_commands import build_claude_tui_command, build_codex_tui_command, build_agy_tui_command
 
 STATE_DIR = Path(os.environ.get("OPENCLAW_COCKPIT_STATE_DIR", str(Path.home() / ".local/state/openclaw-cockpit"))).expanduser() / "agent-wall"
@@ -151,6 +152,7 @@ EXECUTABLE_SUFFIXES = {".bat", ".cjs", ".cmd", ".exe", ".js", ".mjs", ".ps1"}
 READINESS_TIMEOUT_SECONDS = 12.0
 
 OC_FIELDS = [
+    "launch_id",
     "contract_version",
     "managed_by",
     "kind",
@@ -355,7 +357,7 @@ def read_pane_metadata(pane: str) -> dict[str, str]:
 
 def hold_deadline(args: argparse.Namespace) -> str:
     """New keep-open requests are renewable leases, not indefinite holds."""
-    if not args.hold_reason:
+    if not args.hold_reason or getattr(args, "indefinite", False):
         return ""
     hours = getattr(args, "hold_hours", 24)
     if not 0 < hours <= 8760:
@@ -1179,7 +1181,7 @@ def assignment_identity(root: Path, pane: str) -> list[str]:
         process = json.loads((root / "process.json").read_text())
         identity = process.get("pane_identity", [])
         patterns = (r"%[0-9]+", r"[0-9]+", r"\$[0-9]+", r"@[0-9]+", r"[0-9a-f-]{36}")
-        valid = (len(identity) == 7 and all(isinstance(value, str) and re.fullmatch(pattern, value)
+        valid = (len(identity) in {7, 9} and all(isinstance(value, str) and re.fullmatch(pattern, value)
                  for pattern, value in zip(patterns, identity[:5])))
         if (not valid or identity[0] != pane or identity[4] != launch["run_id"]
                 or process.get("run_id") != launch["run_id"]):
@@ -1263,6 +1265,7 @@ def spawn_tui_session(
             command_kind.removesuffix("_tui"),
             run_root / "assignments" / uuid.uuid4().hex,
             command, keep_open=bool(getattr(args, "keep_open", False)), bootstrap=command_kind == "codex_tui",
+            event_config=getattr(args, "_event_config", None),
         )
         managed_prompt = Path(assignment_run["run_dir"]) / "prompt.md"
         managed_prompt.write_text(prompt_path.read_text(encoding="utf-8") + assignment_run["prompt_suffix"], encoding="utf-8")
@@ -1586,33 +1589,19 @@ def cmd_set_state(args: argparse.Namespace) -> int:
     return 0
 
 
+def pane_session_name(pane: str) -> str:
+    return run_tmux("display-message", "-p", "-t", pane, "#{session_name}").stdout.strip()
+
+
 def cmd_release_hold(args: argparse.Namespace) -> int:
-    """Clear an evidence hold and stamp completion metadata after synthesis.
-
-    Non-destructive by contract: this command only rewrites @oc_* pane metadata.
-    It unsets exactly one field (@oc_hold_reason) and stamps completion metadata
-    so a *future* session_hygiene plan can treat the pane as reapable. It never
-    calls tmux kill-*, archive helpers, session_hygiene apply, hide, or detach —
-    clearing the hold makes future cleanup truthful, it does not perform cleanup.
-
-    session_hygiene is the single marking authority: release-hold must not
-    pre-stamp teardown_marked_at/teardown_reason/janitor_state. The janitor
-    marks the released pane on its next cycle if it is otherwise eligible.
-    """
+    """Release retention only. Completion and failure evidence stay untouched."""
     if not args.name and not args.pane:
         raise SystemExit("release-hold requires --name or --pane (exact target)")
     pane = args.pane or unique_pane_for_session(args.name)
 
     current = read_pane_metadata(pane)
     now = utc_now()
-    end_reason = (args.end_reason or "").strip() or "evidence_captured_release"
-    planned_set: dict[str, str | None] = {
-        "state": "done",
-        "completed_at": now,
-        "updated_at": now,
-        "end_reason": end_reason,
-        "exit_code": "0",
-    }
+    planned_set: dict[str, str | None] = {"updated_at": now}
     had_hold = bool((current.get("hold_reason") or "").strip())
     report = {
         "command": "release-hold",
@@ -1625,7 +1614,8 @@ def cmd_release_hold(args: argparse.Namespace) -> int:
         "had_hold_reason": had_hold,
         # Clearing the hold removes the reason session_hygiene refuses this pane,
         # so after release it becomes eligible for a future hygiene plan.
-        "becomes_hygiene_eligible": had_hold,
+        "becomes_hygiene_eligible": False,
+        "cleanup_rechecked": had_hold,
         "marking_authority": "session_hygiene",
         "side_effects": {
             "kills": False,
@@ -1647,17 +1637,24 @@ def cmd_release_hold(args: argparse.Namespace) -> int:
             "--allow-hygiene-after-release; rerun with --dry-run to preview the plan"
         )
 
-    # Apply: unset only @oc_hold_reason, then stamp completion metadata.
+    log_session = args.name or pane_session_name(pane)
+    event_log.append("hold_release", session=log_session, identity=current.get("launch_id") or pane,
+                     source="manual", result="attempt", config=getattr(args, "_event_config", None))
     unset_hold_reason(pane)
     set_pane_options(pane, planned_set)
     report["applied"] = True
+    event_log.append("hold_release", session=log_session, identity=current.get("launch_id") or pane,
+                     source="manual", result="released", config=getattr(args, "_event_config", None))
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0
 
 
 def cmd_release_keep_open(args: argparse.Namespace) -> int:
     pane = unique_pane_for_session(args.name)
+    current = read_pane_metadata(pane)
+    event_log.append("keep_open_release", session=args.name, identity=current.get("launch_id") or pane, source="manual", result="attempt", config=getattr(args, "_event_config", None))
     set_pane_options(pane, {"keep_open": "0", "updated_at": utc_now()})
+    event_log.append("keep_open_release", session=args.name, identity=current.get("launch_id") or pane, source="manual", result="released", config=getattr(args, "_event_config", None))
     print(json.dumps({"pane": pane, "keep_open": False, "cleanup_performed": False}))
     return 0
 
@@ -1667,7 +1664,15 @@ def cmd_keep_open(args: argparse.Namespace) -> int:
     if not args.hold_reason.strip():
         raise SystemExit("keep-open requires a nonempty --hold-reason")
     deadline = hold_deadline(args)
+    current = read_pane_metadata(pane)
+    event_log.append("hold", session=args.name, identity=current.get("launch_id") or pane, source="manual", result="attempt",
+                     reason="indefinite" if not deadline else "expires:" + deadline, config=getattr(args, "_event_config", None))
+    # Clear the previous deadline when explicitly switching to indefinite.
+    if not deadline:
+        run_tmux("set-option", "-pu", "-t", pane, "@oc_hold_until")
     set_pane_options(pane, {"hold_until": deadline, "hold_reason": args.hold_reason})
+    event_log.append("hold", session=args.name, identity=current.get("launch_id") or pane, source="manual", result="set",
+                     reason="indefinite" if not deadline else "expires:" + deadline, config=getattr(args, "_event_config", None))
     print(json.dumps({"pane": pane, "hold_until": deadline}))
     return 0
 
@@ -1953,13 +1958,13 @@ def build_parser() -> argparse.ArgumentParser:
     release = sub.add_parser(
         "release-hold",
         help=(
-            "Clear @oc_hold_reason and stamp completion metadata after evidence capture. "
+            "Clear @oc_hold_reason without changing completion or failure evidence. "
             "Non-destructive: never kills, archives, hides, detaches, or applies session hygiene."
         ),
     )
     release.add_argument("--name", default="", help="Exact session name (must resolve to a single pane).")
     release.add_argument("--pane", default="", help="Exact pane id (e.g. %%12). Takes precedence over --name.")
-    release.add_argument("--end-reason", default="", help="Completion reason to stamp (default evidence_captured_release).")
+    release.add_argument("--end-reason", default="", help="Deprecated compatibility option; release never changes the job outcome.")
     release.add_argument("--dry-run", action="store_true", help="Print the planned metadata writes as JSON and make no changes.")
     release.add_argument(
         "--evidence-captured",
@@ -1981,6 +1986,7 @@ def build_parser() -> argparse.ArgumentParser:
     keep.add_argument("--name", required=True)
     keep.add_argument("--hold-reason", required=True)
     keep.add_argument("--hold-hours", type=float, default=24)
+    keep.add_argument("--indefinite", action="store_true", help="Keep until explicitly released; no automatic expiry.")
     keep.set_defaults(func=cmd_keep_open)
 
     annotate = sub.add_parser(
@@ -2052,6 +2058,7 @@ def prompt_path_from_args(args: argparse.Namespace) -> Path:
 
 def configure_lifecycle_args(args: argparse.Namespace, actual_argv: list[str]) -> None:
     config, _ = lifecycle.load(getattr(args, "lifecycle_config", None))
+    args._event_config = config
     global STATE_DIR
     STATE_DIR = Path(config["state_dir"]) / "agent-wall"
     option_argv = actual_argv[:actual_argv.index("--")] if "--" in actual_argv else actual_argv

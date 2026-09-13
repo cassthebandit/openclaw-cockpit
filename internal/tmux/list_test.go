@@ -2,6 +2,7 @@
 package tmux
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -54,5 +55,43 @@ func TestAcceptedPaneFieldCountIncludesJanitorMetadata(t *testing.T) {
 		if acceptedPaneFieldCount(count) {
 			t.Fatalf("field count %d should be rejected", count)
 		}
+	}
+}
+
+func TestListSessionsAttachedClientCounts(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		count    string
+		attached bool
+		bad      bool
+	}{
+		{"0", false, false},
+		{"1", true, false},
+		{"2", true, false},
+		{"25", true, false},
+		{"-1", false, true},
+		{"", false, true},
+		{"yes", false, true},
+		{"1.5", false, true},
+		{"18446744073709551616", false, true},
+	} {
+		t.Run(test.count, func(t *testing.T) {
+			c := &Client{run: func(context.Context, string, ...string) ([]byte, error) {
+				return []byte("$1~~example~~" + test.count + "~~1750000000~~1750000000\n"), nil
+			}}
+			sessions, err := c.listSessions(context.Background())
+			if test.bad {
+				if err == nil {
+					t.Fatalf("malformed client count %q accepted", test.count)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(sessions) != 1 || sessions[0].Attached != test.attached {
+				t.Fatalf("count %s: sessions=%+v", test.count, sessions)
+			}
+		})
 	}
 }

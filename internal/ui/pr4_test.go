@@ -74,3 +74,15 @@ func TestPR4HoldGroupingMatchesDeadLease(t *testing.T) {
 		t.Fatal("viewer protection hidden")
 	}
 }
+
+func TestLiveHoldDisplayExpiresWithoutDeclaringCompletion(t *testing.T) {
+	now := time.Now()
+	p := tmux.Pane{Cockpit: &tmux.CockpitMeta{Kind: "agent", State: "running", HoldReason: "review", HoldUntil: now.Add(-time.Minute).Format(time.RFC3339)}}
+	if paneHasDisplayHold(p, now) || p.Cockpit.State != "running" {
+		t.Fatal("expiry should remove only the hold")
+	}
+	p.Cockpit.HoldUntil = ""
+	if !paneHasDisplayHold(p, now) {
+		t.Fatal("legacy hold lost")
+	}
+}

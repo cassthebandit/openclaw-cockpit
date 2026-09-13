@@ -107,7 +107,11 @@ func (c *Client) listSessions(ctx context.Context) ([]Session, error) {
 		if len(fields) != 5 {
 			return nil, fmt.Errorf("list-sessions: malformed line %q", line)
 		}
-		attached := fields[2] == "1"
+		attachedCount, err := strconv.ParseUint(fields[2], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid session_attached %q: %w", fields[2], err)
+		}
+		attached := attachedCount > 0
 		createdUnix, err := strconv.ParseInt(fields[3], 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("invalid session_created %q: %w", fields[3], err)

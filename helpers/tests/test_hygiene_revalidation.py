@@ -43,7 +43,10 @@ def test_all_automatic_paths_veto_uncertain_or_active(worker, kind, text):
 def test_expired_hold_keeps_approval(worker):
     worker.meta.update(hold_reason='parent review', hold_until=h.isoformat(h.utc_now()-timedelta(hours=1)))
     with patch.object(h, 'capture_pane_text', return_value='Worked for 2m\n› approve plan\n1. approve\n2. reject'):
-        assert h.hold_is_active(worker, h.utc_now())
+        assert not h.hold_is_active(worker, h.utc_now())
+        item = h.eligible_managed(worker.session, [worker], policy='kill-safe', grace=0, now=h.utc_now())
+        assert item['action'] not in ('kill', 'mark')
+        assert item['reason'] == 'operator_prompt_active'
 
 
 def test_quiet_running_never_becomes_completion(worker):

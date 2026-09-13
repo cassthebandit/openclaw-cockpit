@@ -17,12 +17,19 @@ import os
 from pathlib import Path
 import shlex
 import signal
+import stat
 import subprocess
 import sys
 import time
 import uuid
 
-ACTIVITY = {"UserPromptSubmit", "PreToolUse", "PermissionRequest", "Interrupt", "StopFailure"}
+try:
+    from . import holds, event_log
+except ImportError:
+    import holds
+    import event_log
+
+ACTIVITY = {"UserPromptSubmit", "PreToolUse", "PermissionRequest", "Interrupt", "StopFailure", "PostToolUseFailure"}
 MAX_RESULT = 16 * 1024 * 1024
 # Printable across tmux versions; exact field counts refuse delimiter collisions.
 TMUX_FIELD_SEP = "|:oc:|"
@@ -52,7 +59,7 @@ def _locked(root: Path):
         yield
 
 
-def prepare(runtime: str, run_dir: str | Path, command: list[str], *, keep_open: bool = False, bootstrap: bool = False) -> dict:
+def prepare(runtime: str, run_dir: str | Path, command: list[str], *, keep_open: bool = False, bootstrap: bool = False, event_config: dict | None = None) -> dict:
     """Create a unique launch directory and return command/prompt_suffix/run_id.
 
     command must be runtime argv (including optional env prefix), without an
@@ -65,6 +72,8 @@ def prepare(runtime: str, run_dir: str | Path, command: list[str], *, keep_open:
     root.mkdir(parents=True, mode=0o700, exist_ok=False)
     run_id = str(uuid.uuid4())
     manifest = {"run_id": run_id, "runtime": runtime, "keep_open": keep_open}
+    if event_config is not None:
+        manifest["event_config"] = event_config
     if runtime == "codex" and bootstrap:
         manifest["bootstrap_marker"] = "COCKPIT_READY:" + uuid.uuid4().hex
     _write(root / "launch.json", manifest)
@@ -73,7 +82,7 @@ def prepare(runtime: str, run_dir: str | Path, command: list[str], *, keep_open:
     hook_command = shlex.join([sys.executable, helper, "hook"])
     events = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "Stop"]
     if runtime == "claude":
-        events.append("StopFailure")
+        events.extend(["StopFailure", "PostToolUse", "PostToolUseFailure"])
     else:
         events.append("Interrupt")
     hooks = {event: [{"hooks": [{"type": "command", "command": hook_command, "timeout": 3 if event == "Interrupt" else 30}]}] for event in events}
@@ -98,6 +107,14 @@ def prepare(runtime: str, run_dir: str | Path, command: list[str], *, keep_open:
         "If more work is needed, continue normally and call finish again only at the actual end. "
         "Do not exit or kill your own terminal. This receipt is assignment outcome, not independent acceptance.\n"
     )
+    if runtime == "claude":
+        suffix += (
+            "If shell access is unavailable, use Write as your LAST tool to create " + str(root / "completion.json") +
+            " containing JSON with exactly these fields: run_id=" + json.dumps(run_id) +
+            ', outcome="succeeded" (or "failed"), result=<your complete nonempty result text>. '
+            "Do not use another tool after that Write. End your final response with exactly " +
+            "COCKPIT_FILE_FINISHED:" + run_id + ". This route still requires no remaining background work.\n"
+        )
     if manifest.get("bootstrap_marker"):
         result_command.append("Lifecycle initialization only, not the assignment. Do not use tools, read files, or change anything. "
                               "Reply with exactly " + manifest["bootstrap_marker"] + ". The actual assignment will be submitted separately.")
@@ -157,7 +174,7 @@ def finish(root: Path, result: Path, outcome: str) -> str:
 
 
 def marker(receipt: dict) -> str:
-    return "COCKPIT_ASSIGNMENT_FINISHED:" + receipt["run_id"] + ":" + receipt["nonce"]
+    return receipt.get("file_marker") or "COCKPIT_ASSIGNMENT_FINISHED:" + receipt["run_id"] + ":" + receipt["nonce"]
 
 
 def snapshot_valid(receipt: dict) -> bool:
@@ -174,6 +191,8 @@ def accept_event(root: Path, payload: dict) -> str | None:
     launch = _read(root / "launch.json")
     state = _read(root / "state.json")
     event = payload.get("hook_event_name")
+    if payload.get("agent_id"):
+        return None
     session_id = payload.get("session_id")
     if not isinstance(session_id, str) or not session_id:
         return None
@@ -188,8 +207,47 @@ def accept_event(root: Path, payload: dict) -> str | None:
         state["session_id"] = session_id
     if event in ACTIVITY or event == "SessionStart":
         state.update(generation=state["generation"] + 1, receipt=None, pending=None,
-                     activity=event, activity_at=time.time(), blocked_reason=None)
+                     activity=event, activity_at=time.time(), blocked_reason=None, completion_write=None)
+        if (event == "PreToolUse" and launch["runtime"] == "claude" and payload.get("tool_name") == "Write"
+                and payload.get("tool_use_id") and isinstance(payload.get("tool_input"), dict)
+                and payload["tool_input"].get("file_path") == str(root / "completion.json")):
+            state["completion_write"] = {"tool_use_id": payload["tool_use_id"], "generation": state["generation"]}
         _write(root / "state.json", state)
+        return None
+    if event == "PostToolUse":
+        armed = state.get("completion_write")
+        if (armed and armed["generation"] == state["generation"] and launch["runtime"] == "claude"
+                and payload.get("tool_name") == "Write" and payload.get("tool_use_id") == armed["tool_use_id"]
+                and isinstance(payload.get("tool_input"), dict)
+                and payload["tool_input"].get("file_path") == str(root / "completion.json")):
+            state["completion_write"] = None
+            try:
+                request_path = root / "completion.json"
+                if request_path.is_symlink() or not stat.S_ISREG(request_path.stat().st_mode) or request_path.stat().st_size > MAX_RESULT:
+                    raise ValueError("completion request is not a bounded regular file")
+                request = _read(request_path)
+                if (set(request) != {"run_id", "outcome", "result"} or request["run_id"] != launch["run_id"]
+                        or request["outcome"] not in {"succeeded", "failed"}
+                        or not isinstance(request["result"], str) or not request["result"].strip()):
+                    raise ValueError("invalid completion request")
+                # The successful Write must describe these exact bytes, not an old file.
+                if json.loads(payload["tool_input"].get("content", "")) != request:
+                    raise ValueError("completion Write content does not match saved file")
+                nonce = uuid.uuid4().hex
+                snapshot = root / ("result-" + nonce + ".bin")
+                content = request["result"].encode("utf-8")
+                fd = os.open(snapshot, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, "wb") as stream:
+                    stream.write(content)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                state["receipt"] = {"run_id": launch["run_id"], "generation": state["generation"],
+                    "session_id": session_id, "nonce": nonce, "outcome": request["outcome"],
+                    "result_path": str(snapshot), "result_sha256": hashlib.sha256(content).hexdigest(),
+                    "file_marker": "COCKPIT_FILE_FINISHED:" + launch["run_id"]}
+            except (OSError, ValueError, TypeError) as error:
+                state.update(receipt=None, blocked_reason="completion file rejected: " + str(error))
+            _write(root / "state.json", state)
         return None
     receipt = state.get("receipt")
     if (event == "Stop" and not receipt and launch.get("bootstrap_marker")
@@ -254,24 +312,49 @@ class TmuxGuard:
         self.pane = os.environ.get("TMUX_PANE", "")
         self.run_id = run_id
         self.initial = self.inspect()
+        self.session = subprocess.check_output(["tmux", "-u", "display-message", "-p", "-t", self.pane, "#{session_name}"], text=True).strip()
         if self.initial[4] != run_id:
             raise ValueError("pane launch identity is missing or changed")
 
     def inspect(self) -> list[str]:
         if not self.pane.startswith("%") or not self.pane[1:].isdigit():
             raise ValueError("supervisor requires an exact TMUX_PANE")
-        template = TMUX_FIELD_SEP.join(["#{pane_id}", "#{pane_pid}", "#{session_id}", "#{window_id}", "#{@oc_launch_id}", "#{@oc_hold_reason}", "#{pane_dead}"])
+        template = TMUX_FIELD_SEP.join(["#{pane_id}", "#{pane_pid}", "#{session_id}", "#{window_id}", "#{@oc_launch_id}", "#{@oc_hold_reason}", "#{pane_dead}", "#{@oc_hold_until}", "#{@oc_keep_open}"])
         output = subprocess.check_output(["tmux", "-u", "display-message", "-p", "-t", self.pane, template], text=True, encoding="utf-8").strip()
         fields = output.split(TMUX_FIELD_SEP)
-        if len(fields) != 7 or fields[0] != self.pane or fields[6] != "0":
+        if len(fields) != 9 or fields[0] != self.pane or fields[6] != "0":
             raise ValueError("pane is missing, replaced or dead")
         return fields
+
+    def current_session(self) -> str:
+        self.validate()
+        self.session = subprocess.check_output(["tmux", "-u", "display-message", "-p", "-t", self.pane, "#{session_name}"], text=True).strip()
+        return self.session
 
     def validate(self) -> bool:
         current = self.inspect()
         if current[:5] != self.initial[:5]:
             raise ValueError("pane ownership changed")
-        return bool(current[5])
+        return holds.active({"hold_reason": current[5], "hold_until": current[7], "keep_open": current[8]})
+
+    def delayed_close_reason(self, runtime: str) -> str:
+        """A retained Stop no longer locks the runtime. Inspect its current composer."""
+        self.validate()
+        fields = ["#{session_attached}", "#{pane_in_mode}", "#{session_windows}", "#{window_panes}",
+                  "#{window_linked}", "#{session_grouped}", "#{pane_synchronized}", "#{pane_input_off}"]
+        topology = subprocess.check_output(["tmux", "-u", "display-message", "-p", "-t", self.pane,
+                                           TMUX_FIELD_SEP.join(fields)], text=True).strip().split(TMUX_FIELD_SEP)
+        if topology != ["0", "0", "1", "1", "0", "0", "0", "0"]:
+            return "retained session attached, input disabled, or topology changed"
+        try:
+            from .runtime_adapters import claude, codex
+        except ImportError:
+            from runtime_adapters import claude, codex
+        adapter = {"claude": claude, "codex": codex}.get(runtime)
+        if adapter is None or not hasattr(adapter, "composer_reason"):
+            return "retained runtime composer inspection unavailable"
+        raw = subprocess.check_output(["tmux", "-u", "capture-pane", "-p", "-e", "-t", self.pane, "-S", "-240"], text=True)
+        return adapter.composer_reason(raw)
 
     def stamp(self, state: str, reason: str, completed: bool = False, exit_code: int | None = None) -> None:
         # Each write uses an exact pane target, with a fresh ownership predicate
@@ -298,11 +381,25 @@ class TmuxGuard:
                     raise ValueError("pane ownership changed while clearing completion")
 
 
-def supervise(root: Path, command: list[str], *, guard=None) -> int:
+def supervise(root: Path, command: list[str], *, guard=None, retained_poll_seconds: float = 1.0) -> int:
     launch = _read(root / "launch.json")
     guard = guard or TmuxGuard(launch["run_id"])
-    # Inherit the real terminal descriptors. No headless runtime, PTY proxy,
-    # detached monitor, broad process-group kill, or janitor responsibility.
+    if retained_poll_seconds <= 0:
+        raise ValueError("retained polling interval must be positive")
+
+    def log(event, result="", reason=""):
+        session = guard.current_session() if hasattr(guard, "current_session") else getattr(guard, "session", getattr(guard, "pane", ""))
+        event_log.append(event, session=session, identity=launch["run_id"], source="automatic",
+                         result=result, reason=reason, config=launch.get("event_config"))
+
+    # Establish required logging before launching a runtime that could complete.
+    # A failed log setup is a visible launch error, not an inert live supervisor.
+    try:
+        log("start", "starting")
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        _write(root / "closeout-error.json", {"run_id": launch["run_id"], "reason": "start log failed: " + str(error)})
+        guard.stamp("failed", "start_log_failed", completed=True, exit_code=1)
+        return 1
     environment = dict(os.environ, OPENCLAW_COCKPIT_ASSIGNMENT_DIR=str(root))
     try:
         child = subprocess.Popen(command, env=environment)
@@ -314,6 +411,47 @@ def supervise(root: Path, command: list[str], *, guard=None) -> int:
     completed = None
     seen_blocked = None
     shutdown_deadline = None
+
+    def retain(reason):
+        if completed.get("retention_reason") != reason or completed.get("shutdown_status") != "retained":
+            completed.update(retained=True, shutdown_status="retained", retention_reason=reason)
+            _write(root / "outcome.json", completed)
+            log("retention", "retained", reason)
+            guard.stamp("done" if completed["outcome"] == "succeeded" else "failed", "assignment_retained:" + reason, completed=True)
+
+    def delayed_reason():
+        return guard.delayed_close_reason(launch["runtime"]) if hasattr(guard, "delayed_close_reason") else ""
+
+    def attempt_exit(*, delayed):
+        """Persist first, then perform complete fresh checks without more log I/O."""
+        nonlocal shutdown_deadline
+        if delayed:
+            # Avoid repeated attempt logs for an unchanged temporary obstruction.
+            if not snapshot_valid(completed):
+                raise ValueError("saved result changed while completion was retained")
+            if reason := delayed_reason():
+                retain(reason)
+                return
+        log("exit_attempt", "checking", "hold_released_or_expired" if delayed else "assignment_finished")
+        completed["shutdown_status"] = "checking"
+        _write(root / "outcome.json", completed)
+        # Hook generation/session changes are excluded by state.lock. Tmux input,
+        # holds and POSIX signals are separate systems: these are fresh samples,
+        # not an atomic transaction across those systems.
+        reason = delayed_reason() if delayed else ""
+        if not snapshot_valid(completed):
+            raise ValueError("saved result changed at process-exit boundary")
+        held = guard.validate()
+        if held or reason:
+            retain("hold_active" if held else reason)
+            return
+        # No logging, persistence, or child reap between the last checks and signal.
+        child.send_signal(signal.SIGTERM)
+        shutdown_deadline = time.monotonic() + 10
+        completed.update(retained=False, shutdown_status="exit_requested", retention_reason="")
+        _write(root / "outcome.json", completed)
+        log("exit", "requested", "hold_released_or_expired" if delayed else "assignment_finished")
+
     try:
         _write(root / "process.json", {"run_id": launch["run_id"], "supervisor_pid": os.getpid(), "child_pid": child.pid, "pane_identity": getattr(guard, "initial", [])})
         while child.poll() is None:
@@ -330,47 +468,46 @@ def supervise(root: Path, command: list[str], *, guard=None) -> int:
                 if blocked and blocked != seen_blocked:
                     guard.stamp("blocked", blocked)
                 seen_blocked = blocked
+                if completed and (blocked or completed["session_id"] != state.get("session_id")):
+                    completed = None
                 pending = state.get("pending")
+                accepted_now = False
                 if pending and time.monotonic() < pending["deadline"]:
-                    # No child poll/reap between this ownership check and signal:
-                    # an unreaped child PID cannot be recycled on POSIX.
                     if not snapshot_valid(pending):
                         raise ValueError("saved result disappeared or changed before closeout")
                     held = guard.validate()
-                    retained = launch["keep_open"] or held
-                    completed = {**pending, "retained": retained}
-                    # Write outcome and diagnostics before any process exit.
+                    # Do not publish a completed outcome until its log is durable.
+                    log("completion", pending["outcome"], "held" if held else "close")
+                    completed = {**pending, "retained": held, "shutdown_status": "retained" if held else "ready"}
                     _write(root / "outcome.json", completed)
                     guard.stamp("done" if pending["outcome"] == "succeeded" else "failed",
-                                "assignment_retained" if retained else "assignment_finished", completed=True)
+                                "assignment_retained" if held else "assignment_finished", completed=True)
                     state.update(pending=None, consumed_nonce=pending["nonce"], receipt=None)
                     _write(root / "state.json", state)
-                    if not retained:
-                        # Repeat hold/identity check immediately before action.
-                        if guard.validate():
-                            completed["retained"] = True
-                            _write(root / "outcome.json", completed)
-                            guard.stamp("done" if pending["outcome"] == "succeeded" else "failed", "assignment_retained", completed=True)
-                        else:
-                            if not snapshot_valid(pending):
-                                raise ValueError("saved result changed at process-exit boundary")
-                            child.send_signal(signal.SIGTERM)
-                            shutdown_deadline = time.monotonic() + 10
-            # The signal decision is atomic with hook generation/identity/hold
-            # checks above. Waiting must not hold the synchronous hook's lock.
+                    accepted_now = True
+                    if not held:
+                        attempt_exit(delayed=False)
+                if completed and completed["retained"] and not accepted_now and not guard.validate():
+                    if not completed.get("hold_end_logged"):
+                        log("hold_end", "released_or_expired")
+                        completed["hold_end_logged"] = True
+                    attempt_exit(delayed=True)
             if shutdown_deadline is not None and time.monotonic() >= shutdown_deadline:
+                log("exit", "unconfirmed", "owned worker did not exit after managed SIGTERM")
                 guard.stamp("blocked", "owned worker did not exit after managed SIGTERM")
                 if completed:
                     completed["shutdown_status"] = "waiting_for_exit"
                     _write(root / "outcome.json", completed)
-                shutdown_deadline = None  # No repeated stamps or SIGKILL escalation.
-            time.sleep(0.05)
+                shutdown_deadline = None  # No repeated signal or SIGKILL escalation.
+            time.sleep(retained_poll_seconds if completed and completed["retained"] else 0.05)
         code = child.returncode
-        # A manual/native exit is not proof that an assignment finished.
         if completed:
+            if not snapshot_valid(completed):
+                raise ValueError("saved result changed before recording runtime exit")
             end_reason = "retained_assignment_exited" if completed["retained"] else "managed_assignment_exit"
             completed.update(process_exit_code=code, end_reason=end_reason, shutdown_status="exited")
             _write(root / "outcome.json", completed)
+            log("exit", "exited", end_reason)
             result_code = 0 if completed["outcome"] == "succeeded" and (not completed["retained"] or code == 0) else 1
             guard.stamp("done" if result_code == 0 else "failed", end_reason, completed=True, exit_code=result_code)
             return result_code
@@ -379,11 +516,12 @@ def supervise(root: Path, command: list[str], *, guard=None) -> int:
         guard.stamp("failed", "process_exited_without_assignment_completion", completed=True, exit_code=1)
         return 1
     except (OSError, ValueError, subprocess.SubprocessError) as error:
-        # Keep the child and terminal alive after an evidence/ownership failure;
-        # never return to a wrapper that might label/retire the live session.
         print(f"[assignment] closeout blocked: {error}", file=sys.stderr, flush=True)
         try:
             _write(root / "closeout-error.json", {"run_id": launch["run_id"], "reason": str(error)})
+            if completed:
+                completed["shutdown_status"] = "closeout_error"
+                _write(root / "outcome.json", completed)
         except OSError:
             pass
         try:
