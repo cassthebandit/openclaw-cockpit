@@ -2,6 +2,7 @@ package tmux
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os/exec"
 	"strings"
@@ -209,5 +210,25 @@ func TestNativeSizeReleaseAfterWorkerRemoval(t *testing.T) {
 	}
 	if err := n.Close(ctx); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestNativeSizeFloorDoesNotRatchet(t *testing.T) {
+	c, s := nativeFixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	n := NewNativeSizer(c)
+	defer func() {
+		if err := n.Close(ctx); err != nil {
+			t.Error(err)
+		}
+	}()
+	for _, size := range [][2]int{{85, 5}, {300, 90}, {85, 5}, {180, 60}, {85, 5}} {
+		s.Width, s.Height = size[0], size[1]
+		if err := n.Sync(ctx, []NativeSize{s}); err != nil {
+			t.Fatal(err)
+		}
+		want := fmt.Sprintf("%dx%d", max(160, size[0]), max(45, size[1]))
+		assertNativeSize(t, c, s, want)
 	}
 }
