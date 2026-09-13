@@ -193,12 +193,15 @@ def check_dashboard_command(target: str, runner: Runner = run_command) -> Check:
     missing = [key for key in ("organize", "openclaw-runtime") if not flags[key]]
     if missing:
         return warn("dashboard_command", "dashboard effective flags disabled: " + ", ".join(missing), data)
-    return ok("dashboard_command", "dashboard is effectively monitor-only and organized", data)
+    detail = "dashboard is effectively monitor-only and organized"
+    if flags["fit-native"]:
+        detail += " with explicit source-terminal geometry fitting"
+    return ok("dashboard_command", detail, data)
 
 
 def effective_dashboard_flags(command: str) -> dict[str, bool]:
     """Go flag boolean semantics: last value wins; --control owns authority."""
-    flags = {"monitor-only": True, "control": False, "organize": False, "openclaw-runtime": False}
+    flags = {"monitor-only": True, "control": False, "organize": False, "openclaw-runtime": False, "fit-native": False}
     flags.update({key: False for key in ("version", "build-info", "dump", "preserve-colors", "trace-mouse", "dump-config")})
     takes_value = {"openclaw-runtime-script", "openclaw-runtime-limit", "openclaw-runtime-interval", "config", "interval", "fps", "cols", "capture-budget", "tmux", "janitor-status", "exclude-session", "debug-click"}
     tokens = shlex.split(command)

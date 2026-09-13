@@ -28,3 +28,14 @@ def test_false_flags_do_not_pass_by_substring_presence(flag):
     def run(args):
         return subprocess.CompletedProcess(args, 0, "123\n" if args[0] == "tmux" else "openclaw-cockpit --organize --openclaw-runtime " + flag, "")
     assert doctor.check_dashboard_command("example", run).status == "warn"
+
+
+@pytest.mark.parametrize("flags,enabled", [("--fit-native", True), ("--fit-native=false", False), ("--fit-native=true --fit-native=false", False)])
+def test_native_fit_reports_geometry_without_input_authority(flags, enabled):
+    def run(args):
+        return subprocess.CompletedProcess(args, 0, "123\n" if args[0] == "tmux" else "openclaw-cockpit --organize --openclaw-runtime " + flags, "")
+    check = doctor.check_dashboard_command("example", run)
+    assert check.status == "ok"
+    assert check.data["effectiveFlags"]["fit-native"] is enabled
+    assert check.data["effectiveFlags"]["monitor-only"] is True
+    assert ("geometry fitting" in check.detail) is enabled
