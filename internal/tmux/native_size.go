@@ -153,6 +153,13 @@ func (n *NativeSizer) fit(ctx context.Context, s NativeSize) error {
 		}
 		n.leases[s.Pane] = l
 	}
+	// A card is a viewport, not a terminal's minimum usable geometry. Small
+	// cards must not erase prompt/status chrome used by lifecycle detection.
+	// Keep the pre-ownership dimensions as the floor, but still permit growth
+	// and shrinking back from a larger card. The lease remains the original
+	// geometry so repeated Sync calls cannot ratchet the floor upward.
+	s.Width = max(s.Width, l.width)
+	s.Height = max(s.Height, l.height)
 	guard := allFormats(detached(s), equalFormat(nativeOwner, n.token))
 	different := "#{||:#{!=:#{pane_width}," + strconv.Itoa(s.Width) + "},#{!=:#{pane_height}," + strconv.Itoa(s.Height) + "}}"
 	commands := fmt.Sprintf("resize-window -t %s -x %d -y %d", s.Window, s.Width, s.Height)

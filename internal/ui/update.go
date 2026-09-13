@@ -95,9 +95,10 @@ func (m *Model) handleMessage(msg tea.Msg) (tea.Model, tea.Cmd) {
 			delete(m.fastCaptureActive, msg.sessionID)
 			content := strings.TrimRight(msg.text, "\n")
 			if msg.err != nil {
-				// The error string is not pane output; strict-sanitize it
-				// before it enters the preview as displayable text.
-				content = "Pane capture error: " + cardSafeLine(msg.err.Error())
+				// A transport failure is not new worker output. Keep the last
+				// observation and report the failure outside the classifier.
+				m.showToast("Pane capture error: " + cardSafeLine(msg.err.Error()))
+				return m, nil
 			}
 			if content != preview.lastContent {
 				// Delta-classified dirty: only a real content change reaches

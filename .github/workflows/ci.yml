@@ -47,7 +47,7 @@ jobs:
       - name: Test
         run: go test ./...
 
-      - name: Launcher regression
+      - name: Launcher and built-binary native regression
         run: python3 -m unittest discover -s scripts -p 'test_*.py'
 
       - name: Public helper regressions
