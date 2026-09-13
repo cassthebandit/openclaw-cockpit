@@ -1271,7 +1271,7 @@ def spawn_tui_session(
         managed_prompt.write_text(prompt_path.read_text(encoding="utf-8") + assignment_run["prompt_suffix"], encoding="utf-8")
         managed_prompt.chmod(0o600)
         prompt_path = managed_prompt
-        command = [sys.executable, str(Path(assignment.__file__).resolve()), "supervise",
+        command = [sys.executable, "-B", str(Path(assignment.__file__).resolve()), "supervise",
                    "--run-dir", assignment_run["run_dir"], "--", *assignment_run["command"]]
 
     wrapper = write_tui_wrapper(
@@ -1801,7 +1801,7 @@ def cmd_smoke_cleanup(args: argparse.Namespace) -> int:
     hygiene = Path(__file__).with_name("session_hygiene.py")
     if not hygiene.exists():
         raise SystemExit(f"missing hygiene tool: {hygiene}")
-    cmd = [sys.executable, str(hygiene), "apply", "--policy", "smoke", "--json"]
+    cmd = [sys.executable, "-B", str(hygiene), "apply", "--policy", "smoke", "--json"]
     cp = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if cp.stdout:
         print(cp.stdout, end="")

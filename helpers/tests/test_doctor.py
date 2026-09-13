@@ -570,7 +570,7 @@ class DoctorTests(unittest.TestCase):
                     return subprocess.CompletedProcess(args, 0, "", "")
                 if args[-3:] == ["plan", "--policy", "kill-safe"] or "session_hygiene.py" in " ".join(args):
                     return subprocess.CompletedProcess(args, 0, "[]", "")
-                if len(args) >= 2 and args[1].endswith("cockpit_snapshot.py"):
+                if any(arg.endswith("cockpit_snapshot.py") for arg in args):
                     payload = {
                         "cardContract": "runtime-card.v1",
                         "summary": {"total": 0, "byState": {"attention": 0, "active": 0, "unknown": 0}},

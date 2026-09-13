@@ -16,10 +16,10 @@ except ImportError:
 def cycle(service: str, config: dict, config_path: str | None) -> int:
     root = Path(__file__).resolve().parent
     if service == "hygiene":
-        commands = [[sys.executable, str(root / "session_hygiene.py"), "apply", "--policy", policy, "--json"] for policy in ("smoke", "kill-safe")]
+        commands = [[sys.executable, "-B", str(root / "session_hygiene.py"), "apply", "--policy", policy, "--json"] for policy in ("smoke", "kill-safe")]
         log = Path(config["log_dir"]) / "janitor.log"
     else:
-        commands = [[sys.executable, str(root / "tmux_inspector.py"), "annotate", "--json", "--stale-seconds", str(config["inspector_stale_seconds"])]]
+        commands = [[sys.executable, "-B", str(root / "tmux_inspector.py"), "annotate", "--json", "--stale-seconds", str(config["inspector_stale_seconds"])]]
         for session in config["inspector_protected_sessions"]:
             commands[0].extend(["--protect-session", session])
         log = Path(config["inspector_log_dir"]) / "inspector.log"

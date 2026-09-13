@@ -79,7 +79,7 @@ def prepare(runtime: str, run_dir: str | Path, command: list[str], *, keep_open:
     _write(root / "launch.json", manifest)
     _write(root / "state.json", {"generation": 0, "session_id": None, "receipt": None, "pending": None})
     helper = str(Path(__file__).resolve())
-    hook_command = shlex.join([sys.executable, helper, "hook"])
+    hook_command = shlex.join([sys.executable, "-B", helper, "hook"])
     events = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "Stop"]
     if runtime == "claude":
         events.extend(["StopFailure", "PostToolUse", "PostToolUseFailure"])
@@ -96,7 +96,7 @@ def prepare(runtime: str, run_dir: str | Path, command: list[str], *, keep_open:
         for event in events:
             value = '[{hooks=[{type="command",command=' + json.dumps(hook_command) + ',timeout=' + str(3 if event == 'Interrupt' else 30) + '}]}]'
             result_command.extend(["-c", f"hooks.{event}={value}"])
-    finish_command = shlex.join([sys.executable, helper, "finish", "--run-dir", str(root)])
+    finish_command = shlex.join([sys.executable, "-B", helper, "finish", "--run-dir", str(root)])
     suffix = (
         "\nManaged assignment completion: Intermediate responses, approvals, and paused work are not completion. "
         "Only when this entire assignment is finished, save its complete result/diagnostics to a nonempty file; "
