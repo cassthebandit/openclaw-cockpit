@@ -304,7 +304,7 @@ def test_real_dead_adoption_preserves_sentinel(tmp_path):
             args.config["live_retirement"] = "off"
             with patch.object(h, "run_tmux", side_effect=run), contextlib.redirect_stdout(io.StringIO()) as output:
                 h.cmd_apply(args)
-            assert len(json.loads(output.getvalue())["killed"]) == 1
+            assert len(json.loads(output.getvalue())["killed"]) == 1, output.getvalue()
             assert run("has-session", "-t", "=temporary", check=False).returncode != 0
             assert run("has-session", "-t", "=sentinel", check=False).returncode == 0
             assert list((tmp_path / "archive").glob("*/metadata.json"))
