@@ -19,6 +19,7 @@ type toastState struct {
 // Toast text can embed untrusted session names or command input, so it goes
 // through the strict chrome sanitizer.
 func (m *Model) showToast(msg string) {
+	m.markRenderDirty()
 	if m.toast == nil {
 		m.toast = &toastState{}
 	}

@@ -7,50 +7,14 @@ import io
 import json
 import os
 import subprocess
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tmux"))
 from helpers.tmux import session_hygiene as hygiene
-
-
-def pane(session: str, **meta: str) -> hygiene.Pane:
-    old_epoch = str(int(datetime.now(timezone.utc).timestamp()) - 7200)
-    return hygiene.Pane(
-        session=session,
-        server_session_id="$1",
-        window_linked="0",
-        session_grouped="0",
-        window="main",
-        pane="%1",
-        title="",
-        command="zsh",
-        path="/tmp",
-        created=old_epoch,
-        process_started=datetime.fromtimestamp(int(old_epoch), timezone.utc).isoformat(),
-        last_activity=old_epoch,
-        dead=False,
-        dead_status="",
-        meta={field: meta.get(field, "") for field in hygiene.OC_FIELDS},
-    )
-
-
-def managed(session: str, **meta: str) -> hygiene.Pane:
-    base = {
-        "contract_version": "1",
-        "managed_by": "agent_wall",
-        "kind": "smoke",
-        "cleanup_policy": "smoke",
-        "state": "done",
-        "ttl": "30m",
-        "completed_at": (datetime.now(timezone.utc)-timedelta(hours=1)).isoformat(),
-    }
-    base.update(meta)
-    return pane(session, **base)
+from helpers.tests.support import pane, managed
 
 
 class SessionHygieneTests(unittest.TestCase):
@@ -91,7 +55,7 @@ class SessionHygieneTests(unittest.TestCase):
         self.assertEqual(item["action"], "skip")
         self.assertEqual(item["reason"], "unmanaged_or_incomplete_contract")
 
-    def test_completed_inspector_codex_tui_can_be_cleaned_after_idle_grace(self) -> None:
+    def test_completed_inspector_codex_tui_never_selects_heuristic_cleanup(self) -> None:
         original_capture = hygiene.capture_pane_text
         original_root = hygiene.STATE_ROOT
         try:
@@ -123,10 +87,9 @@ class SessionHygieneTests(unittest.TestCase):
         finally:
             hygiene.capture_pane_text = original_capture
             hygiene.STATE_ROOT = original_root
-        self.assertEqual(item["action"], "kill")
-        self.assertEqual(item["reason"], "adopted_codex_goal_achieved")
-        self.assertEqual(item["policy_source"], "adopted_codex")
-        self.assertTrue(item["evidence_path"].endswith("COMPLETION_AUDIT.md"))
+        self.assertEqual(item["action"], "skip")
+        self.assertEqual(item["reason"], "unmanaged_or_incomplete_contract")
+        self.assertEqual(item["evidence_path"], "")
 
     def test_manual_adopted_codex_tui_is_not_auto_cleaned(self) -> None:
         p = pane(
@@ -154,7 +117,7 @@ class SessionHygieneTests(unittest.TestCase):
         self.assertEqual(item["action"], "skip")
         self.assertEqual(item["reason"], "unmanaged_or_incomplete_contract")
 
-    def test_completed_inspector_codex_tui_respects_hold_reason(self) -> None:
+    def test_held_inspector_codex_still_has_no_managed_cleanup_authority(self) -> None:
         p = pane(
             "held-codex",
             contract_version="display-only",
@@ -173,8 +136,8 @@ class SessionHygieneTests(unittest.TestCase):
             now=datetime.now(timezone.utc),
             adopted_grace=0,
         )
-        self.assertEqual(item["action"], "refuse")
-        self.assertEqual(item["reason"], "hold_reason_active_adopted")
+        self.assertEqual(item["action"], "skip")
+        self.assertEqual(item["reason"], "unmanaged_or_incomplete_contract")
 
     def test_inspector_codex_without_completion_marker_is_not_cleaned(self) -> None:
         original_capture = hygiene.capture_pane_text
@@ -208,9 +171,9 @@ class SessionHygieneTests(unittest.TestCase):
             hygiene.capture_pane_text = original_capture
             hygiene.STATE_ROOT = original_root
         self.assertEqual(item["action"], "skip")
-        self.assertEqual(item["reason"], "adopted_codex_not_complete")
+        self.assertEqual(item["reason"], "unmanaged_or_incomplete_contract")
 
-    def test_inspector_codex_completion_requires_final_artifact_evidence(self) -> None:
+    def test_inspector_codex_without_artifact_has_no_cleanup_authority(self) -> None:
         original_capture = hygiene.capture_pane_text
         original_root = hygiene.STATE_ROOT
         try:
@@ -240,10 +203,10 @@ class SessionHygieneTests(unittest.TestCase):
         finally:
             hygiene.capture_pane_text = original_capture
             hygiene.STATE_ROOT = original_root
-        self.assertEqual(item["action"], "refuse")
-        self.assertEqual(item["reason"], "adopted_evidence_missing")
+        self.assertEqual(item["action"], "skip")
+        self.assertEqual(item["reason"], "unmanaged_or_incomplete_contract")
 
-    def test_inspector_codex_completion_requires_fresh_final_artifact(self) -> None:
+    def test_inspector_codex_stale_artifact_has_no_cleanup_authority(self) -> None:
         original_capture = hygiene.capture_pane_text
         original_root = hygiene.STATE_ROOT
         try:
@@ -279,10 +242,10 @@ class SessionHygieneTests(unittest.TestCase):
         finally:
             hygiene.capture_pane_text = original_capture
             hygiene.STATE_ROOT = original_root
-        self.assertEqual(item["action"], "refuse")
-        self.assertEqual(item["reason"], "adopted_evidence_stale")
+        self.assertEqual(item["action"], "skip")
+        self.assertEqual(item["reason"], "unmanaged_or_incomplete_contract")
 
-    def test_inspector_codex_completion_waits_for_session_grace(self) -> None:
+    def test_inspector_codex_young_session_has_no_cleanup_authority(self) -> None:
         p = pane(
             "fresh-codex",
             contract_version="display-only",
@@ -302,9 +265,9 @@ class SessionHygieneTests(unittest.TestCase):
             adopted_grace=3600,
         )
         self.assertEqual(item["action"], "skip")
-        self.assertEqual(item["reason"], "adopted_completion_grace_active")
+        self.assertEqual(item["reason"], "unmanaged_or_incomplete_contract")
 
-    def test_inspector_codex_completion_waits_for_idle_grace(self) -> None:
+    def test_inspector_codex_active_session_has_no_cleanup_authority(self) -> None:
         p = pane(
             "busy-codex",
             contract_version="display-only",
@@ -324,7 +287,7 @@ class SessionHygieneTests(unittest.TestCase):
             adopted_grace=3600,
         )
         self.assertEqual(item["action"], "skip")
-        self.assertEqual(item["reason"], "adopted_completion_idle_grace_active")
+        self.assertEqual(item["reason"], "unmanaged_or_incomplete_contract")
 
     def test_inspector_codex_completion_marker_must_be_in_visible_tail(self) -> None:
         original_capture = hygiene.capture_pane_text
@@ -364,7 +327,7 @@ class SessionHygieneTests(unittest.TestCase):
             hygiene.capture_pane_text = original_capture
             hygiene.STATE_ROOT = original_root
         self.assertEqual(item["action"], "skip")
-        self.assertEqual(item["reason"], "adopted_codex_not_complete")
+        self.assertEqual(item["reason"], "unmanaged_or_incomplete_contract")
 
     def test_managed_smoke_kill(self) -> None:
         item = hygiene.eligible_managed(

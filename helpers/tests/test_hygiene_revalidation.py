@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 from helpers.tmux import session_hygiene as h
-from test_hygiene import managed
+from helpers.tests.support import disposable_tmux, managed
 
 
 @pytest.fixture
@@ -37,7 +37,6 @@ def test_all_automatic_paths_veto_uncertain_or_active(worker, kind, text):
         item = h.eligible_managed(worker.session, [worker], policy='kill-safe', grace=0, now=h.utc_now())
     assert item['action'] not in ('kill', 'mark')
     assert not h.managed_tui_completion_screen(text)
-    assert not h.codex_completion_screen('OpenAI Codex\nGoal achieved\n' + text)
 
 
 def test_expired_hold_keeps_approval(worker):
@@ -139,18 +138,9 @@ def test_status_drops_predecessor_pid_baseline(worker):
 
 
 def test_real_tmux_respawn_changes_incarnation(tmp_path):
-    import shutil
-    import subprocess
     import time
-    tmux = shutil.which('tmux')
-    if not tmux:
-        pytest.skip('tmux unavailable')
-    import tempfile
-    socket_root = tempfile.TemporaryDirectory(prefix='pr2-', dir='/tmp')
-    socket = str(Path(socket_root.name)/'test.sock')
-    def run(*args, check=True):
-        return subprocess.run([tmux, '-u', '-S', socket, *args], text=True, encoding='utf-8', capture_output=True, check=check)
-    try:
+    with disposable_tmux() as server:
+        run = server.run
         run('new-session', '-d', '-s', 'fixture', 'echo "Thinking… esc to interrupt"; exec sleep 60')
         with patch.object(h, 'run_tmux', side_effect=run):
             first = h.list_panes()[0]
@@ -163,6 +153,3 @@ def test_real_tmux_respawn_changes_incarnation(tmp_path):
                 time.sleep(.02)
             assert after.pid != first.pid
             assert h.revalidate_target(planned, allow_hold=False)[1] == 'pane_identity_changed_at_apply'
-    finally:
-        run('kill-server', check=False)
-        socket_root.cleanup()

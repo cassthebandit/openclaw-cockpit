@@ -9,40 +9,8 @@ from unittest.mock import patch
 
 import pytest
 from helpers.tmux import adoption as a, lifecycle, session_hygiene as h
-from test_hygiene import pane
-
-
-def fixture(tmp_path, *, dead=False):
-    p = pane("temporary")
-    p.pid = "321"
-    p.dead = dead
-    p.dead_status = "0" if dead else ""
-    p.server_socket = "/tmp/isolated-adoption-test.sock"
-    p.server_pid = "123"
-    p.server_started = p.created
-    p.session_windows = p.window_panes = "1"
-    p.session_attached = p.pane_in_mode = p.pane_input_off = p.pane_pipe = p.pane_synchronized = "0"
-    p.remain_on_exit = "on"
-    p.window_activity = "1000"
-    p.command = "claude.exe"
-    config = {**lifecycle.DEFAULTS, "state_dir": str(tmp_path), "status_file": str(tmp_path / "status.json"),
-              "archive_dir": str(tmp_path / "archive"), "adopt_existing_exited": True,
-              "cleanup_whitelist": [{"exact": p.session}], "live_retirement": "observed",
-              "completed_retention_seconds": 0, "teardown_grace_seconds": 0,
-              "live_retirement_quiet_seconds": 1}
-    args = argparse.Namespace(config=config, policy="kill-safe", grace=0, adopted_grace=0,
-                              allow_session=[], override_hold=False, max_kills=1, json=True,
-                              archive_root=config["archive_dir"], status_file=config["status_file"],
-                              interval=60, write_status=False)
-    return p, config, args
-
-
-def enrollment(tmp_path, p):
-    file = tmp_path / "result.md"
-    file.write_bytes(b"saved result\x00bytes")
-    _, digest = a.result_bytes(str(file))
-    return {"release_id": "decision-1", "result_path": str(file), "result_sha256": digest,
-            "profile": "claude-2.1.270-direct", "attestation": a.RISK}
+from helpers.tests.support import disposable_tmux, pane
+from helpers.tests.support import fixture, enrollment
 
 
 @pytest.mark.parametrize("value", [True, {}, ["x"], [{"exact": ""}], [{"glob": "a?"}],
@@ -176,7 +144,7 @@ def test_smoke_pass_does_not_observe_or_consume_adopted_sessions(tmp_path):
 
 @pytest.mark.parametrize("policy", ["smoke", "kill-safe"])
 def test_enabled_adoption_does_not_take_over_unselected_managed_jobs(tmp_path, policy):
-    from test_hygiene import managed
+    from helpers.tests.support import managed
     p, config, args = fixture(tmp_path, dead=True)
     p.meta = managed("oc-vis-smoke-new").meta
     p.session = "oc-vis-smoke-new"
@@ -386,51 +354,44 @@ def native_dead_outcomes():
 @pytest.mark.parametrize("trial", range(10))
 def test_real_dead_adoption_preserves_sentinel(tmp_path, trial, native_dead_outcomes):
     """Real production discovery/archive/dead guard, isolated nondefault socket."""
-    import tempfile
     import time
-    with tempfile.TemporaryDirectory(prefix="adopt-native-", dir="/tmp") as temporary:
-        socket = temporary + "/s"
-        def run(*args, check=True):
-            return subprocess.run(["tmux", "-u", "-S", socket, *args], capture_output=True,
-                                  text=True, check=check, timeout=5)
-        try:
-            run("new-session", "-d", "-s", "sentinel", "sleep 60")
-            target = run("new-session", "-d", "-P", "-F", "#{pane_id}", "-s", "temporary", "trap '' HUP; sleep 1; exit 0").stdout.strip()
-            run("set-option", "-p", "-t", target, "remain-on-exit", "on")
-            run("set-option", "-p", "-t", target, "@oc_goal", "Finished a, then b {literal #{pane_id}} #()")
-            # Use an explicit normal-exit fixture, independent of PTY hangup.
-            # Missing/signal-only exit metadata must still be retained.
-            for _ in range(150):
-                observed = run("display-message", "-p", "-t", target, "#{pane_dead}:#{pane_dead_status}").stdout.strip()
-                if observed == "1:0":
-                    break
-                time.sleep(.02)
-            assert observed.startswith("1:"), observed
-            _, _, args = fixture(tmp_path)
-            args.config["live_retirement"] = "off"
-            with patch.object(h, "run_tmux", side_effect=run), contextlib.redirect_stdout(io.StringIO()) as output:
-                h.cmd_apply(args)
-            outcome = json.loads(output.getvalue())
-            assert run("has-session", "-t", "=sentinel", check=False).returncode == 0
+    with disposable_tmux() as server:
+        run = server.run
+        run("new-session", "-d", "-s", "sentinel", "sleep 60")
+        target = run("new-session", "-d", "-P", "-F", "#{pane_id}", "-s", "temporary", "trap '' HUP; sleep 1; exit 0").stdout.strip()
+        run("set-option", "-p", "-t", target, "remain-on-exit", "on")
+        run("set-option", "-p", "-t", target, "@oc_goal", "Finished a, then b {literal #{pane_id}} #()")
+        # Use an explicit normal-exit fixture, independent of PTY hangup.
+        # Missing/signal-only exit metadata must still be retained.
+        for _ in range(150):
+            observed = run("display-message", "-p", "-t", target, "#{pane_dead}:#{pane_dead_status}").stdout.strip()
             if observed == "1:0":
-                assert len(outcome["killed"]) == 1, outcome
-                assert run("has-session", "-t", "=temporary", check=False).returncode != 0
-                assert list((tmp_path / "archive").glob("*/metadata.json"))
-                metadata = json.loads(next((tmp_path / "archive").glob("*/metadata.json")).read_text())
-                assert metadata['panes'][0]['last_activity'].isdigit()
-                assert not h.load_status(args.status_file)["adoptions"]
-                native_dead_outcomes["removed"] += 1
-            else:
-                # tmux 3.4 on Linux CI sometimes supplies neither exit status
-                # nor signal. This is a preservation case, not success or a skip.
-                assert not outcome["killed"] and not outcome["requested"], outcome
-                target_result = next(item for item in outcome["skipped"] if item["session"] == "temporary")
-                assert target_result["reason"] == "dead_exit_metadata_unavailable", outcome
-                assert run("has-session", "-t", "=temporary", check=False).returncode == 0
-                assert not list((tmp_path / "archive").glob("*/metadata.json"))
-                native_dead_outcomes["preserved"] += 1
-        finally:
-            run("kill-server", check=False)
+                break
+            time.sleep(.02)
+        assert observed.startswith("1:"), observed
+        _, _, args = fixture(tmp_path)
+        args.config["live_retirement"] = "off"
+        with patch.object(h, "run_tmux", side_effect=run), contextlib.redirect_stdout(io.StringIO()) as output:
+            h.cmd_apply(args)
+        outcome = json.loads(output.getvalue())
+        assert run("has-session", "-t", "=sentinel", check=False).returncode == 0
+        if observed == "1:0":
+            assert len(outcome["killed"]) == 1, outcome
+            assert run("has-session", "-t", "=temporary", check=False).returncode != 0
+            assert list((tmp_path / "archive").glob("*/metadata.json"))
+            metadata = json.loads(next((tmp_path / "archive").glob("*/metadata.json")).read_text())
+            assert metadata['panes'][0]['last_activity'].isdigit()
+            assert not h.load_status(args.status_file)["adoptions"]
+            native_dead_outcomes["removed"] += 1
+        else:
+            # tmux 3.4 on Linux CI sometimes supplies neither exit status
+            # nor signal. This is a preservation case, not success or a skip.
+            assert not outcome["killed"] and not outcome["requested"], outcome
+            target_result = next(item for item in outcome["skipped"] if item["session"] == "temporary")
+            assert target_result["reason"] == "dead_exit_metadata_unavailable", outcome
+            assert run("has-session", "-t", "=temporary", check=False).returncode == 0
+            assert not list((tmp_path / "archive").glob("*/metadata.json"))
+            native_dead_outcomes["preserved"] += 1
 
 
 def test_status_lock_serializes_process_writers(tmp_path):

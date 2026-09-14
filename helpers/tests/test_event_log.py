@@ -56,7 +56,7 @@ def test_hygiene_error_controls_do_not_abort_status_logging(tmp_path):
 
 def test_alternating_janitor_policies_do_not_repeat_unchanged_warnings(tmp_path):
     from helpers.tmux import session_hygiene as h
-    from test_adoption import fixture
+    from helpers.tests.support import fixture
     p, _, args = fixture(tmp_path)
     def cycle(policy, reason, pid='321', log=True):
         args.policy = policy
@@ -218,3 +218,60 @@ def test_observed_failure_has_typed_code_and_blocker(tmp_path):
     assert row["details"]["error_code"] == "archive_failed"
     assert row["details"]["blocking_conditions"] == ["archive_failed"]
     assert "action_outcome" not in row["details"]
+
+
+def test_trim_amortizes_writes_and_retains_exact_newest_suffix(tmp_path):
+    config = {"log_dir": str(tmp_path), "session_log_max_bytes": 65536}
+    path = tmp_path / "sessions.jsonl"
+    trimmed_at = []
+    with patch.object(event_log.os, "replace", wraps=event_log.os.replace) as replace:
+        for index in range(800):
+            before = replace.call_count
+            event_log.append("start", session="s", identity=str(index), config=config)
+            assert path.stat().st_size <= 65536
+            rows = [json.loads(line) for line in path.read_text().splitlines()]
+            events = [row for row in rows if row["event"] != "history_trimmed"]
+            assert [int(row["identity"]) for row in events] == list(range(index + 1 - len(events), index + 1))
+            assert sum(row["event"] == "history_trimmed" for row in rows) == bool(trimmed_at or replace.call_count)
+            if replace.call_count != before:
+                trimmed_at.append(index)
+                assert path.stat().st_size <= 65536 * 3 // 4
+    assert len(trimmed_at) >= 3  # Exercise repeated trims, not just the first.
+    assert all(right - left >= 40 for left, right in zip(trimmed_at, trimmed_at[1:]))
+    assert len(trimmed_at) < 20  # Old behavior trims on every post-cap append.
+
+
+def test_minimum_cap_has_headroom_for_maximum_record(tmp_path):
+    config = {"log_dir": str(tmp_path), "session_log_max_bytes": 65536}
+    fields = dict(session="s" * 2048, identity="i" * 2048, reason="r" * 2048,
+                  details={"task_ref": ""}, reason_code="large_record", config=config)
+    event_log.append("start", **fields)
+    path = tmp_path / "sessions.jsonl"
+    fields["details"]["task_ref"] = "x" * (event_log.MAX_RECORD_BYTES - path.stat().st_size)
+    assert len(fields["details"]["task_ref"]) <= 2048
+    with patch.object(event_log.os, "replace", wraps=event_log.os.replace) as replace:
+        for _ in range(30):
+            before = replace.call_count
+            event_log.append("start", **fields)
+            assert path.stat().st_size <= 65536
+            assert len(path.read_bytes().splitlines(keepends=True)[-1]) == event_log.MAX_RECORD_BYTES
+            if replace.call_count != before:
+                event_log.append("start", **fields)
+                assert replace.call_count == before + 1
+                assert path.stat().st_size <= 65536
+    assert replace.call_count >= 3
+
+
+def test_failed_trim_replace_preserves_original_and_removes_temporary(tmp_path):
+    config = {"log_dir": str(tmp_path), "session_log_max_bytes": 65536}
+    path = tmp_path / "sessions.jsonl"
+    for _ in range(40):
+        event_log.append("start", session="s", identity="i", details={"task_ref": "x" * 1000}, config=config)
+    original = path.read_bytes()
+    # Force the trim path without relying on an incidental serialized length.
+    with patch.object(event_log, "MAX_BYTES", len(original)), \
+         patch.object(event_log.os, "replace", side_effect=OSError("replace failed")):
+        with pytest.raises(OSError, match="replace failed"):
+            event_log.append("start", session="s", identity="i", config={"log_dir": str(tmp_path)})
+    assert path.read_bytes() == original
+    assert not list(tmp_path.glob(".sessions-*"))

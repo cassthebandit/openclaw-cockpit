@@ -7,8 +7,7 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tmux'))
-import cockpit_doctor as doctor
+from helpers.tmux import cockpit_doctor as doctor
 
 class DoctorServiceTests(unittest.TestCase):
     def test_doctor_accepts_only_actual_service_argv(self):

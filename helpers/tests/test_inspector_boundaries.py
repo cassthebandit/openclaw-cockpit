@@ -1,25 +1,18 @@
 """Inspector guards tested against disposable tmux server mutations."""
 import argparse
-import subprocess
-import tempfile
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from helpers.tests.support import disposable_tmux
 from helpers.tmux import tmux_inspector as inspector
 
 
 @pytest.fixture
 def server():
-    with tempfile.TemporaryDirectory(prefix="cockpit-inspect-", dir="/tmp") as tmp:
-        sock = str(Path(tmp) / "s")
-        def run(*args, check=True):
-            return subprocess.run(["tmux", "-u", "-S", sock, *args], capture_output=True, text=True, check=check)
-        try:
-            pane = run("new-session", "-d", "-P", "-F", "#{pane_id}", "-s", "example", "sleep 600").stdout.strip()
-            yield run, pane
-        finally:
-            run("kill-server", check=False)
+    with disposable_tmux() as server:
+        run = server.run
+        pane = run("new-session", "-d", "-P", "-F", "#{pane_id}", "-s", "example", "sleep 600").stdout.strip()
+        yield run, pane
 
 
 @pytest.mark.parametrize("field,value", [("managed_by", "agent_wall"), ("contract_version", "1"),

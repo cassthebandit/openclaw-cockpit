@@ -11,6 +11,8 @@ import (
 
 func TestCaptureOwnershipAcrossPathsAndReplacement(t *testing.T) {
 	m := NewModel(nil, time.Second, 4, nil, false, true)
+	now := time.Unix(1752000000, 0)
+	m.clock = func() time.Time { return now }
 	m.sessions = []tmux.Session{captureTestSession("$worker", "%old", tmux.CockpitMeta{Kind: "agent", State: "running"})}
 	m.ensurePreviewsAndCapture()
 	old := m.previews["$worker"].captureGeneration
@@ -32,6 +34,7 @@ func TestCaptureOwnershipAcrossPathsAndReplacement(t *testing.T) {
 	}
 	// Fast admission also prevents snapshot admission. A duplicate completion
 	// cannot release a subsequent request on the same pane.
+	now = now.Add(fastCaptureFallback)
 	requests := m.planFastCaptures()
 	if len(requests) != 1 {
 		t.Fatalf("fast requests=%d", len(requests))

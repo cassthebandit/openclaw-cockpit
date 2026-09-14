@@ -18,6 +18,17 @@ func TestNativeFitLifecycleFeedback(t *testing.T) {
 	bin := disposableTmuxWrapper(t)
 	dir := t.TempDir()
 	modePath := filepath.Join(dir, "mode")
+	writeMode := func(mode string) {
+		t.Helper()
+		// The terminal reads concurrently. Publish a complete mode atomically;
+		// truncating the live file can crash the fixture on an empty mode.
+		if err := os.WriteFile(modePath+".next", []byte(mode), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(modePath+".next", modePath); err != nil {
+			t.Fatal(err)
+		}
+	}
 	script := filepath.Join(dir, "screen.py")
 	source, err := os.ReadFile("testdata/native_feedback.py")
 	if err != nil {
@@ -26,9 +37,7 @@ func TestNativeFitLifecycleFeedback(t *testing.T) {
 	if err := os.WriteFile(script, source, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(modePath, []byte("idle"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeMode("idle")
 	tmuxOut(t, bin, "new-session", "-d", "-s", "feedback", "-x", "160", "-y", "45", "python3 "+script+" "+modePath)
 	c, err := tmux.NewClient(bin)
 	if err != nil {
@@ -53,9 +62,7 @@ func TestNativeFitLifecycleFeedback(t *testing.T) {
 		{"background", "live-working"},
 		{"idle", "delivered-idle"},
 	} {
-		if err := os.WriteFile(modePath, []byte(step.mode), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		writeMode(step.mode)
 		for cycle := 0; cycle < 12; cycle++ {
 			sizes := [][2]int{{360, 24}, {140, 50}, {360, 87}}
 			size := sizes[cycle/4]

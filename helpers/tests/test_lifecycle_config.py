@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 import pytest
 from helpers.tmux import lifecycle, session_hygiene as hygiene, agent_wall, services
-from test_hygiene import managed
+from helpers.tests.support import disposable_tmux, managed
 
 
 def test_missing_default_and_explicit_missing(tmp_path, monkeypatch):
@@ -91,36 +91,30 @@ def test_launch_explicit_choice_wins_over_config(tmp_path):
 
 def test_real_disposable_jobs_use_file_retention(tmp_path):
     import subprocess
-    import tempfile
     import time
     # Outcome timestamps are backdated; no ten-minute wall-clock sleep needed.
-    with tempfile.TemporaryDirectory(prefix="lc-", dir="/tmp") as directory:
-        sock = str(Path(directory) / "s")
-        def run(*args, check=True):
-            return subprocess.run(["tmux", "-u", "-S", sock, *args], capture_output=True, text=True, check=check)
-        try:
-            for name, retention in (("short", 60), ("long", 600)):
-                config_file = tmp_path / (name + ".json")
-                config_file.write_text(json.dumps({"completed_retention_seconds": retention}))
-                config, _ = lifecycle.load(str(config_file), environ={})
-                pane = run("new-session", "-d", "-P", "-F", "#{pane_id}", "-s", name, "sleep 600").stdout.strip()
-                run("set-option", "-w", "-t", pane, "remain-on-exit", "on")
-                result = tmp_path / (name + ".md"); result.write_text("Complete saved result")
-                metadata = dict(contract_version="1", managed_by="agent_wall", kind="agent", state="done", cleanup_policy="kill_on_done", ttl="never", run_root=str(tmp_path), evidence_path=str(result), completed_at=(datetime.now(timezone.utc)-timedelta(seconds=120)).isoformat(), completed_retention_seconds=str(config["completed_retention_seconds"]))
-                for key, value in metadata.items():
-                    run("set-option", "-p", "-t", pane, "@oc_"+key, value)
-                run("respawn-pane", "-k", "-t", pane, "exit 0")
-                for _ in range(100):
-                    if run("display-message", "-p", "-t", pane, "#{pane_dead}").stdout.strip() == "1": break
-                    time.sleep(.01)
-            with patch.object(hygiene, "run_tmux", side_effect=run), contextlib.redirect_stdout(io.StringIO()) as output:
-                hygiene.main(["apply", "--json", "--archive-root", str(tmp_path / "archive"), "--status-file", str(tmp_path / "status.json")])
-            report = json.loads(output.getvalue())
-            assert [row["session"] for row in report["killed"]] == ["short"], report
-            assert run("has-session", "-t", "=long", check=False).returncode == 0
-            assert run("has-session", "-t", "=short", check=False).returncode != 0
-        finally:
-            run("kill-server", check=False)
+    with disposable_tmux() as server:
+        run = server.run
+        for name, retention in (("short", 60), ("long", 600)):
+            config_file = tmp_path / (name + ".json")
+            config_file.write_text(json.dumps({"completed_retention_seconds": retention}))
+            config, _ = lifecycle.load(str(config_file), environ={})
+            pane = run("new-session", "-d", "-P", "-F", "#{pane_id}", "-s", name, "sleep 600").stdout.strip()
+            run("set-option", "-w", "-t", pane, "remain-on-exit", "on")
+            result = tmp_path / (name + ".md"); result.write_text("Complete saved result")
+            metadata = dict(contract_version="1", managed_by="agent_wall", kind="agent", state="done", cleanup_policy="kill_on_done", ttl="never", run_root=str(tmp_path), evidence_path=str(result), completed_at=(datetime.now(timezone.utc)-timedelta(seconds=120)).isoformat(), completed_retention_seconds=str(config["completed_retention_seconds"]))
+            for key, value in metadata.items():
+                run("set-option", "-p", "-t", pane, "@oc_"+key, value)
+            run("respawn-pane", "-k", "-t", pane, "exit 0")
+            for _ in range(100):
+                if run("display-message", "-p", "-t", pane, "#{pane_dead}").stdout.strip() == "1": break
+                time.sleep(.01)
+        with patch.object(hygiene, "run_tmux", side_effect=run), contextlib.redirect_stdout(io.StringIO()) as output:
+            hygiene.main(["apply", "--json", "--archive-root", str(tmp_path / "archive"), "--status-file", str(tmp_path / "status.json")])
+        report = json.loads(output.getvalue())
+        assert [row["session"] for row in report["killed"]] == ["short"], report
+        assert run("has-session", "-t", "=long", check=False).returncode == 0
+        assert run("has-session", "-t", "=short", check=False).returncode != 0
 
 
 @pytest.mark.parametrize("policy", ["manual", "kill_after_ttl"])

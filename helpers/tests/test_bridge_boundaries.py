@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 from helpers.openclaw_runtime import cockpit_snapshot as snapshot, source
-from test_bridge import build_state_db, write_rows
+from helpers.tests.test_bridge import build_state_db, write_rows
 
 
 def test_concurrent_writer_cannot_mix_task_and_flow_generations(tmp_path):

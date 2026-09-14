@@ -6,7 +6,8 @@ from unittest.mock import patch
 import pytest
 from helpers.tmux import adoption as a, native_runtimes as n, session_hygiene as h
 from helpers.tmux.runtime_adapters import codex as c
-from test_adoption import fixture, enrollment
+from helpers.tests.support import fixture, enrollment
+from helpers.tests.support import process_fixture
 
 FIXTURES = Path(__file__).parent / "fixtures"
 CODEX = n.PROFILES["codex-0.153.4-npm"]
@@ -54,29 +55,6 @@ def test_codex_requires_raw_capture_not_normalized_display(tmp_path):
         observed, reason = a.observe(h, p, record)
         assert observed and not reason
         assert "-e" in capture.call_args.args
-
-
-def process_fixture(tmp_path):
-    p, _, _ = fixture(tmp_path)
-    p.command = "node"
-    package = "/opt/homebrew/lib/node_modules/@openai/codex"
-    native = "/opt/homebrew/lib/node_modules" + c.CODEX_NATIVE_SUFFIX
-    rows = {"321": ("100", "node"), "322": ("321", native),
-            "323": ("322", c.CUA_BIN + "node_repl"), "324": ("322", c.CUA_BIN + "node"),
-            "325": ("324", c.CUA_BIN + "node_repl")}
-    paths = {"321": "/opt/homebrew/bin/node", **{pid: command for pid, (_, command) in rows.items() if pid != "321"}}
-    args = {"321": "node /opt/homebrew/bin/codex -m gpt-6-astra",
-            "322": native, "323": paths["323"],
-            "324": paths["324"] + " /tmp/unified-computer-use/26.903.71938/scripts/launch.mjs",
-            "325": paths["325"]}
-    def ps(argv, **kwargs):
-        if argv[1] == "-axo": out = "\n".join(f"{pid} {parent} {command}" for pid, (parent, command) in rows.items())
-        elif argv[-1] == "args=": out = args[argv[2]]
-        else: out = "Sat Sep 12 15:00:00 2026"
-        return subprocess.CompletedProcess(argv, 0, out, "")
-    def digest(path, suffix, expected):
-        return {"path": package + "/bin/codex.js" if path.endswith("/codex") else path, "sha256": expected}
-    return p, rows, paths, args, ps, digest
 
 
 @pytest.mark.parametrize("change", ["", "no_helpers", "code_host", "code_host_child", "unknown_child", "extra_nested", "duplicate_helper", "repl_args", "native_path", "node_path", "script", "malformed_inventory"])

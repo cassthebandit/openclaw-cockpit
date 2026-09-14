@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 from helpers.tmux import session_hygiene as hygiene
-from test_hygiene import managed
+from helpers.tests.support import managed
 
 
 @pytest.mark.parametrize("action", ["mark", "cancel_mark"])

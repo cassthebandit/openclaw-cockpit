@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,42 +11,18 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/cassthebandit/openclaw-cockpit/internal/testutil"
 	"github.com/cassthebandit/openclaw-cockpit/internal/tmux"
 )
 
-// disposableTmuxWrapper starts a private tmux server on a unique -L socket
-// and returns a wrapper binary pinning tmux invocations to it. The default
-// tmux server is never touched.
 func disposableTmuxWrapper(t *testing.T) string {
 	t.Helper()
-	real, err := exec.LookPath("tmux")
-	if err != nil {
-		t.Skip("tmux not installed; disposable-server test skipped")
-	}
-	socket := fmt.Sprintf("oc-cockpit-ui-test-%d", os.Getpid())
-	wrapper := filepath.Join(t.TempDir(), "tmux")
-	script := "#!/bin/sh\nexec " + real + " -L " + socket + " \"$@\"\n"
-	if err := os.WriteFile(wrapper, []byte(script), 0o755); err != nil {
-		t.Fatalf("write tmux wrapper: %v", err)
-	}
-	t.Cleanup(func() {
-		// An already-exited server is the normal case, so this must never fail
-		// the test; log it so an abnormal failure that leaks a private tmux
-		// server past the run is visible instead of silent.
-		if err := exec.Command(real, "-L", socket, "kill-server").Run(); err != nil {
-			t.Logf("kill-server on socket %s: %v", socket, err)
-		}
-	})
-	return wrapper
+	return testutil.TmuxWrapper(t)
 }
 
 func tmuxOut(t *testing.T, wrapper string, args ...string) string {
 	t.Helper()
-	out, err := exec.Command(wrapper, args...).CombinedOutput()
-	if err != nil {
-		t.Fatalf("tmux %v: %v\n%s", args, err, out)
-	}
-	return string(out)
+	return testutil.TmuxOut(t, wrapper, args...)
 }
 
 // TestDoubleCtrlCForwardsExactlyOneInterrupt proves AC4 against a real

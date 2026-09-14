@@ -1,9 +1,8 @@
 """Literal format equality; real tmux verifies expansion, not a fake parser."""
 import shutil
-import subprocess
-import tempfile
 
 import pytest
+from helpers.tests.support import disposable_tmux
 
 from helpers.tmux.format_guard import all_equal, literal
 
@@ -27,18 +26,15 @@ def test_empty_guard_refused():
 
 @pytest.mark.skipif(not shutil.which('tmux'), reason='native tmux unavailable')
 def test_native_exact_literals_and_all_contract_fields(tmp_path):
-    directory = tempfile.TemporaryDirectory(prefix='fmt-', dir='/tmp')
-    socket = directory.name + '/s'
-    def run(*args):
-        return subprocess.run(['tmux', '-S', socket, *args], check=True,
-                              text=True, capture_output=True).stdout.rstrip('\n')
-    # Isolated disposable process; never the operator server.
-    run('new-session', '-d', '-s', 'format-sentinel', 'sleep 300')
-    marker = tmp_path / 'unexpected-job'
-    values = ['', '#', ',', '{', '}', 'review #10, then {close}',
-              '#{session_name}', '#{E:session_name}', f'#(touch {marker})',
-              'x},1}#{==:1,1}', '## ##{ #} #,', 'Unicode 🦝 é ; $() \\ " \'']
-    try:
+    with disposable_tmux() as server:
+        def run(*args):
+            return server.run(*args).stdout.rstrip('\n')
+        # Isolated disposable process; never the operator server.
+        run('new-session', '-d', '-s', 'format-sentinel', 'sleep 300')
+        marker = tmp_path / 'unexpected-job'
+        values = ['', '#', ',', '{', '}', 'review #10, then {close}',
+                  '#{session_name}', '#{E:session_name}', f'#(touch {marker})',
+                  'x},1}#{==:1,1}', '## ##{ #} #,', 'Unicode 🦝 é ; $() \\ " \'']
         pane = run('display-message', '-p', '-t', 'format-sentinel', '#{pane_id}')
         for value in values:
             expected = {'pane_id': pane, '@goal': value, '@hold': 'review, {not done} #1'}
@@ -56,6 +52,3 @@ def test_native_exact_literals_and_all_contract_fields(tmp_path):
             assert run('if-shell', '-F', '-t', pane, predicate,
                        'display-message -p EXACT', 'display-message -p CHANGED') == 'CHANGED'
         assert not marker.exists(), 'literal command substitution executed'
-    finally:
-        run('kill-server')
-        directory.cleanup()

@@ -17,8 +17,7 @@ from unittest import mock
 from pathlib import Path
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tmux"))
-import agent_wall
+from helpers.tmux import agent_wall
 
 
 @pytest.fixture(autouse=True)
@@ -1405,6 +1404,7 @@ class FakeTmuxServer:
             self.sessions[name].update(session_id='$1', window_id='@1', **{'@oc_launch_id': launch['run_id']})
             identity = [pane_id, '4242', '$1', '@1', launch['run_id'], '', self.pane_dead]
             (root / 'process.json').write_text(json.dumps({'run_id': launch['run_id'], 'pane_identity': identity}))
+            (root / 'state.json').write_text(json.dumps({'session_id': 'native-session', 'bootstrap_complete': True}))
         return self._ok(args)
 
     def _run_wrapper_side_effects(self) -> None:
@@ -1981,6 +1981,7 @@ class AssignmentSubmissionTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.launch_id = '12345678-1234-1234-1234-123456789abc'
         (self.root/'launch.json').write_text(json.dumps({'run_id': self.launch_id}))
+        (self.root/'state.json').write_text(json.dumps({'session_id': 'native-session'}))
         (self.root/'process.json').write_text(json.dumps({'run_id':self.launch_id,
              'pane_identity':['%1','4242','$1','@1',self.launch_id,'','0']}))
         (self.root/'prompt.md').write_text('Only the intended worker may receive this task.')

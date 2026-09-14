@@ -456,6 +456,8 @@ func footerViewport() *viewport.Model {
 
 // Init starts the initial tmux snapshot fetch and ticking loop.
 func (m *Model) Init() tea.Cmd {
+	// Init owns the first tick; only tickMsg may re-arm this lineage.
+	m.inflight = true
 	cmds := []tea.Cmd{
 		fetchSnapshotCmd(m.client),
 		scheduleTick(m.pollInterval),

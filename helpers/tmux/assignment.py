@@ -132,15 +132,25 @@ def is_bound(run_dir: str | Path) -> bool:
         return False
 
 
+def _is_ready_locked(root: Path) -> bool:
+    """Read readiness while the caller holds state.lock (never acquire it twice)."""
+    try:
+        launch = _read(root / "launch.json")
+        state = _read(root / "state.json")
+        session_id = state.get("session_id")
+        return (isinstance(session_id, str) and bool(session_id)
+                and (not launch.get("bootstrap_marker") or state.get("bootstrap_complete") is True))
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
 def is_ready(run_dir: str | Path) -> bool:
     """Native lifecycle readiness; Codex initialization must have ended its turn."""
     try:
         root = Path(run_dir)
         with _locked(root):
-            launch = _read(root / "launch.json")
-            state = _read(root / "state.json")
-        return bool(state.get("session_id")) and (not launch.get("bootstrap_marker") or state.get("bootstrap_complete") is True)
-    except (OSError, ValueError):
+            return _is_ready_locked(root)
+    except OSError:
         return False
 
 
