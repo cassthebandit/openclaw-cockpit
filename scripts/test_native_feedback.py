@@ -24,7 +24,14 @@ class NativeFeedback(unittest.TestCase):
             binary = directory / "cockpit"
             subprocess.run(["go", "build", "-o", str(binary), "./cmd/openclaw-cockpit"], cwd=root, check=True, timeout=120, capture_output=True)
             mode = directory / "mode"
-            mode.write_text("idle")
+
+            def write_mode(state):
+                # The terminal reads concurrently; never expose a truncated mode.
+                pending = mode.with_suffix(".next")
+                pending.write_text(state)
+                pending.replace(mode)
+
+            write_mode("idle")
             config = directory / "config.json"
             config.write_text(json.dumps({"expanded_groups": ["Completed Agent Runs"], "stale_threshold": "1h"}))
 
@@ -49,7 +56,7 @@ class NativeFeedback(unittest.TestCase):
                 tm("new-session", "-d", "-s", "wall", "-x", "360", "-y", "24", "exec " + shlex.join(args))
                 tm("set-option", "-p", "-t", "wall", "remain-on-exit", "on")
                 for state in ("idle", "working", "idle"):
-                    mode.write_text(state)
+                    write_mode(state)
                     expected = "Completed Agent Runs  1" if state == "idle" else "Active Agents  1"
                     wait_for(lambda: expected in tm("capture-pane", "-p", "-t", "wall"))
                     # Many actual refresh/capture cycles, not one successful screenshot.
