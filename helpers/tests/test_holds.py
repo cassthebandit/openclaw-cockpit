@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-import holds
+from helpers.tmux import holds
 
 NOW = datetime(2026, 9, 13, tzinfo=timezone.utc)
 

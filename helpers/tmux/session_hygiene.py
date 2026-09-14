@@ -148,15 +148,7 @@ SECRET_PATTERNS = [
     re.compile(r"(?i)(authorization:\s*bearer\s+)[^\s]+"),
     re.compile(r"(?i)((?:api[_-]?key|token|secret|password|credential)[A-Za-z0-9_. -]{0,40}[:=]\s*)[^\s'\"<>]+"),
 ]
-ADOPTED_CODEX_EVIDENCE_FILENAMES = (
-    "COMPLETION_AUDIT.md",
-    "RESULT.md",
-    "REPORT.md",
-    "FINAL_REVIEW.md",
-    "EXECUTION_SUMMARY.md",
-    "CLOSEOUT.md",
-    "SUMMARY.md",
-)
+
 
 
 @dataclass
@@ -602,42 +594,6 @@ def evidence_file_ok(path: Path) -> tuple[bool, str]:
     return True, "ok"
 
 
-def resolve_adopted_codex_evidence(pane: Pane) -> tuple[Path | None, str]:
-    raw = pane.path.strip()
-    if not raw:
-        return None, "adopted_run_root_empty"
-    root = Path(raw).expanduser()
-    if not root.is_absolute():
-        return None, "adopted_run_root_relative"
-    root = root.resolve()
-    try:
-        root.relative_to((STATE_ROOT / "runs").resolve())
-    except ValueError:
-        return None, "adopted_run_root_outside_state_runs"
-    if not root.is_dir():
-        return None, "adopted_run_root_not_directory"
-    session_started_at = max(filter(None, (parse_iso(pane.process_started), epoch_datetime(pane.created))), default=None)
-    if session_started_at is None:
-        return None, "adopted_completed_age_unknown"
-    stale_seen = False
-    for name in ADOPTED_CODEX_EVIDENCE_FILENAMES:
-        candidate = (root / name).resolve()
-        if not candidate.is_relative_to(root):
-            return None, "adopted_evidence_outside_run_root"
-        ok, reason = evidence_file_ok(candidate)
-        if ok:
-            mtime = datetime.fromtimestamp(candidate.stat().st_mtime, timezone.utc)
-            if mtime < session_started_at + timedelta_seconds(1):
-                stale_seen = True
-                continue
-            return candidate, "ok"
-        if reason not in {"evidence_missing", "evidence_empty"}:
-            return None, "adopted_" + reason
-    if stale_seen:
-        return None, "adopted_evidence_stale"
-    return None, "adopted_evidence_missing"
-
-
 def pane_identity(panes: list[Pane]) -> str:
     """Deterministic identity of a *complete* pane set.
 
@@ -855,18 +811,6 @@ def active_idle_mark_due(pane: Pane, now: datetime, status_entry: dict[str, Any]
     return False, "active_idle_grace_active"
 
 
-def codex_completion_screen(text: str) -> bool:
-    if screen_has_operator_prompt(text) or screen_has_active_marker(text):
-        return False
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    tail = "\n".join(lines[-8:])
-    lowered_tail = tail.lower()
-    has_codex_marker = "openai codex" in text.lower() or "codex" in lowered_tail
-    has_completion_marker = "goal achieved" in lowered_tail or "goal complete" in lowered_tail
-    has_prompt_marker = any(line.startswith("›") for line in lines[-6:])
-    return has_codex_marker and has_completion_marker and has_prompt_marker
-
-
 def codex_idle_finished_screen(text: str) -> bool:
     return managed_tui_completion_screen(text)
 
@@ -892,57 +836,6 @@ def managed_tui_completion_time(pane: Pane, text: str | None = None) -> tuple[da
 
 def managed_codex_tui_completion_time(pane: Pane) -> tuple[datetime | None, str]:
     return managed_tui_completion_time(pane)
-
-
-def adopted_completed_codex(
-    session: str,
-    panes: list[Pane],
-    *,
-    policy: str,
-    now: datetime,
-    adopted_grace: int,
-) -> dict[str, Any] | None:
-    if len(panes) != 1 or policy != "kill-safe":
-        return None
-    pane = panes[0]
-    meta = pane.meta
-    if meta.get("contract_version", "").strip() != "display-only":
-        return None
-    if meta.get("managed_by", "").strip() != "tmux_inspector":
-        return None
-    if meta.get("kind", "").strip() != "detected-agent":
-        return None
-    if meta.get("cleanup_policy", "").strip() != "manual":
-        return None
-    if "codex" not in " ".join([meta.get("agent", ""), pane.command, pane.title, session]).lower():
-        return None
-    if hold_is_active(pane, now):
-        return result(session=session, action="refuse", reason="hold_reason_active_adopted", panes=panes, policy_source="adopted_codex")
-    age = session_age_seconds(pane, now)
-    if age is None:
-        return result(session=session, action="refuse", reason="adopted_completed_age_unknown", panes=panes, policy_source="adopted_codex")
-    if age < adopted_grace:
-        return result(session=session, action="skip", reason="adopted_completion_grace_active", panes=panes, policy_source="adopted_codex")
-    idle_age = idle_age_seconds(pane, now)
-    if idle_age is None:
-        return result(session=session, action="refuse", reason="adopted_completed_idle_unknown", panes=panes, policy_source="adopted_codex")
-    if idle_age < adopted_grace:
-        return result(session=session, action="skip", reason="adopted_completion_idle_grace_active", panes=panes, policy_source="adopted_codex")
-    evidence, evidence_status = resolve_adopted_codex_evidence(pane)
-    if evidence_status != "ok" or evidence is None:
-        return result(session=session, action="refuse", reason=evidence_status, panes=panes, policy_source="adopted_codex")
-    if not codex_completion_screen(capture_pane_text(pane)):
-        return result(session=session, action="skip", reason="adopted_codex_not_complete", panes=panes, policy_source="adopted_codex")
-    item = result(
-        session=session,
-        action="kill",
-        reason="adopted_codex_goal_achieved",
-        panes=panes,
-        policy_source="adopted_codex",
-        tmux_target=exact_target(session),
-    )
-    item["evidence_path"] = str(evidence)
-    return item
 
 
 def archive_cleanup_at(item: dict[str, Any], panes: list[Pane], archive_base: Path, *, fallback_from: str = "") -> dict[str, Any]:
@@ -1138,7 +1031,7 @@ def eligible_managed(
     now: datetime,
     status_state: dict[str, Any] | None = None,
     override_hold: bool = False,
-    adopted_grace: int = 3600,
+    adopted_grace: int = 3600,  # Legacy caller compatibility; no selection authority.
 ) -> dict[str, Any]:
     if len(panes) != 1:
         return result(session=session, action="refuse", reason="multi_pane_session_refused", panes=panes)
@@ -1183,9 +1076,8 @@ def eligible_managed(
         if marked is not None and marked < birth + timedelta_seconds(1) and tui_completed is None:
             return cancel_mark_item(session, panes, "mark_predates_process")
     if not full_contract(pane):
-        adopted = adopted_completed_codex(session, panes, policy=policy, now=now, adopted_grace=adopted_grace)
-        if adopted is not None:
-            return adopted
+        # Display labels, screen keywords and nearby artifacts never select cleanup.
+        # Existing sessions belong to adoption.plan and its explicit opt-in.
         return result(session=session, action="skip", reason="unmanaged_or_incomplete_contract", panes=panes)
 
     meta = pane.meta
@@ -2194,7 +2086,7 @@ def add_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--include-unowned", action="store_true", help="Compatibility flag; unowned sessions are included by default.")
     parser.add_argument("--policy", choices=["kill-safe", "smoke"], default="kill-safe")
     parser.add_argument("--grace", type=int, default=60)
-    parser.add_argument("--adopted-grace", type=int, default=3600, help="Minimum session age before completed adopted Codex TUI cleanup.")
+    parser.add_argument("--adopted-grace", type=int, default=3600, help="Legacy compatibility option; accepted but ignored.")
     parser.add_argument("--allow-session", action="append", default=[])
     parser.add_argument(
         "--override-hold",

@@ -11,10 +11,9 @@ import tempfile
 import unittest
 from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tmux'))
-import agent_wall as wall
-import assignment as assignment
-import test_assignment as fixture
+from helpers.tmux import agent_wall as wall
+from helpers.tmux import assignment
+from helpers.tests import test_assignment as fixture
 
 
 class WrapperBoundaryTests(unittest.TestCase):

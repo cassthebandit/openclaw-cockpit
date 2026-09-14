@@ -22,13 +22,15 @@ import (
 //     paneContentMsg.
 //   - tickMsg: inflight plus snapshot dispatch.
 //   - runtimeTickMsg: runtimeInflight plus runtime-card dispatch.
+//   - nativeSizeMsg: successful completion only clears nativeSizing; errors
+//     dirty the frame through showToast.
 //   - paneContentMsg and renderDeadlineMsg classify themselves by state delta
 //     inside handleMessage (content actually changed / armed generation
 //     matched) rather than by message type.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	model, cmd := m.handleMessage(msg)
 	switch msg.(type) {
-	case fastTickMsg, tickMsg, runtimeTickMsg, paneContentMsg, renderDeadlineMsg:
+	case fastTickMsg, tickMsg, runtimeTickMsg, paneContentMsg, renderDeadlineMsg, nativeSizeMsg:
 	default:
 		m.markRenderDirty()
 	}
@@ -83,11 +85,11 @@ func (m *Model) handleMessage(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tmuxSessions = msg.snapshot.Sessions
 		m.paneParseWarnings = msg.snapshot.PaneParseWarnings
 		cmd := m.refreshMergedSessions()
-		return m, tea.Batch(scheduleTick(m.pollInterval), m.scheduleFastCaptureWatch(), cmd)
+		return m, tea.Batch(m.scheduleFastCaptureWatch(), cmd)
 	case errMsg:
 		m.inflight = false
 		m.err = msg.err
-		return m, scheduleTick(m.pollInterval)
+		return m, nil
 	case statusMsg:
 		m.showToast(string(msg))
 	case paneContentMsg:
@@ -150,11 +152,14 @@ func (m *Model) handleMessage(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showToast("Native terminal fit: " + msg.err.Error())
 		}
 	case tickMsg:
+		// Exactly one successor, including while a slow fetch is in flight.
+		// Snapshot/error/manual-refresh completions cannot fork this cadence.
+		next := scheduleTick(m.pollInterval)
 		if m.inflight {
-			return m, nil
+			return m, next
 		}
 		m.inflight = true
-		return m, tea.Batch(fetchSnapshotCmd(m.client), m.syncNativeSizeCmd())
+		return m, tea.Batch(next, fetchSnapshotCmd(m.client), m.syncNativeSizeCmd())
 	case fastTickMsg:
 		// The arriving message is the outstanding watcher returning; clear the
 		// single-flight guard before dispatching so exactly one successor is

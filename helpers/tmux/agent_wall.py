@@ -1195,6 +1195,8 @@ def inject_assignment(pane: str, root: Path) -> None:
     with assignment._locked(root):
         if (root / "submission.json").exists():
             raise SystemExit("initial assignment was already submitted; use the runtime for follow-up")
+        if not assignment._is_ready_locked(root):
+            raise SystemExit("assignment runtime is not ready; prompt not submitted; retry after native startup completes")
         _inject_assignment(pane, root)
         assignment._write(root / "submission.json", {"pane": pane, "submitted_at": utc_now()})
 

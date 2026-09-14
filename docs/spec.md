@@ -55,10 +55,20 @@ golangci-lint run --timeout=5m --max-issues-per-linter=0 --max-same-issues=0
 go test ./...
 go test -race ./...
 python3 -m unittest discover -s scripts -p 'test_*.py'
+python3 -m pytest helpers/tests -q
 make cross-build
 ```
 
 `make check` runs the complete gate above. tmux must be installed; a skipped live test is not runtime proof.
+
+Go integration fixtures share `internal/testutil` and helper Python tests share
+`helpers/tests/support.py`. Both own unique short `-S` socket paths under `/tmp`,
+start tmux with `-f /dev/null`, and tear down only their own server and socket
+directory. No fixture uses the operator's default server. Python tests import
+the `helpers.tmux` package directly and can run individually from the repo root
+(for example, `python3 -m pytest helpers/tests/test_holds.py -q`). Shared data and
+resource context managers do not merge the helper pytest and script unittest
+runner lifecycles; both remain separate gates in `Makefile`.
 
 Changes to terminal behavior should also be exercised against a real disposable tmux session. Packaging changes must preserve the release targets in `.goreleaser.yaml` and the Nix flake.
 

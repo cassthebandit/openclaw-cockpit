@@ -4,8 +4,8 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 from helpers.tmux import session_hygiene as hygiene
 from helpers.tmux import tmux_inspector as inspector
-from test_hygiene import managed
-from test_inspector import pane
+from helpers.tests.support import managed
+from helpers.tests.test_inspector import pane
 
 class RetentionTests(unittest.TestCase):
     def test_expiry_removes_hold_but_never_proves_completion(self):

@@ -2,67 +2,21 @@ package tmux
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"hash/crc32"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
+
+	"github.com/cassthebandit/openclaw-cockpit/internal/testutil"
 )
 
-// disposableTmux starts a private tmux server on a unique -L socket and
-// returns a wrapper binary path that pins every tmux invocation to that
-// socket. The default/live tmux server is never touched; the server is killed
-// on cleanup. Tests skip when tmux is not installed (local completion
-// evidence must still show PASS on this host).
 func disposableTmux(t *testing.T) string {
 	t.Helper()
-	real, err := exec.LookPath("tmux")
-	if err != nil {
-		t.Skip("tmux not installed; disposable-server test skipped")
-	}
-	// Keep the socket path short: macOS caps sun_path around 104 bytes.
-	socket := fmt.Sprintf("oc-%d-%08x", os.Getpid(), crc32.ChecksumIEEE([]byte(t.Name())))
-	wrapper := filepath.Join(t.TempDir(), "tmux")
-	script := "#!/bin/sh\nexec " + real + " -L " + socket + " \"$@\"\n"
-	if err := os.WriteFile(wrapper, []byte(script), 0o755); err != nil {
-		t.Fatalf("write tmux wrapper: %v", err)
-	}
-	// Linux CI can transiently report ETXTBSY for this just-written fixture.
-	// Probe only -V before any server mutation; never retry a tmux action.
-	deadline := time.Now().Add(time.Second)
-	for {
-		err := exec.Command(wrapper, "-V").Run()
-		if err == nil {
-			break
-		}
-		if !errors.Is(err, syscall.ETXTBSY) || time.Now().After(deadline) {
-			t.Fatalf("probe tmux fixture: %v", err)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Cleanup(func() {
-		// An already-exited server is the normal case, so this must never fail
-		// the test; log it so an abnormal failure that leaks a private tmux
-		// server past the run is visible instead of silent.
-		if err := exec.Command(real, "-L", socket, "kill-server").Run(); err != nil {
-			t.Logf("kill-server on socket %s: %v", socket, err)
-		}
-	})
-	return wrapper
+	return testutil.TmuxWrapper(t)
 }
 
 func runDisposable(t *testing.T, wrapper string, args ...string) string {
 	t.Helper()
-	out, err := exec.Command(wrapper, args...).CombinedOutput()
-	if err != nil {
-		t.Fatalf("tmux %v: %v\n%s", args, err, out)
-	}
-	return string(out)
+	return testutil.TmuxOut(t, wrapper, args...)
 }
 
 // TestLiteralVersusNamedKeySemanticsOnRealTmux proves AC5 on a real

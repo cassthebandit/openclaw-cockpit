@@ -3,15 +3,12 @@ import argparse
 import contextlib
 import io
 import json
-import subprocess
-import tempfile
 import time
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from helpers.tmux import session_hygiene as h
-from test_hygiene import managed
+from helpers.tests.support import disposable_tmux, managed
 
 
 def test_same_second_completion_is_ambiguous(tmp_path):
@@ -48,71 +45,63 @@ def test_final_ledger_mutation_cannot_reach_tmux(tmp_path, change):
 
 @pytest.mark.parametrize('change', ['', 'respawn', 'hold', 'extra_window', 'policy', 'link_after', 'rename', 'recreate'])
 def test_real_guard(change):
-    with tempfile.TemporaryDirectory(prefix='p4-', dir='/tmp') as tmp:
-        sock = str(Path(tmp)/'s')
-        def run(*args, check=True):
-            return subprocess.run(['tmux', '-u', '-S', sock, *args], capture_output=True, text=True, check=check)
-        try:
-            pane_id = run('new-session', '-d', '-P', '-F', '#{pane_id}', '-s', 'probe', 'sleep 600').stdout.strip()
-            run('set-option', '-w', '-t', pane_id, 'remain-on-exit', 'on')
-            run('respawn-pane', '-k', '-t', pane_id, 'exit 0')
-            for _ in range(50):
-                if run('display-message','-p','-t',pane_id,'#{pane_dead}').stdout.strip() == '1': break
-                time.sleep(.02)
-            with patch.object(h, 'run_tmux', side_effect=run):
-                p = h.list_panes()[0]
-                assert p.session_grouped == "0"
-                assert h.dead_retirement_expectations(p)["session_grouped"] == "0"
-                # Another current session must not steal the format context.
-                run('new-session', '-d', '-s', 'unrelated', 'sleep 600')
-                if change == 'respawn': run('respawn-pane', '-t', pane_id, 'sleep 600')
-                elif change == 'hold': run('set-option','-p','-t',pane_id,'@oc_hold_reason','new hold')
-                elif change == 'extra_window': run('new-window','-d','-t','probe','sleep 600')
-                elif change == 'link_after': run('new-session', '-d', '-s', 'linked', '-t', 'probe')
-                elif change == 'rename': run('rename-session', '-t', '=probe', 'renamed')
-                elif change == 'recreate':
-                    # Keep the server alive so a new same-name session gets
-                    # a distinct immutable ID on this server.
-                    run('new-session', '-d', '-s', 'keeper', 'sleep 600')
-                    run('kill-session', '-t', '=probe')
-                    run('new-session', '-d', '-s', 'probe', 'sleep 600')
-                elif change == 'policy': run('set-option','-p','-t',pane_id,'@oc_cleanup_policy','manual')
-                result = h.guarded_dead_retirement(p)
-            assert run('has-session', '-t', '=unrelated', check=False).returncode == 0
-            exists = run('has-session', '-t', '=renamed' if change == 'rename' else '=probe', check=False).returncode == 0
-            if change == 'link_after':
-                assert run('has-session', '-t', '=linked', check=False).returncode == 0
-            assert exists == bool(change), (change, result, exists)
-            assert (result.returncode == 0) == (not change)
-        finally:
-            run('kill-server', check=False)
+    with disposable_tmux() as server:
+        run = server.run
+        pane_id = run('new-session', '-d', '-P', '-F', '#{pane_id}', '-s', 'probe', 'sleep 600').stdout.strip()
+        run('set-option', '-w', '-t', pane_id, 'remain-on-exit', 'on')
+        run('respawn-pane', '-k', '-t', pane_id, 'exit 0')
+        for _ in range(50):
+            if run('display-message','-p','-t',pane_id,'#{pane_dead}').stdout.strip() == '1': break
+            time.sleep(.02)
+        with patch.object(h, 'run_tmux', side_effect=run):
+            p = h.list_panes()[0]
+            assert p.session_grouped == "0"
+            assert h.dead_retirement_expectations(p)["session_grouped"] == "0"
+            # Another current session must not steal the format context.
+            run('new-session', '-d', '-s', 'unrelated', 'sleep 600')
+            if change == 'respawn': run('respawn-pane', '-t', pane_id, 'sleep 600')
+            elif change == 'hold': run('set-option','-p','-t',pane_id,'@oc_hold_reason','new hold')
+            elif change == 'extra_window': run('new-window','-d','-t','probe','sleep 600')
+            elif change == 'link_after': run('new-session', '-d', '-s', 'linked', '-t', 'probe')
+            elif change == 'rename': run('rename-session', '-t', '=probe', 'renamed')
+            elif change == 'recreate':
+                # Keep the server alive so a new same-name session gets
+                # a distinct immutable ID on this server.
+                run('new-session', '-d', '-s', 'keeper', 'sleep 600')
+                run('kill-session', '-t', '=probe')
+                run('new-session', '-d', '-s', 'probe', 'sleep 600')
+            elif change == 'policy': run('set-option','-p','-t',pane_id,'@oc_cleanup_policy','manual')
+            result = h.guarded_dead_retirement(p)
+        assert run('has-session', '-t', '=unrelated', check=False).returncode == 0
+        exists = run('has-session', '-t', '=renamed' if change == 'rename' else '=probe', check=False).returncode == 0
+        if change == 'link_after':
+            assert run('has-session', '-t', '=linked', check=False).returncode == 0
+        assert exists == bool(change), (change, result, exists)
+        assert (result.returncode == 0) == (not change)
 
 
 def test_existing_linked_sessions_are_both_retained():
-    with tempfile.TemporaryDirectory(prefix='linked-', dir='/tmp') as tmp:
-        def run(*args, check=True):
-            return subprocess.run(['tmux','-u','-S',tmp+'/s',*args],capture_output=True,text=True,check=check)
-        try:
-            run('new-session','-d','-s','original','sleep 600')
-            run('set-option','-w','-t','original','remain-on-exit','on')
-            run('respawn-pane','-k','-t','original','exit 0')
-            run('new-session','-d','-s','linked','-t','original')
-            for _ in range(50):
-                if run('display-message','-p','-t','original','#{pane_dead}').stdout.strip()=='1':break
-                time.sleep(.02)
-            with patch.object(h,'run_tmux',side_effect=run):
-                panes=h.list_panes()
-                assert len(panes)==2
-                assert panes[0].server_session_id != panes[1].server_session_id
-                for pane in panes:
-                    assert pane.session_grouped == "1"
-                    # Older Linux tmux reports zero here even for groups.
-                    pane.window_linked = "0"
-                    assert h.dead_retirement_refusal([pane]) == "grouped_or_unknown_session_requires_explicit_retirement"
-                    assert h.guarded_dead_retirement(pane).returncode != 0
-            assert run('has-session','-t','=original',check=False).returncode == 0
-            assert run('has-session','-t','=linked',check=False).returncode == 0
-        finally:run('kill-server',check=False)
+    with disposable_tmux() as server:
+        run = server.run
+        run('new-session','-d','-s','original','sleep 600')
+        run('set-option','-w','-t','original','remain-on-exit','on')
+        run('respawn-pane','-k','-t','original','exit 0')
+        run('new-session','-d','-s','linked','-t','original')
+        for _ in range(50):
+            if run('display-message','-p','-t','original','#{pane_dead}').stdout.strip()=='1':break
+            time.sleep(.02)
+        with patch.object(h,'run_tmux',side_effect=run):
+            panes=h.list_panes()
+            assert len(panes)==2
+            assert panes[0].server_session_id != panes[1].server_session_id
+            for pane in panes:
+                assert pane.session_grouped == "1"
+                # Older Linux tmux reports zero here even for groups.
+                pane.window_linked = "0"
+                assert h.dead_retirement_refusal([pane]) == "grouped_or_unknown_session_requires_explicit_retirement"
+                assert h.guarded_dead_retirement(pane).returncode != 0
+        assert run('has-session','-t','=original',check=False).returncode == 0
+        assert run('has-session','-t','=linked',check=False).returncode == 0
 
 
 @pytest.mark.parametrize('grouped', ['1', '', 'unknown'])

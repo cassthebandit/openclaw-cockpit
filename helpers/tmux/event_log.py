@@ -81,13 +81,15 @@ def append(event: str, *, session: str, identity: str, source: str = "automatic"
                 stream.flush()
                 os.fsync(stream.fileno())
         else:
-            # Keep only the tail that fits, beginning after a complete newline.
+            # Trim to 75% capacity so subsequent appends reuse bounded headroom.
+            # Even the minimum configured cap leaves room for a maximum record.
             marker = dict(time=record["time"], session="", identity="", event="history_trimmed",
                           source="automatic", result="trimmed", reason="size_limit", schema_version=1,
                           event_id=str(uuid.uuid4()), component="logger", reason_code="size_limit",
                           details={"history_incomplete": True})
             marker_data = (json.dumps(marker, separators=(",", ":")) + "\n").encode()
-            budget = limit - len(data) - len(marker_data)
+            target = max(limit * 3 // 4, len(data) + len(marker_data))
+            budget = min(limit, target) - len(data) - len(marker_data)
             if budget < 0:
                 raise ValueError("event and retention marker exceed size limit")
             tail = b""
@@ -100,6 +102,17 @@ def append(event: str, *, session: str, identity: str, source: str = "automatic"
                         tail = tail.partition(b"\n")[2]
                 if tail and not tail.endswith(b"\n"):
                     tail = tail.rpartition(b"\n")[0] + b"\n" if b"\n" in tail else b""
+            # A single fresh marker covers all dropped history; old retention
+            # markers carry no session history and must not crowd out records.
+            retained = []
+            for line in tail.splitlines(keepends=True):
+                try:
+                    previous = json.loads(line)
+                except ValueError:
+                    previous = None
+                if not isinstance(previous, dict) or previous.get("event") != "history_trimmed":
+                    retained.append(line)
+            tail = b"".join(retained)
             fd, temporary = tempfile.mkstemp(prefix=".sessions-", dir=path.parent)
             try:
                 with os.fdopen(fd, "wb") as stream:

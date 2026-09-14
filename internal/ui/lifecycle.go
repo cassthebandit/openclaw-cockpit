@@ -27,10 +27,6 @@ type paneLifecycleVerdict struct {
 }
 
 var (
-	// ansiCSI matches CSI escape sequences (colours, cursor movement).
-	ansiCSI = regexp.MustCompile("\x1b\\[[0-9;:?]*[ -/]*[@-~]")
-	// ansiOSC matches OSC sequences terminated by BEL or ST.
-	ansiOSC                 = regexp.MustCompile("\x1b\\][^\x07\x1b]*(?:\x07|\x1b\\\\)")
 	failedWord              = regexp.MustCompile(`(?m)\bFAILED\b`)
 	durationCompletionShape = regexp.MustCompile(`(?i)\b[\pL]+(?:ed|n)\s+for\s+\d+\s*(?:s|m|h|d|sec|secs|second|seconds|min|mins|minute|minutes|hr|hrs|hour|hours)\b`)
 	numberedChoiceShape     = regexp.MustCompile(`(?m)^\s*(?:[1-9][0-9]*[\.)]\s+|[❯>]\s*[1-9][0-9]*\b)`)
@@ -463,26 +459,6 @@ func hasErrorMarker(lowered string) bool {
 // bordered input line like "│ › " is recognised as a "›" prompt.
 func stripPromptBorder(line string) string {
 	return strings.TrimLeft(line, " \t│|╭╰╮╯─┌└┐┘▏▕▎▐")
-}
-
-// stripANSI removes CSI/OSC escape sequences and stray C0 control characters
-// (keeping newlines and tabs) so marker matching is not fooled by colour codes.
-func stripANSI(s string) string {
-	s = ansiCSI.ReplaceAllString(s, "")
-	s = ansiOSC.ReplaceAllString(s, "")
-	var b strings.Builder
-	b.Grow(len(s))
-	for _, r := range s {
-		if r == '\n' || r == '\t' {
-			b.WriteRune(r)
-			continue
-		}
-		if r == 0x1b || r < 0x20 || r == 0x7f {
-			continue
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
 }
 
 func nonEmptyLines(s string) []string {

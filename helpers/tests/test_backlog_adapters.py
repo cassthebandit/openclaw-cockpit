@@ -7,8 +7,8 @@ import pytest
 
 from helpers.tmux import adoption as a, native_runtimes as n, session_hygiene as h
 from helpers.tmux.runtime_adapters import claude, codex
-from test_adoption import fixture, enrollment
-from test_native_runtimes import process_fixture
+from helpers.tests.support import fixture, enrollment
+from helpers.tests.support import process_fixture
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

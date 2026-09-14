@@ -27,7 +27,7 @@ whether a completed interactive worker exits or stays available.
 | failed_retention_seconds | 180 | Failed outcome visibility before eligibility |
 | teardown_grace_seconds | 60 | Existing mark-to-retirement grace |
 | active_idle_mark_seconds | 180 | Legacy display-only observation window, does not schedule cleanup |
-| adopted_grace_seconds | 3600 | Minimum age for conservative adopted-job planning |
+| adopted_grace_seconds | 3600 | Compatibility-only; accepted and ignored (legacy heuristic cleanup removed) |
 | temporary_hold_hours | 24 | New temporary hold duration, maximum 8760 |
 | cleanup_interval_seconds | 60 | Foreground hygiene loop interval |
 | inspector_interval_seconds | 5 | Foreground inspector loop interval |

@@ -2,10 +2,10 @@ import contextlib
 import io
 import json
 import subprocess
-import tempfile
 from unittest.mock import patch
 
 import pytest
+from helpers.tests.support import disposable_tmux
 from helpers.tmux import session_hygiene as h
 
 
@@ -13,20 +13,14 @@ from helpers.tmux import session_hygiene as h
 def server(tmp_path, monkeypatch):
     for name in ("SOCKET_PATH", "STATE_ROOT", "ACTIVE_IDLE_MARK_SECONDS", "TEARDOWN_GRACE_SECONDS", "FAILED_VISIBLE_SECONDS"):
         monkeypatch.setattr(h, name, getattr(h, name))
-    directory = tempfile.TemporaryDirectory(prefix='close-', dir='/tmp')
-    sock = str(h.Path(directory.name)/'s')
-    def run(*args, check=True):
-        return subprocess.run(['tmux', '-u', '-S', sock, *args], capture_output=True, text=True, check=check)
-    run('new-session', '-d', '-s', 'target', 'sleep 600')
-    run('new-session', '-d', '-s', 'sentinel', 'sleep 600')
-    cfg = tmp_path/'config.json'
-    cfg.write_text(json.dumps({'state_dir': str(tmp_path/'state'), 'log_dir': str(tmp_path/'state/logs'),
-                               'status_file': str(tmp_path/'state/status.json')}))
-    try:
+    with disposable_tmux() as server:
+        run, sock = server.run, server.socket
+        run('new-session', '-d', '-s', 'target', 'sleep 600')
+        run('new-session', '-d', '-s', 'sentinel', 'sleep 600')
+        cfg = tmp_path/'config.json'
+        cfg.write_text(json.dumps({'state_dir': str(tmp_path/'state'), 'log_dir': str(tmp_path/'state/logs'),
+                                   'status_file': str(tmp_path/'state/status.json')}))
         yield run, sock, cfg
-    finally:
-        run('kill-server', check=False)
-        directory.cleanup()
 
 
 def invoke(sock, cfg, *args):

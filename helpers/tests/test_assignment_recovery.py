@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from helpers.tmux import assignment_recovery as r, agent_wall as wall
-from test_adoption import fixture
+from helpers.tests.support import fixture
 
 
 def setup(tmp_path, *, receipt=False):

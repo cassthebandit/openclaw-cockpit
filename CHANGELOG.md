@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Fixed
+- Require explicit adoption selection for legacy detected-session cleanup; completion-looking terminal text alone no longer selects a session for removal.
+- Reject initial assignment submission until native session binding and any required bootstrap are ready, without consuming the one-shot submission.
+- Keep a single snapshot polling loop across startup, errors, and manual refresh; share capture observations across snapshot and fast paths.
+- Display capture-error toasts promptly and avoid rebuilding unchanged frames after successful native-size completion.
+
+### Changed
+- Amortize capped session-history trimming with headroom and one history-incomplete marker.
+- Replace repeated ANSI regex processing with a differential-tested scanner while preserving classification semantics.
+- Consolidate disposable tmux fixtures and make helper tests independently runnable without import-order dependencies.
+
 ## [0.9.5] - 2026-07-07
 
 ### Changed

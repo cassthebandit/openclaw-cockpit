@@ -216,6 +216,7 @@ func (m *Model) ensurePreviewsAndCapture() tea.Cmd {
 			preview.viewport.SetContent("")
 			preview.paneID = pane.ID
 			preview.lastContent = ""
+			preview.signal = outputSignalState{}
 			preview.vars = nil
 			preview.autoFollow = true
 		}
@@ -238,6 +239,17 @@ func (m *Model) ensurePreviewsAndCapture() tea.Cmd {
 			shouldCapture = false
 		}
 
+		// Snapshot captures consume the same signal as fast captures. Observe
+		// it before dispatch (never after, which could swallow later output),
+		// and roll it back if the shared budget refuses the request. Keep the
+		// snapshot refresh for valid but stale signals at the existing cadence.
+		previousSignal := preview.signal
+		if shouldCapture && m.shouldFastCapture(session) {
+			changed := m.fastCaptureSignalChanged(session, pane, preview)
+			if !changed && (paneOutputSignalPath(session, pane) == "" || preview.signal.statErr) && !isFocused && !inDetail {
+				shouldCapture = false
+			}
+		}
 		prioritized := isFocused || inDetail || m.shouldFastCapture(session)
 		if shouldCapture {
 			if prioritized {
@@ -257,6 +269,9 @@ func (m *Model) ensurePreviewsAndCapture() tea.Cmd {
 		if shouldCapture {
 			request := m.admitCapture(session.ID, pane.ID, preview)
 			cmds = append(cmds, fetchPaneContentCmd(m.client, request.sessionID, request.paneID, request.lines, request.generation))
+		}
+		if !shouldCapture {
+			preview.signal = previousSignal
 		}
 		if session.ID == m.focusedSession {
 			cmds = append(cmds, fetchPaneVarsCmd(m.client, session.ID, pane.ID))
@@ -431,6 +446,7 @@ func (m *Model) admitCapture(sessionID, paneID string, preview *sessionPreview) 
 	}
 	m.captureGeneration++
 	preview.captureGeneration = m.captureGeneration
+	preview.signal.lastFallback = m.clockNow()
 	m.fastCaptureActive[sessionID] = struct{}{}
 	return captureRequest{sessionID: sessionID, paneID: paneID, lines: m.captureLines(preview.viewport.Height()), generation: m.captureGeneration}
 }
