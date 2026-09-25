@@ -759,7 +759,9 @@ class SessionHygieneTests(unittest.TestCase):
     def test_exact_allow_session_overrides_unowned(self) -> None:
         original = hygiene.list_panes
         try:
-            hygiene.list_panes = lambda: [pane("unowned")]
+            unowned = pane("unowned")
+            unowned.dead = True
+            hygiene.list_panes = lambda: [unowned]
             args = argparse.Namespace(policy="kill-safe", grace=300, allow_session=["unowned"])
             plan = hygiene.build_plan(args)
         finally:
@@ -1730,6 +1732,8 @@ class SessionHygieneOverrideScopeTests(unittest.TestCase):
                     held_terminal_pane("held-a", tmp, kind="agent", cleanup_policy="kill_on_done", state="done"),
                     held_terminal_pane("held-b", tmp, kind="agent", cleanup_policy="kill_on_done", state="done"),
                 ]
+                for fixture in fixtures:
+                    fixture.dead = True
                 hygiene.list_panes = lambda: fixtures
                 args = argparse.Namespace(
                     policy="kill-safe",
@@ -1847,7 +1851,7 @@ class SessionHygieneApplyRevalidationTests(unittest.TestCase):
 
     def killable_pane(self, tmp: str, session: str = "worker") -> hygiene.Pane:
         Path(tmp, "worker.log").write_text("done\n", encoding="utf-8")
-        return managed(
+        p = managed(
             session,
             kind="agent",
             cleanup_policy="kill_on_done",
@@ -1857,6 +1861,9 @@ class SessionHygieneApplyRevalidationTests(unittest.TestCase):
             evidence_path="worker.log",
             completed_at=(datetime.now(timezone.utc) - timedelta(seconds=400)).isoformat().replace("+00:00", "Z"),
         )
+
+        p.dead = True
+        return p
 
     def markable_pane(self, tmp: str, session: str = "worker") -> hygiene.Pane:
         Path(tmp, "worker.log").write_text("progress\n", encoding="utf-8")
@@ -1913,33 +1920,15 @@ class SessionHygieneApplyRevalidationTests(unittest.TestCase):
         secondary.created = str(int(secondary.created) + 5)
         return [primary, secondary]
 
-    def test_apply_refuses_exact_allowlisted_kill_when_only_secondary_pane_is_replaced(self) -> None:
-        """Same pane count and an unchanged primary pane is not enough proof."""
-        with tempfile.TemporaryDirectory() as tmp:
-            central = Path(tmp) / "central"
-            before = self.two_pane_session()
-            after = self.two_pane_session()
-            after[1].pane = "%9"
-            after[1].created = str(int(after[1].created) + 60)
-
-            outcome, calls = self.run_apply(
-                before, after, archive_root=central, allow_session=["multi"]
-            )
-
-            refused = outcome["refused"][0]
-            # The plan really did reach an exact-allowlist kill decision, and
-            # the primary pane and pane count both survived unchanged.
-            self.assertEqual(refused["tmux_target"], "=multi")
-            self.assertEqual(refused["pane_id"], "%1")
-            self.assertEqual(refused["pane_count"], 2)
-            self.assertEqual(refused["reason"], "pane_identity_changed_at_apply")
-            # Zero mark, zero capture/archive, zero ledger kill attempt, zero kill.
-            self.assertEqual(outcome["marked"], [])
-            self.assertEqual(outcome["killed"], [])
-            self.assertEqual([call[0] for call in calls if call[0] != "capture-pane"], [])
-            self.assertFalse(central.exists())
-            self.assertFalse((central / "cleanup.jsonl").exists())
-            self.assertFalse((Path(tmp) / ".tmux-cleanup").exists())
+    def test_revalidation_refuses_replaced_secondary_pane(self) -> None:
+        """Even a stale/externally supplied plan must validate the full pane set."""
+        before = self.two_pane_session()
+        after = self.two_pane_session()
+        after[1].pane = "%9"
+        after[1].created = str(int(after[1].created) + 60)
+        item = hygiene.result(session="multi", action="kill", reason="exact_allow_session", panes=before, policy_source="operator_allow_session", tmux_target="=multi")
+        with patch.object(hygiene, "list_panes", return_value=after):
+            self.assertEqual(hygiene.revalidate_target(item, allow_hold=False)[1], "pane_identity_changed_at_apply")
 
     def test_apply_retains_multi_pane_even_when_allowlisted(self) -> None:
         """PR4 only automatically retires single exited panes."""

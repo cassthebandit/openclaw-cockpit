@@ -53,7 +53,7 @@ func TestJanitorStatusFooterLine(t *testing.T) {
 
 	m := &Model{janitorStatus: janitorStatusView{State: "ok", Cycle: janitorCycleStatus{Mark: 1, Refuse: 2}}}
 	line := m.janitorStatusLine(120)
-	for _, want := range []string{"janitor: ok", "marked 1", "held/refused 2"} {
+	for _, want := range []string{"janitor: running", "cleanup blocked 0", "marked 1", "held/refused 2"} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("status line missing %q in %q", want, line)
 		}
@@ -117,5 +117,50 @@ func TestManualCollapsePersistsAcrossJanitorAndSnapshotRefresh(t *testing.T) {
 	m.seedGroupCollapse(primaryCockpitGroups())
 	if !m.isGroupCollapsed(groupActiveAgents.name) {
 		t.Fatalf("snapshot refresh/reseeding reopened a manually collapsed group")
+	}
+}
+
+func TestCleanupBacklogRequiresMatchingUnheldAgent(t *testing.T) {
+	for _, mode := range []string{"blocked", "held", "service", "viewer", "replaced", "stale"} {
+		t.Run(mode, func(t *testing.T) {
+			session := sessionForGroup("job", "claude", "/workspace", "")
+			pane := &session.Windows[0].Panes[0]
+			pane.Cockpit = &tmux.CockpitMeta{ManagedBy: "agent_wall", Kind: "visible-agent", State: "done"}
+			row := sidecarRowFor(session, janitorSessionStatus{JanitorState: "cleanup_blocked", Reason: "waiting_for_runtime_exit"})
+			m := &Model{sessions: []tmux.Session{session}, janitorStatus: janitorStatusView{State: "ok", Sessions: map[string]janitorSessionStatus{"job": row}}}
+			switch mode {
+			case "held":
+				pane.Cockpit.HoldReason = "operator pin"
+			case "service", "viewer":
+				pane.Cockpit.Kind = mode
+			case "replaced":
+				row.PaneID = "%other"
+				m.janitorStatus.Sessions["job"] = row
+			case "stale":
+				m.janitorStatus.State = "stale"
+			}
+			line := m.janitorStatusLine(0)
+			if strings.Contains(line, "cleanup blocked 1") != (mode == "blocked") {
+				t.Fatalf("%s: %s", mode, line)
+			}
+		})
+	}
+}
+
+func TestJanitorRowChangeDirtiesRenderWithoutCycleChange(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "status.json")
+	payload := `{"status_version":1,"generated_at":"` + time.Now().UTC().Format(time.RFC3339) + `","sessions":{"job":{"janitor_state":"cleanup_blocked","reason":"draft present"}}}`
+	if err := os.WriteFile(path, []byte(payload), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := &Model{janitorStatusPath: path}
+	m.refreshJanitorStatus()
+	m.renderDirty = false
+	if err := os.WriteFile(path, []byte(strings.Replace(payload, "draft present", "waiting for exit", 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshJanitorStatus()
+	if !m.renderDirty {
+		t.Fatal("changed blocker did not invalidate rendered card")
 	}
 }

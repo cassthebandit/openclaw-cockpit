@@ -357,7 +357,13 @@ def read_pane_metadata(pane: str) -> dict[str, str]:
 
 def hold_deadline(args: argparse.Namespace) -> str:
     """New keep-open requests are renewable leases, not indefinite holds."""
-    if not args.hold_reason or getattr(args, "indefinite", False):
+    if hasattr(args, "_hold_until"):
+        return args._hold_until
+    if getattr(args, "indefinite", False):
+        if not args.hold_reason.strip():
+            raise SystemExit("--indefinite requires a nonempty --hold-reason")
+        return ""
+    if not args.hold_reason and not getattr(args, "keep_open", False):
         return ""
     hours = getattr(args, "hold_hours", 24)
     if not 0 < hours <= 8760:
@@ -370,7 +376,7 @@ def metadata_from_args(args: argparse.Namespace, *, state: str | None) -> dict[s
     values = {
         "contract_version": "1",
         "managed_by": "agent_wall",
-        "keep_open": "1" if getattr(args, "keep_open", False) else "0",
+        "keep_open": "0",  # New retention uses the shared deadline, never the legacy bit.
         "completed_retention_seconds": str(getattr(args, "completed_retention_seconds", 60)),
         "failed_retention_seconds": str(getattr(args, "failed_retention_seconds", 180)),
         "kind": args.kind,
@@ -386,7 +392,7 @@ def metadata_from_args(args: argparse.Namespace, *, state: str | None) -> dict[s
         "ttl": args.ttl,
         "cleanup_policy": args.cleanup_policy,
         "evidence_path": args.evidence_path,
-        "hold_reason": args.hold_reason,
+        "hold_reason": args.hold_reason.strip() or ("assignment review" if getattr(args, "keep_open", False) else ""),
         "hold_until": hold_deadline(args),
         "why_headless": getattr(args, "why_headless", ""),
         "pane_log": getattr(args, "pane_log", ""),
@@ -1681,7 +1687,7 @@ def cmd_keep_open(args: argparse.Namespace) -> int:
     # Clear the previous deadline when explicitly switching to indefinite.
     if not deadline:
         run_tmux("set-option", "-pu", "-t", pane, "@oc_hold_until")
-    set_pane_options(pane, {"hold_until": deadline, "hold_reason": args.hold_reason})
+    set_pane_options(pane, {"hold_until": deadline, "hold_reason": args.hold_reason, "keep_open": "0"})
     event_log.append("hold", session=args.name, identity=current.get("launch_id") or pane, source="manual", result="set",
                      reason="indefinite" if not deadline else "expires:" + deadline, config=getattr(args, "_event_config", None), component="holds",
                      details={"action_outcome": "succeeded", "action_id": action_id, "action": "hold_change", "expires_at": deadline or None, "indefinite": not bool(deadline)})
@@ -1836,6 +1842,7 @@ def add_metadata_args(p: argparse.ArgumentParser, *, default_agent: str, default
     p.add_argument("--ttl", default="never")
     p.add_argument("--cleanup-policy", default="manual", choices=["manual", "hide", "kill_after_ttl", "kill_on_done", "smoke"])
     p.add_argument("--evidence-path", default="")
+    p.add_argument("--indefinite", action="store_true", help="Pin until explicitly released; requires --hold-reason.")
     p.add_argument("--hold-reason", default="")
     p.add_argument("--hold-hours", type=float, default=24, help="Renewable keep-open lease (default: 24h); expiry never proves completion.")
     p.add_argument("--why-headless", default="")
@@ -1846,7 +1853,7 @@ def add_metadata_args(p: argparse.ArgumentParser, *, default_agent: str, default
 
 def add_tui_common_args(p: argparse.ArgumentParser) -> None:
     closeout = p.add_mutually_exclusive_group()
-    closeout.add_argument("--keep-open", dest="keep_open", action="store_true", default=None, help="Keep the runtime available after this assignment completes.")
+    closeout.add_argument("--keep-open", dest="keep_open", action="store_true", default=None, help="Hold for review using --hold-hours (configured default: 24h).")
     closeout.add_argument("--close-on-completion", dest="keep_open", action="store_false", help="Close after completion, overriding configured keep-open.")
     p.add_argument("--prompt-file", required=True)
     p.add_argument("--pane-log", default="")
@@ -2078,6 +2085,8 @@ def configure_lifecycle_args(args: argparse.Namespace, actual_argv: list[str]) -
         args.hold_hours = config["temporary_hold_hours"]
     if hasattr(args, "keep_open") and args.keep_open is None:
         args.keep_open = config["closeout_default"] == "keep_open"
+    if hasattr(args, "hold_reason"):
+        args._hold_until = hold_deadline(args)
     args.completed_retention_seconds = config["completed_retention_seconds"]
     args.failed_retention_seconds = config["failed_retention_seconds"]
     args._ttl_explicit = any(a == "--ttl" or a.startswith("--ttl=") for a in option_argv)

@@ -76,7 +76,9 @@ older versions without captured retention use the current configured fallback.
 Explicit `--cleanup-policy manual` and `--ttl never` are not replaced by launcher
 defaults. `--keep-open` and `--close-on-completion` override closeout_default.
 
-Permanent keep-open never expires with a temporary hold. Even manually exiting
+New `--keep-open` launches create a review hold with a fixed deadline using
+`temporary_hold_hours`; `--indefinite --hold-reason REASON` explicitly pins instead.
+Legacy permanent keep-open never expires with a temporary hold. Even manually exiting
 the retained runtime leaves the pane protected. Use
 `agent_wall.py release-keep-open --name EXACT_NAME` to release that protection;
 this metadata action does not close or mark the pane. Releasing a temporary
@@ -86,7 +88,8 @@ when retention is released or expires; new input or changed result blocks it.
 
 Review holds default to `temporary_hold_hours` (24). Renew with
 `agent_wall.py keep-open --name EXACT_NAME --hold-reason review --hold-hours 24`.
-Use `--indefinite` instead for an explicit until-released review hold. Existing
+This explicit renewal also clears an old permanent keep-open bit on that exact
+session. Use `--indefinite` instead for an explicit until-released review hold. Existing
 holds with no deadline remain protected; new defaults are not applied to them.
 
 ## Foreground services and reload

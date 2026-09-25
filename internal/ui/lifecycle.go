@@ -130,7 +130,7 @@ func paneIsManagedAgent(pane tmux.Pane) bool {
 	switch strings.ToLower(strings.TrimSpace(pane.Cockpit.Kind)) {
 	case "agent", "visible-agent", "batch-worker", "smoke":
 		return true
-	case "service", "runtime":
+	case "service", "viewer", "runtime":
 		// A service/runtime card can carry an @oc_agent label but is not an
 		// interactive agent run; never treat it as idle-finished.
 		return false

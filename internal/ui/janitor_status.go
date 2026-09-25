@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"strings"
 	"time"
@@ -29,6 +30,7 @@ type janitorStatusFile struct {
 
 type janitorSessionStatus struct {
 	ExistingSession bool   `json:"existing_session"`
+	KeepOpen        string `json:"keep_open"`
 	JanitorState    string `json:"janitor_state"`
 	MarkedAt        string `json:"marked_at"`
 	Reason          string `json:"reason"`
@@ -47,6 +49,7 @@ type janitorSessionStatus struct {
 }
 
 type janitorCycleStatus struct {
+	Removed     int    `json:"removed"`
 	RequestExit int    `json:"request_exit"`
 	Policy      string `json:"policy"`
 	Kill        int    `json:"kill"`
@@ -143,14 +146,15 @@ func (m *Model) refreshJanitorStatus() {
 	}
 	previous := m.janitorStatus
 	m.janitorStatus = loadJanitorStatusFile(m.janitorStatusPath, m.clockNow(), m.janitorStaleAfter)
-	if m.janitorStatus.renderKey() != previous.renderKey() {
+	rowsChanged := !maps.Equal(m.janitorStatus.Sessions, previous.Sessions)
+	if m.janitorStatus.renderKey() != previous.renderKey() || rowsChanged {
 		// External file-backed render input changed its derived rendered
 		// value: dirty the frame even if the triggering message would not.
 		m.markRenderDirty()
 	}
 	// Group classification consumes sidecar session rows, so a new sidecar
 	// generation or a freshness-state change can move cards between groups.
-	if m.janitorStatus.State != previous.State || !m.janitorStatus.Generated.Equal(previous.Generated) {
+	if rowsChanged || m.janitorStatus.State != previous.State || !m.janitorStatus.Generated.Equal(previous.Generated) {
 		m.invalidateClassifications()
 	}
 }
@@ -160,7 +164,34 @@ func (m *Model) janitorStatusLine(width int) string {
 		return ""
 	}
 	status := m.janitorStatus
-	parts := []string{"janitor: " + status.State}
+	label := status.State
+	if label == "ok" {
+		label = "running"
+	}
+	parts := []string{"janitor: " + label}
+	if status.State == "ok" {
+		blocked := 0
+		for _, session := range m.sessions {
+			if sessionHasHold(session, m.clockNow()) {
+				continue
+			}
+			row, join := m.janitorSessionRow(session)
+			if join != janitorJoinOK || row.JanitorState != "cleanup_blocked" {
+				continue
+			}
+			for _, window := range session.Windows {
+				for _, pane := range window.Panes {
+					if pane.ID == row.PaneID && paneIsManagedAgent(pane) {
+						blocked++
+					}
+				}
+			}
+		}
+		parts = append(parts, fmt.Sprintf("cleanup blocked %d", blocked))
+	}
+	if status.Cycle.Removed > 0 {
+		parts = append(parts, fmt.Sprintf("removed %d", status.Cycle.Removed))
+	}
 	if status.Cycle.Mark > 0 {
 		parts = append(parts, fmt.Sprintf("marked %d", status.Cycle.Mark))
 	}
