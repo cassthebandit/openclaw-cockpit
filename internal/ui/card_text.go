@@ -259,8 +259,13 @@ func cockpitCleanupLine(m *Model, session tmux.Session, pane tmux.Pane, now time
 	}
 	hold := strings.TrimSpace(meta.HoldReason)
 	marked := strings.TrimSpace(meta.TeardownMarkedAt)
-	if hold != "" {
+	if hasRow && row.KeepOpen == "1" {
+		parts = append(parts, "legacy keep-open: indefinite / until explicitly released")
+	} else if hold != "" {
 		label := "hold blocks cleanup: " + hold
+		if parseCockpitTimestamp(meta.HoldUntil).IsZero() {
+			label += " · indefinite / until released"
+		}
 		if until := parseCockpitTimestamp(meta.HoldUntil); !until.IsZero() {
 			if !now.Before(until) {
 				switch meta.Kind {

@@ -192,7 +192,9 @@ def composer_reason(raw):
     footer = lines[prompt + 2:]
     if any(re.search(r"\b[1-9][0-9]* (?:shells?|tasks?|agents?)\b", line) for line in footer):
         return "background_work_visible"
-    if footer and (len(footer) != 1 or not re.fullmatch(r"(?:⏸ (?:manual|plan) mode on · )?\? for shortcuts(?: · ← for agents)?", footer[0])):
+    footer_pattern = (r"(?:⏸ (?:manual|plan) mode on · )?\? for shortcuts(?: · ← for agents)?"
+                      r"|⏵⏵ auto mode on \(shift\+tab to cycle\)(?: · ← for agents)?")
+    if footer and (len(footer) != 1 or not re.fullmatch(footer_pattern, footer[0])):
         return "nonempty_or_unknown_prompt"
     return ""
 

@@ -638,6 +638,7 @@ def result(
         "progress_path": meta.get("progress_path", ""),
         "why_headless": meta.get("why_headless", ""),
         "end_reason": meta.get("end_reason", ""),
+        "keep_open": meta.get("keep_open", ""),
         "route_failure_reason": meta.get("route_failure_reason", ""),
     }
 
@@ -1408,6 +1409,16 @@ def build_plan(args: argparse.Namespace) -> list[dict[str, Any]]:
             )
         except ValueError as exc:
             out.append(result(session=session, action="refuse", reason=str(exc), panes=panes))
+    # The executor can retire only a single exited pane. Report known live
+    # blockers now, before advertising removal or doing archive/ledger I/O.
+    for item in out:
+        if item["action"] == "kill" and (not item["dead"] or item["pane_count"] != 1):
+            owner_reason = item.get("end_reason", "")
+            reason = owner_reason.removeprefix("assignment_retained:") if owner_reason.startswith("assignment_retained:") else "waiting_for_runtime_exit"
+            if item["pane_count"] != 1:
+                reason = "multi_pane_session_requires_manual_cleanup"
+            item.update(action="refuse", reason=reason, janitor_state="cleanup_blocked", tmux_target="")
+            item.pop("kill_not_before", None)
     return out
 
 
@@ -1507,6 +1518,7 @@ def status_payload(items: list[dict[str, Any]], args: argparse.Namespace) -> dic
                 state = "active"
         sessions[session] = {
             "janitor_state": state,
+            "keep_open": item.get("keep_open", ""),
             "marked_at": item.get("teardown_marked_at") or item.get("marked_at") or "",
             "reason": item.get("teardown_reason") or item.get("reason") or "",
             "kill_not_before": item.get("kill_not_before") or "",
@@ -1531,7 +1543,8 @@ def status_payload(items: list[dict[str, Any]], args: argparse.Namespace) -> dic
         "adoptions": records,
         "last_cycle": {
             "policy": getattr(args, "policy", ""),
-            "kill": sum(1 for item in items if item.get("action") == "kill"),
+            "kill": sum(1 for item in items if item.get("action") == "kill" and not item.get("removed")),
+            "removed": sum(1 for item in items if item.get("removed") is True),
             "request_exit": sum(1 for item in items if item.get("action") == "request_exit"),
             "mark": sum(1 for item in items if item.get("action") == "mark"),
             "cancel_mark": sum(1 for item in items if item.get("action") == "cancel_mark"),

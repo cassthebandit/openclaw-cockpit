@@ -150,3 +150,43 @@ def test_signaled_service_child_is_not_reported_as_success(tmp_path):
     config, _ = lifecycle.load(environ={}, overrides={"log_dir": str(tmp_path)})
     with patch.object(services.subprocess, "run", return_value=subprocess.CompletedProcess([], -15)):
         assert services.cycle("hygiene", config, None) == 143
+
+
+@pytest.mark.parametrize("configured", [False, True])
+@pytest.mark.parametrize("reason", ["", "   "])
+def test_new_keep_open_is_a_timed_review_not_permanent(tmp_path, configured, reason):
+    from helpers.tmux import holds
+    path = tmp_path / 'config.json'
+    path.write_text(json.dumps({'temporary_hold_hours': 4, 'closeout_default': 'keep_open' if configured else 'close'}))
+    argv = ['--lifecycle-config', str(path), 'spawn-claude', '--name', 'review', '--prompt-file', 'unused', '--hold-reason', reason]
+    if not configured:
+        argv.append('--keep-open')
+    args = agent_wall.build_parser().parse_args(argv)
+    agent_wall.configure_lifecycle_args(args, argv)
+    before = datetime.now(timezone.utc)
+    meta = agent_wall.metadata_from_args(args, state=None)
+    deadline = datetime.fromisoformat(meta['hold_until'].replace('Z', '+00:00'))
+    assert meta['keep_open'] == '0' and meta['hold_reason'] == 'assignment review'
+    assert timedelta(hours=3, minutes=59) < deadline - before <= timedelta(hours=4)
+    assert holds.active(meta, before)
+    assert not holds.active(meta, deadline)
+    # Legacy flags retain their old meaning even with an expired date.
+    assert holds.active(dict(meta, keep_open='1'), deadline)
+
+
+def test_indefinite_launch_requires_reason_and_has_no_deadline():
+    argv = ['spawn-claude', '--name', 'pin', '--prompt-file', 'unused', '--indefinite']
+    args = agent_wall.build_parser().parse_args(argv)
+    with pytest.raises(SystemExit, match='requires a nonempty'):
+        agent_wall.metadata_from_args(args, state=None)
+    args.hold_reason = 'operator pin'
+    meta = agent_wall.metadata_from_args(args, state=None)
+    assert meta['hold_until'] == '' and meta['keep_open'] == '0'
+
+
+def test_explicit_renewal_migrates_legacy_bit_to_deadline():
+    args = agent_wall.build_parser().parse_args(['keep-open', '--name', 'old', '--hold-reason', 'review', '--hold-hours', '2'])
+    with patch.object(agent_wall, 'unique_pane_for_session', return_value='%1'), patch.object(agent_wall, 'read_pane_metadata', return_value={'keep_open':'1'}), patch.object(agent_wall.event_log, 'append'), patch.object(agent_wall, 'set_pane_options') as setter:
+        agent_wall.cmd_keep_open(args)
+    assert setter.call_args.args[1]['keep_open'] == '0'
+    assert setter.call_args.args[1]['hold_until']

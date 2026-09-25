@@ -123,3 +123,11 @@ def test_pinned_old_image_can_outlive_its_scrollback_banner():
     raw = "\n".join(line for line in raw.splitlines() if "Claude Code" not in h.strip_ansi(line))
     assert not claude.prompt_reason(h, claude.PROFILES["claude-2.1.268-legacy-bash"], raw)
     assert claude.prompt_reason(h, claude.PROFILES["claude-2.1.270-direct"], raw)
+
+
+@pytest.mark.parametrize('draft', ['', 'Please continue', '\nsecond line'])
+@pytest.mark.parametrize('footer', ['⏵⏵ auto mode on (shift+tab to cycle) · ← for agents', '⏵⏵ auto mode on (shift+tab to cycle)', 'unknown dialog', '1 agent still running'])
+def test_observed_auto_mode_footer_requires_empty_composer(draft, footer):
+    raw = '\x1b[38;5;244m' + '─' * 70 + ' job ─\n\x1b[39m❯\u00a0' + draft + '\n' + '─' * 80 + '\n\x1b[38;5;220m  ' + footer + '\x1b[39m\n'
+    reason = claude.composer_reason(raw)
+    assert bool(reason) == bool(draft or not footer.startswith('⏵⏵'))

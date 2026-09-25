@@ -39,7 +39,8 @@ actual exit. Native Stop alone is not process exit. The immutable result snapsho
 and final response remain available after the terminal closes. This establishes
 assignment completion, not independent review or correctness of the result.
 
-`--keep-open` records completion but retains the runtime for follow-up. Resumed
+`--keep-open` records completion but retains the runtime for a timed review
+(default 24 hours from launch, configurable). Resumed
 user work clears completion and returns the assignment to running. A regular
 intermediate answer, approval request, quiet TUI or screen keyword must not close
 an assignment. Generic process exits are reported with their actual exit code;
@@ -83,7 +84,8 @@ are repeated before archive, ledger and removal. Archive/ledger failure preserve
 the terminal. A replaced pane, new hold or altered contract cancels/refuses the old
 plan. Format-bearing values are escaped as tmux literals, never interpolated; control characters remain refused. Every metadata comparison remains in the final guard.
 
-The planner may describe completed live work or mark/cancel state. Those observations
+The planner reports completed live work as blocked waiting for owner closeout,
+not as a removal it cannot execute. It may also describe mark/cancel state. Those observations
 do not grant live-process removal. The apply boundary refuses live terminals even
 if their screens look complete. Cosmetic screen churn and normalized-tail tracking
 remain display/planning observations, not assignment completion proof.

@@ -8,8 +8,8 @@ runtime Stop does not establish completion.
 
 Review holds last 24 hours by default and can be renewed. Releasing or expiring
 a hold removes only that hold: it never stamps success or overrides newer work.
-A hold without a valid deadline remains protected. Explicit keep-open is a
-separate, deliberate indefinite choice. The supervisor rechecks saved completion,
+A hold without a valid deadline remains protected. New `--keep-open` requests use the timed review hold. `--indefinite` is the
+separate, deliberate until-released choice; legacy permanent flags stay protected. The supervisor rechecks saved completion,
 new activity, ownership and the terminal before closing a retained assignment.
 
 The launcher supports Claude reviewers with file tools but no shell access.
